@@ -4,3 +4,4 @@ __pycache__/
 .installed-files.tmp
 userinit/overlays/
 userinit/apps/
+client_secret*.json

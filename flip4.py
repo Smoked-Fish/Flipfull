@@ -186,8 +186,8 @@ def cmd_status(args):
     print("boot hook:", "present" if hook else "MISSING")
     if sh(f"ls {UI}/uninstall 2>/dev/null", check=False):
         print("uninstall pending: the next boot removes everything")
-    print("\noverlays mounted:")
-    print(sh("awk '$4 ~ /userinit\\/overlays/ {print \"  \" $5 \"  <-  \" $4}' /proc/self/mountinfo",
+    print("\noverlays and boot media mounted:")
+    print(sh("awk '$4 ~ /userinit\\/(overlays|media)/ {print \"  \" $5 \"  <-  \" $4}' /proc/self/mountinfo",
              check=False) or "  none")
     print("\nservices:")
     print(sh(f"for s in {UI}/services/*/service.sh; do sh $s status; done", check=False))

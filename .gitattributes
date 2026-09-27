@@ -16,6 +16,7 @@ userinit/run.sh    text eol=lf
 *.mp4   binary
 *.gif   binary
 *.png   binary
+*.wav   binary
 *.dex   binary
 userinit/bin/*                    binary
 userinit/services/stt/stt-server  binary

@@ -3,6 +3,9 @@
 
 
 
+
+import json
+import re
 import shutil
 import sys
 import zipfile
@@ -12,6 +15,8 @@ ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "src"
 BASE = SRC / "overlays" / "base"
 USERINIT = ROOT / "userinit"
+
+GOOGLE_REDIRECT = "http://localhost/redirect/loginpages/redirect.html"
 
 LIVE_SCRIPT = '    <script defer="" src="js/live_wallpaper.js"></script>\n'
 
@@ -47,6 +52,14 @@ OVERLAYS = {
             ("index_remote.html",
              '    <script defer="" src="remote/dist/app.bundle.js"></script>\n',
              '    <script defer="" src="remote/dist/app.bundle.js"></script>\n' + LIVE_SCRIPT),
+            ("js/init_logo_handler.js",
+             'CustomLogoPath.oslogo.image="tmo"===e?`${SYSTEM_RESOURCE}branding/initlogo_tmo.png`'
+             ':"mpcs"===e?`${SYSTEM_RESOURCE}branding/initlogo_mpcs.png`'
+             ':`${SYSTEM_RESOURCE}branding/initlogo.png`',
+             'CustomLogoPath.oslogo.image=`${SYSTEM_RESOURCE}branding/initlogo.png`'),
+        ],
+        "rewrites": [
+            ("js/account_manager/oauth2_config.js", lambda text: google_oauth(text)),
         ],
     },
     "keyboard": {
@@ -65,7 +78,37 @@ def fail(msg):
     sys.exit(f"build failed: {msg}")
 
 
+def google_oauth(text):
+    found = sorted(ROOT.glob("client_secret*.json"))
+    if not found:
+        print("           no client_secret*.json in the repo root - stock Google client kept")
+        return text
+    if len(found) > 1:
+        fail(f"more than one Google client JSON, keep only one: {[f.name for f in found]}")
+    try:
+        client = json.loads(found[0].read_text(encoding="utf-8"))
+    except ValueError as e:
+        fail(f"{found[0].name}: not valid JSON ({e})")
+    web = client.get("web")
+    if not web:
+        fail(f"{found[0].name}: not a 'Web application' client; create one of that type")
+    if GOOGLE_REDIRECT not in web.get("redirect_uris", []):
+        fail(f"{found[0].name}: add {GOOGLE_REDIRECT} under 'Authorized redirect URIs' "
+             "in the Cloud Console, then download the JSON again")
+    for key in ("client_id", "client_secret"):
+        if not web.get(key):
+            fail(f"{found[0].name}: no {key}")
+        text, n = re.subn(rf"({key}:\s*')[^']*(')", lambda m: m.group(1) + web[key] + m.group(2), text)
+        if n != 1:
+            fail(f"oauth2_config.js: {key} found {n} times, expected 1")
+    print(f"           Google client from {found[0].name}: {web['client_id']}")
+    return text
+
+
 def patch_text(name, path, text, cfg):
+    for p_path, rewrite in cfg.get("rewrites", []):
+        if p_path == path:
+            text = rewrite(text)
     for p_path, old, new in cfg.get("patches", []):
         if p_path == path:
             if text.count(old) != 1:
@@ -88,7 +131,7 @@ def build_overlay(name):
     if cfg.get("extra_files", True) and files_dir.is_dir():
         added = {p.relative_to(files_dir).as_posix(): p.read_bytes()
                  for p in sorted(files_dir.rglob("*")) if p.is_file()}
-    targets = {p[0] for p in cfg.get("patches", [])} | {p[0] for p in cfg.get("splices", [])}
+    targets = {p[0] for kind in ("patches", "splices", "rewrites") for p in cfg.get(kind, [])}
 
     out = USERINIT / "overlays" / name
     out.mkdir(parents=True, exist_ok=True)
