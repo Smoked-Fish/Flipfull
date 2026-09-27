@@ -1,0 +1,11 @@
+127.0.0.1       localhost
+::1             ip6-localhost
+
+# --- KaiAds (KaiStore / KaiOS apps) ---
+0.0.0.0         ssp.kaiads.com
+
+# Optional extra KaiAds hosts - uncomment one at a time and test.
+# hosts files don't support wildcards, so each subdomain needs its own line.
+#0.0.0.0        static.kaiads.com
+#0.0.0.0        s.kaiads.com
+#0.0.0.0        kaiads.com

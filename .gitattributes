@@ -1,0 +1,22 @@
+*.sh        text eol=lf
+*.js        text eol=lf
+*.json      text eol=lf
+*.rc        text eol=lf
+*.md        text eol=lf
+*.py        text eol=lf
+*.cpp       text eol=lf
+*.c         text eol=lf
+*.config    text eol=lf
+*.webmanifest text eol=lf
+userinit/etc/hosts text eol=lf
+userinit/run.sh    text eol=lf
+
+*.zip   binary
+*.bin   binary
+*.mp4   binary
+*.gif   binary
+*.png   binary
+*.dex   binary
+userinit/bin/*                    binary
+userinit/services/stt/stt-server  binary
+userinit/services/tether-ttl/ttlfix binary

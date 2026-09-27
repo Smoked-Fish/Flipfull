@@ -1,0 +1,27 @@
+{
+  "name": "Dictate",
+  "short_name": "Dictate",
+  "description": "On-device speech to text. Also powers the keyboard's voice input.",
+  "lang": "en-US",
+  "dir": "ltr",
+  "start_url": "/index.html",
+  "orientation": "natural",
+  "theme_color": "#0b7a75",
+  "icons": [
+    { "src": "/icons/dictate_56.png", "type": "image/png", "sizes": "56x56" },
+    { "src": "/icons/dictate_112.png", "type": "image/png", "sizes": "112x112" }
+  ],
+  "b2g_features": {
+    "version": "1.0.0",
+    "focus_color": "#0b7a75",
+    "developer": { "name": "local" },
+    "serviceworker": { "script_url": "sw.js" },
+    "permissions": {
+      "audio-capture": { "description": "Record your voice to turn it into text" }
+    },
+    "activities": {
+      "voice-input": { "returnValue": true },
+      "voice-assistant": { "returnValue": false }
+    }
+  }
+}

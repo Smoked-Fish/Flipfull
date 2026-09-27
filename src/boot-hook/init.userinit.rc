@@ -1,0 +1,21 @@
+service userinit_postfsdata /system/bin/sh /data/local/userinit/run.sh post-fs-data
+    user root
+    group root
+    seclabel u:r:su:s0
+    disabled
+    oneshot
+    stdio_to_kmsg
+
+on post-fs-data
+    start userinit_postfsdata
+
+service userinit_bootcompleted /system/bin/sh /data/local/userinit/run.sh boot-completed
+    user root
+    group root
+    seclabel u:r:su:s0
+    disabled
+    oneshot
+    stdio_to_kmsg
+
+on property:sys.boot_completed=1
+    start userinit_bootcompleted

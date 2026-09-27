@@ -1,0 +1,6 @@
+__pycache__/
+*.tmp
+*.lf
+.installed-files.tmp
+userinit/overlays/
+userinit/apps/
