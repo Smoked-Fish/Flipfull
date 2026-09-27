@@ -25,7 +25,7 @@ else
 fi
 
 SQL="UPDATE apps SET removable = CASE WHEN name IN (${IN:-''}) THEN 1 ELSE 0 END WHERE preloaded = 1;"
-if OUT=$("$SQLITE" "$DB" "$SQL" "SELECT count(*) FROM apps WHERE preloaded = 1 AND removable = 1;" 2>&1); then
+if OUT=$("$SQLITE" -init /dev/null "$DB" "$SQL" "SELECT count(*) FROM apps WHERE preloaded = 1 AND removable = 1;" 2>&1); then
     log "$OUT preloaded apps removable"
 else
     log "database update failed: $OUT"

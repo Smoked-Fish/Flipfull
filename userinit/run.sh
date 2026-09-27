@@ -30,6 +30,9 @@ if [ "$STAGE" = post-fs-data ] && [ -e "$BASE/uninstall" ]; then
     if [ -f "$BASE/removable-apps" ] && [ -f "$BASE/post-fs-data.d/02-removable-apps.sh" ]; then
         sh "$BASE/post-fs-data.d/02-removable-apps.sh" reset >> "$LOG" 2>&1
     fi
+    if [ -f "$BASE/post-fs-data.d/30-gecko-prefs.sh" ]; then
+        sh "$BASE/post-fs-data.d/30-gecko-prefs.sh" remove >> "$LOG" 2>&1
+    fi
     log "-- uninstall requested: removing everything in $BASE except run.sh"
     for f in "$BASE"/* "$BASE"/.[!.]*; do
         case "${f##*/}" in

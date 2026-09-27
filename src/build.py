@@ -140,6 +140,21 @@ OVERLAYS = {
              "        elements.networkType.classList.remove('hidden');\n"),
         ],
     },
+    "callscreen": {
+        "patches": [
+            ("index.html",
+             '    <script defer="" type="application/javascript" src="/js/call_recording.js"></script>\n',
+             '    <script defer="" type="application/javascript" src="/js/flipfull_callrec.js"></script>\n'
+             '    <script defer="" type="application/javascript" src="/js/call_recording.js"></script>\n'),
+            ("js/call_recording.js",
+             'navigator.mediaDevices.getUserMedia({audio:{audioSource:"voicecall"}})',
+             'FlipfullCallRec.open()'),
+            ("js/call_recording.js", 'v=new MediaRecorder(e)', 'v=new FlipfullCallRec.Recorder(e)'),
+            ("js/call_recording.js", 'y.push(e.data),b=new Date', 'y.push(e.data),b=v&&v.stoppedAt||new Date'),
+            ("js/call_recording.js", 'if(n<d)DUMP(', 'if(n<d||!e.size)DUMP('),
+            ("js/call_recording.js", 't=S(l)', 't=FlipfullCallRec.ext||S(l)'),
+        ],
+    },
     "keyboard": {
         "splices": [
             ("js/keypad.js",

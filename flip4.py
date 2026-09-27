@@ -4,6 +4,7 @@
     python flip4.py install [--reboot]   put userinit/ on the phone (builds first)
                   [--keep-folders]       ... keeping the launcher's Games / Utilities folders
     python flip4.py status               what is installed and running
+    python flip4.py restart [app ...]    restart the UI (b2g), or just those apps
     python flip4.py removable [...]      pick which preloaded apps can be uninstalled
     python flip4.py backup [DIR]         copy contacts, messages, settings, app data to the PC
     python flip4.py restore DIR          put a backup back on the phone
@@ -49,7 +50,8 @@ TEXT_SUFFIXES = {".sh", ".js", ".md", ".conf", ".rc"}
 TEXT_NAMES = {"hosts"}
 RUNTIME = ("run.log", "run.log.old", "busybox-path.sh", "bin/bbx/", "uninstall", ".overlays-mounted",
            "disable", "services/stt/server.log", "services/stt/server.log.old",
-           "services/stt/stt.conf", "removable-apps")
+           "services/stt/stt.conf", "services/callrec/callrecd.log", "services/callrec/callrecd.log.old",
+           "services/callrec/callrec.conf", "removable-apps")
 
 
 def find_adb():
@@ -114,6 +116,32 @@ def install_package(name):
     r = apps_cmd("install", tmp_zip)
     sh(f"rm -f {tmp_zip}", check=False)
     return r
+
+def install_app_zip(zip_path):
+    zip_path = Path(zip_path)
+
+    if not zip_path.is_file():
+        sys.exit(f"application package not found: {zip_path}")
+
+    if zip_path.suffix.lower() != ".zip":
+        sys.exit(f"application package must be a .zip file: {zip_path}")
+
+    remote = f"/data/local/tmp/flip4-{zip_path.name}"
+
+    print(f"pushing {zip_path} ...")
+    adb("push", str(zip_path), remote)
+
+    try:
+        sh(f"chmod 0644 '{remote}'")
+        r = apps_cmd("install", remote)
+
+        if not apps_ok(r):
+            print(f"app install failed: {r}")
+            sys.exit(1)
+
+        print(f"app installed: {zip_path.name}")
+    finally:
+        sh(f"rm -f '{remote}'", check=False)
 
 
 def install_qrreader():
@@ -244,6 +272,10 @@ def cmd_install(args):
     print("Overlays and Gecko prefs apply at the next boot.")
     finish(args, "installed")
 
+def cmd_install_app(args):
+    require_root()
+    install_app_zip(args.application)
+
 
 def cmd_status(args):
     require_root()
@@ -279,6 +311,17 @@ def cmd_status(args):
     print(sh(f"tail -15 {UI}/run.log 2>/dev/null", check=False))
 
 
+def cmd_restart(args):
+    require_root()
+    script = f"{UI}/tools/restart.sh"
+    if not sh(f"ls {script} 2>/dev/null", check=False):
+        sys.exit("the phone's userinit is older than this command - run `flip4.py install` first")
+    r = subprocess.run([ADB, "shell", f"sh {script} " + " ".join(f"'{a}'" for a in args.apps)],
+                       capture_output=True, text=True)
+    print((r.stdout + r.stderr).strip())
+    sys.exit(r.returncode)
+
+
 def cmd_cleanup(args):
     require_root()
     script = f"{UI}/tools/cleanup-old.sh"
@@ -300,8 +343,6 @@ def cmd_cleanup(args):
 def cmd_uninstall(args):
     require_root()
     print(sh(f"for s in {UI}/services/*/service.sh; do [ -f $s ] && sh $s stop; done", check=False))
-    print(sh(f"[ -f {UI}/post-fs-data.d/30-gecko-prefs.sh ] && sh {UI}/post-fs-data.d/30-gecko-prefs.sh remove",
-             check=False))
     apps = installed_apps()
     for name, url in {"KaiVA": KAIVA_URL, "QR Reader": QR_URL, **REPLACED_APPS}.items():
         if url in apps:
@@ -316,7 +357,7 @@ def cmd_uninstall(args):
 
 
 def preloaded_apps(quiet=False):
-    out = sh(f"{UI}/bin/sqlite3 -separator '|' {APPS_DB} "
+    out = sh(f"{UI}/bin/sqlite3 -init /dev/null -separator '|' {APPS_DB} "
              "'SELECT name, removable FROM apps WHERE preloaded = 1 ORDER BY name'", check=False)
     apps = []
     for line in out.splitlines():
@@ -544,6 +585,12 @@ def main():
                    help="the launcher keeps its Games and Utilities folders")
     i.add_argument("--reboot", action="store_true")
     sub.add_parser("status", help="show what is installed and running")
+    rt = sub.add_parser("restart", help="restart the phone's UI (b2g) without a reboot, "
+                        "or only the named apps (launcher, settings, ...)")
+    rt.add_argument("apps", nargs="*", metavar="APP")
+    ia = sub.add_parser("install-app", help="install a local application.zip on the phone")
+    ia.add_argument("application", metavar="application.zip",
+                    help="path to the application.zip on the PC")
     r = sub.add_parser("removable", help="choose which preloaded apps can be uninstalled "
                        "(interactive without options)")
     g = r.add_mutually_exclusive_group()
@@ -570,9 +617,10 @@ def main():
 
     if args.cmd != "build":
         ADB = find_adb()
-    {"build": cmd_build, "install": cmd_install, "status": cmd_status,
-     "removable": cmd_removable, "backup": cmd_backup, "restore": cmd_restore,
-     "cleanup": cmd_cleanup, "uninstall": cmd_uninstall}[args.cmd](args)
+    {"build": cmd_build, "install": cmd_install, "install-app": cmd_install_app,
+    "status": cmd_status, "restart": cmd_restart, "removable": cmd_removable,
+    "backup": cmd_backup, "restore": cmd_restore, "cleanup": cmd_cleanup,
+    "uninstall": cmd_uninstall}[args.cmd](args)
 
 
 if __name__ == "__main__":
