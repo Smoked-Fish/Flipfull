@@ -7,13 +7,13 @@ DIR=$USERINIT/services/tether-ttl
 BIN=$DIR/ttlfix
 QUEUE=0
 TTL=64
-IFACE="rmnet_data+"
+RULES="ip6tables:rmnet_data+ iptables:rmnet_data+ iptables:v4-rmnet_data+"
 
 rule() {
-    case "$1" in
-        iptables)  "$1" -w -t mangle "$2" POSTROUTING -o "$IFACE" -m ttl ! --ttl-eq "$TTL" \
+    case "$3" in
+        iptables)  "$3" -w -t mangle "$1" "$2" -o "$4" -m ttl ! --ttl-eq "$TTL" \
                        -j NFQUEUE --queue-num "$QUEUE" --queue-bypass ;;
-        ip6tables) "$1" -w -t mangle "$2" POSTROUTING -o "$IFACE" -m hl ! --hl-eq "$TTL" \
+        ip6tables) "$3" -w -t mangle "$1" "$2" -o "$4" -m hl ! --hl-eq "$TTL" \
                        -j NFQUEUE --queue-num "$QUEUE" --queue-bypass ;;
     esac
 }
@@ -22,16 +22,23 @@ stop() {
     for p in $(pids_of ttlfix); do
         kill "$p" 2>/dev/null
     done
+    for i in 1 2 3 4 5 6 7 8 9 10; do
+        [ -z "$(pids_of ttlfix)" ] && break
+        sleep 0.2
+    done
+    for r in $RULES; do
+        while rule -D FORWARD "${r%%:*}" "${r#*:}" 2>/dev/null; do :; done
+    done
     for t in iptables ip6tables; do
-        while rule "$t" -D 2>/dev/null; do :; done
+        while rule -D POSTROUTING "$t" rmnet_data+ 2>/dev/null; do :; done
     done
 }
 
 status() {
     P=$(pids_of ttlfix)
     [ -n "$P" ] && log "helper running (pid $P)" || log "helper not running"
-    iptables  -w -t mangle -L POSTROUTING -n -v 2>&1 | grep -E "Chain|NFQUEUE"
-    ip6tables -w -t mangle -L POSTROUTING -n -v 2>&1 | grep -E "Chain|NFQUEUE"
+    iptables  -w -t mangle -L FORWARD -n -v 2>&1 | grep -E "Chain|NFQUEUE"
+    ip6tables -w -t mangle -L FORWARD -n -v 2>&1 | grep -E "Chain|NFQUEUE"
 }
 
 start_helper() {
@@ -68,13 +75,14 @@ start() {
     fi
     detach_cgroup ttlfix "$HPID"
 
-    for t in iptables ip6tables; do
-        if rule "$t" -C 2>/dev/null; then
-            log "$t rule already present"
-        elif rule "$t" -A; then
-            log "$t rule added"
+    for r in $RULES; do
+        t=${r%%:*} i=${r#*:}
+        if rule -C FORWARD "$t" "$i" 2>/dev/null; then
+            log "$t -o $i: rule already present"
+        elif rule -A FORWARD "$t" "$i"; then
+            log "$t -o $i: rule added"
         else
-            log "$t rule FAILED"
+            log "$t -o $i: rule FAILED"
         fi
     done
 }
