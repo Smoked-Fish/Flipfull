@@ -28,7 +28,7 @@ REPLACED_APPS = {"Dictate": "http://dictate.localhost/manifest.webmanifest"}
 FWD_PORT = 6123
 TEXT_SUFFIXES = {".sh", ".js", ".md", ".conf", ".rc"}
 TEXT_NAMES = {"hosts"}
-RUNTIME = ("run.log", "run.log.old", "busybox-path.sh", "bin/bbx/", "uninstall",
+RUNTIME = ("run.log", "run.log.old", "busybox-path.sh", "bin/bbx/", "uninstall", ".overlays-mounted",
            "disable", "services/stt/server.log", "services/stt/server.log.old",
            "services/stt/stt.conf")
 

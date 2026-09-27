@@ -4,6 +4,9 @@
 LOG_TAG=overlays
 
 VROOT=/data/local/webapps/vroot
+HTTP_CACHE=/data/cache/cache2
+STATE="$USERINIT/.overlays-mounted"
+NOW=""
 
 for SRC in "$USERINIT"/overlays/*; do
     [ -d "$SRC" ] || continue
@@ -35,8 +38,15 @@ for SRC in "$USERINIT"/overlays/*; do
 
     if mount -o bind "$SRC" "$DST"; then
         log "$NAME: mounted over $DST${CTX:+ ($CTX)}"
+        NOW="$NOW$NAME $(stat -c '%i %s %Y' "$SRC/application.zip") "
     else
         log "$NAME: mount failed - stock app in use"
     fi
 done
+
+if [ "$NOW" != "$(cat "$STATE" 2>/dev/null)" ]; then
+    rm -rf "$HTTP_CACHE"
+    log "overlays changed since the last boot - cleared b2g's HTTP cache ($HTTP_CACHE)"
+    echo "$NOW" > "$STATE"
+fi
 exit 0

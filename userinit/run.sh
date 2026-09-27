@@ -34,6 +34,7 @@ if [ "$STAGE" = post-fs-data ] && [ -e "$BASE/uninstall" ]; then
             *) rm -rf "$f" ;;
         esac
     done
+    rm -rf /data/cache/cache2
     log "-- uninstalled; the boot hook stays and runs nothing until reinstalled"
     exit 0
 fi
