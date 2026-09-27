@@ -178,6 +178,75 @@ opens('voice assistant', null);
 opens('tools', null);
 opens('spaceship', null);
 
+function alarm(text, when) {
+  check(JSON.stringify(text), () => {
+    const got = C.parse(text);
+    assert.strictEqual(got.type, 'alarm', JSON.stringify(got));
+    assert.deepStrictEqual(got.when, when);
+  });
+}
+alarm('Set an alarm for 7 a.m.', { hour: 7, minute: 0, meridiem: 'am', day: null });
+alarm('Set an alarm for 7:30 PM.', { hour: 19, minute: 30, meridiem: 'pm', day: null });
+alarm('Wake me up at 6:30 tomorrow.', { hour: 6, minute: 30, meridiem: null, day: 'tomorrow' });
+alarm('Wake me up tomorrow morning at 7', { hour: 7, minute: 0, meridiem: 'am', day: 'tomorrow' });
+alarm('Set alarm for seven forty five pm', { hour: 19, minute: 45, meridiem: 'pm', day: null });
+alarm('Set an alarm for seven oh five', { hour: 7, minute: 5, meridiem: null, day: null });
+alarm('Wake me up at 6 o\'clock', { hour: 6, minute: 0, meridiem: null, day: null });
+alarm('Set an alarm for 17:15', { hour: 17, minute: 15, meridiem: null, day: null });
+alarm('Wake me up at noon', { hour: 12, minute: 0, meridiem: null, day: null });
+alarm('Set an alarm for midnight', { hour: 0, minute: 0, meridiem: null, day: null });
+alarm('Set an alarm for quarter to eight', { hour: 7, minute: 45, meridiem: null, day: null });
+alarm('Set an alarm for half past six in the morning', { hour: 6, minute: 30, meridiem: 'am', day: null });
+alarm('Alarm at 5 in the evening', { hour: 17, minute: 0, meridiem: 'pm', day: null });
+alarm('Set an alarm for 9 tonight', { hour: 21, minute: 0, meridiem: 'pm', day: 'today' });
+alarm('Set an alarm in 20 minutes', { inMinutes: 20 });
+alarm('Wake me up in 2 hours and 15 minutes', { inMinutes: 135 });
+alarm('Wake me in half an hour', { inMinutes: 30 });
+alarm('Wake me up in an hour and a half', { inMinutes: 90 });
+alarm('Set an alarm in ninety minutes', { inMinutes: 90 });
+alarm('Hey KaiVA, could you set an alarm for 6 am please', { hour: 6, minute: 0, meridiem: 'am', day: null });
+alarm('Set an alarm', null);
+parses('Set an alarm for 25:00', { type: 'none' });
+parses('Set an alarm for 13 pm', { type: 'none' });
+parses('What alarms do I have?', { type: 'alarms' });
+parses('When is my next alarm?', { type: 'alarms' });
+parses('Do I have any alarms set?', { type: 'alarms' });
+parses('Show my alarms', { type: 'alarms' });
+parses('Cancel my 7 AM alarm.', { type: 'alarm-cancel', all: false,
+  when: { hour: 7, minute: 0, meridiem: 'am', day: null } });
+parses('Turn off the alarm at 6:15', { type: 'alarm-cancel', all: false,
+  when: { hour: 6, minute: 15, meridiem: null, day: null } });
+parses('Delete all alarms', { type: 'alarm-cancel', all: true, when: null });
+parses('Delete my alarms', { type: 'alarm-cancel', all: true, when: null });
+parses('Cancel my alarm', { type: 'alarm-cancel', all: false, when: null });
+parses('Set a timer for 5 minutes', { type: 'clock', tab: 'timer' });
+parses('Start the stopwatch', { type: 'clock', tab: 'stopwatch' });
+parses('Open the clock', { type: 'open', app: 'clock' });
+parses('Turn off Wi-Fi', { type: 'toggle', what: 'wifi', on: false });
+
+function rings(when, now, expected) {
+  check(`alarmDate ${JSON.stringify(when)} @ ${now}`, () => {
+    const got = C.alarmDate(when, new Date(now));
+    assert.strictEqual(got.toString(), new Date(expected).toString());
+  });
+}
+rings({ hour: 7, minute: 0, meridiem: 'am', day: null }, '2026-09-25T06:00:00', '2026-09-25T07:00:00');
+rings({ hour: 7, minute: 0, meridiem: 'am', day: null }, '2026-09-25T08:00:00', '2026-09-26T07:00:00');
+rings({ hour: 7, minute: 0, meridiem: null, day: null }, '2026-09-25T08:00:00', '2026-09-25T19:00:00');
+rings({ hour: 7, minute: 0, meridiem: null, day: null }, '2026-09-25T20:00:00', '2026-09-26T07:00:00');
+rings({ hour: 7, minute: 0, meridiem: null, day: 'tomorrow' }, '2026-09-25T06:00:00', '2026-09-26T07:00:00');
+rings({ hour: 12, minute: 0, meridiem: null, day: null }, '2026-09-25T13:00:00', '2026-09-26T00:00:00');
+rings({ hour: 0, minute: 30, meridiem: null, day: null }, '2026-09-25T13:00:00', '2026-09-26T00:30:00');
+rings({ inMinutes: 90 }, '2026-09-25T23:00:00', '2026-09-26T00:30:00');
+
+check('alarmMatches', () => {
+  assert.ok(C.alarmMatches({ hour: 19, minute: 0 }, { hour: 7, minute: 0, meridiem: null }));
+  assert.ok(C.alarmMatches({ hour: 7, minute: 0 }, { hour: 7, minute: 0, meridiem: null }));
+  assert.ok(!C.alarmMatches({ hour: 19, minute: 0 }, { hour: 7, minute: 0, meridiem: 'am' }));
+  assert.ok(!C.alarmMatches({ hour: 7, minute: 30 }, { hour: 7, minute: 0, meridiem: null }));
+  assert.ok(!C.alarmMatches({ hour: 7, minute: 0 }, { inMinutes: 10 }));
+});
+
 if (failed) {
   console.error(`\n${failed} failed`);
   process.exit(1);

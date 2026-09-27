@@ -263,9 +263,38 @@
     return getSetting('locale.hour12').catch(() => undefined);
   }
 
+  async function clock(data) {
+    const result = await timeout(activity('setalarm', data), 10000, 'The Clock app');
+    if (!result || result.actionState !== 'success') {
+      const why = result && result.errorMessage;
+      throw new Error(why === 'No Alarm' ? 'No alarms are set' : String(why || 'The Clock app said no'));
+    }
+    return result;
+  }
+
+  function addAlarm(date, label) {
+    return clock({ type: 'add', alarm: { time: date.getTime(), repeat: {}, label: label || '' } });
+  }
+
+  function alarms() {
+    return clock({ type: 'getall' }).then((r) => r.alarmsArray || []);
+  }
+
+  function deleteAlarm(id) {
+    return clock({ type: 'delete', alarm: { id } });
+  }
+
+  function deleteAllAlarms() {
+    return clock({ type: 'deleteall' });
+  }
+
+  function clockTab(tab) {
+    return activity('view', { type: tab });
+  }
+
   Object.assign(exports, {
     SELF, MANIFEST, session, getSetting, voiceDefaults, claimDefaults, setMicKey,
     apps, launch, contacts, dial, sms, openUrl, configure, searchUrl, toggle,
-    NeedsSettings, battery, hour12,
+    NeedsSettings, battery, hour12, addAlarm, alarms, deleteAlarm, deleteAllAlarms, clockTab,
   });
 })(window.KaiOS = {});

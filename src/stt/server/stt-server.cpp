@@ -1,4 +1,5 @@
 #include "whisper.h"
+#include "opus.h"
 
 #include <arpa/inet.h>
 #include <grp.h>
@@ -10,6 +11,7 @@
 #include <sys/time.h>
 #include <unistd.h>
 
+#include <algorithm>
 #include <cerrno>
 #include <chrono>
 #include <cstdarg>
@@ -170,7 +172,7 @@ bool should_abort(void * data) {
 }
 
 bool transcribe(const std::vector<float> & pcm, std::string & text, std::string & err,
-                int client_fd = -1, unsigned job = 0) {
+                int client_fd = -1, unsigned job = 0, float * confidence = nullptr) {
     if (!ensure_model()) {
         err = "model failed to load";
         return false;
@@ -218,6 +220,22 @@ bool transcribe(const std::vector<float> & pcm, std::string & text, std::string 
         raw += whisper_full_get_segment_text(g_ctx, i);
     }
     text = clean_text(raw);
+    if (confidence) {
+        const whisper_token eot = whisper_token_eot(g_ctx);
+        double sum = 0;
+        int count = 0;
+        for (int i = 0; i < n; i++) {
+            const int nt = whisper_full_n_tokens(g_ctx, i);
+            for (int j = 0; j < nt; j++) {
+                const whisper_token_data td = whisper_full_get_token_data(g_ctx, i, j);
+                if (td.id < eot) {
+                    sum += td.p;
+                    count++;
+                }
+            }
+        }
+        *confidence = count ? (float) (sum / count) : 0.0f;
+    }
     g_warm = true;
     touch();
     return true;
@@ -291,6 +309,104 @@ bool decode_audio(const std::string & body, std::vector<float> & pcm, std::strin
     return true;
 }
 
+bool decode_ogg_opus(const std::string & body, std::vector<float> & pcm, std::string & err) {
+    const uint8_t * d = (const uint8_t *) body.data();
+    const size_t len = body.size();
+    constexpr int kMaxFrame = kSampleRate * 120 / 1000;
+    std::vector<float> frame(kMaxFrame);
+    std::string packet;
+    OpusDecoder * dec = nullptr;
+    int packets = 0;
+    int pre_skip = 0;
+    uint32_t serial = 0;
+    size_t pos = 0;
+
+    auto on_packet = [&]() -> bool {
+        const uint8_t * p = (const uint8_t *) packet.data();
+        const size_t n = packet.size();
+        if (packets++ == 0) {
+            if (n < 19 || memcmp(p, "OpusHead", 8) != 0) {
+                err = "not an Ogg/Opus stream";
+                return false;
+            }
+            if (p[18] != 0) {
+                err = "multichannel Opus is not supported";
+                return false;
+            }
+            pre_skip = p[10] | (p[11] << 8);
+            int e = 0;
+            dec = opus_decoder_create(kSampleRate, 1, &e);
+            if (!dec || e != OPUS_OK) {
+                err = "opus decoder init failed";
+                return false;
+            }
+            return true;
+        }
+        if (n >= 8 && memcmp(p, "OpusTags", 8) == 0) {
+            return true;
+        }
+        const int got = opus_decode_float(dec, p, (opus_int32) n, frame.data(), kMaxFrame, 0);
+        if (got < 0) {
+            err = std::string("opus: ") + opus_strerror(got);
+            return false;
+        }
+        pcm.insert(pcm.end(), frame.begin(), frame.begin() + got);
+        if (pcm.size() > kMaxSeconds * kSampleRate) {
+            err = "audio longer than 60 s";
+            return false;
+        }
+        return true;
+    };
+
+    bool ok = true;
+    while (ok && pos + 27 <= len) {
+        if (memcmp(d + pos, "OggS", 4) != 0) {
+            err = "bad Ogg page";
+            ok = false;
+            break;
+        }
+        uint32_t sn;
+        memcpy(&sn, d + pos + 14, 4);
+        const int nseg = d[pos + 26];
+        const uint8_t * lacing = d + pos + 27;
+        size_t off = pos + 27 + nseg;
+        size_t total = 0;
+        if (off <= len) {
+            for (int i = 0; i < nseg; i++) total += lacing[i];
+        }
+        if (off > len || off + total > len) {
+            err = "truncated Ogg page";
+            ok = false;
+            break;
+        }
+        if (pos == 0) serial = sn;
+        if (sn == serial) {
+            for (int i = 0; i < nseg && ok; i++) {
+                packet.append((const char *) d + off, lacing[i]);
+                off += lacing[i];
+                if (lacing[i] < 255) {
+                    ok = on_packet();
+                    packet.clear();
+                }
+            }
+        }
+        pos = pos + 27 + nseg + total;
+    }
+    if (dec) opus_decoder_destroy(dec);
+    if (!ok) return false;
+    if (packets == 0) {
+        err = "empty Ogg stream";
+        return false;
+    }
+    const size_t skip = std::min(pcm.size(), (size_t) pre_skip * kSampleRate / 48000);
+    pcm.erase(pcm.begin(), pcm.begin() + skip);
+    if (pcm.size() < (size_t) kSampleRate / 4) {
+        err = "audio too short";
+        return false;
+    }
+    return true;
+}
+
 std::string json_escape(const std::string & s) {
     std::string o;
     for (unsigned char c : s) {
@@ -326,7 +442,8 @@ bool send_all(int fd, const std::string & s) {
     return true;
 }
 
-void respond(int fd, int status, const std::string & origin, const std::string & body) {
+void respond(int fd, int status, const std::string & origin, const std::string & body,
+             const std::string & allow_headers = "Content-Type") {
     const char * reason = status == 200 ? "OK" : status == 204 ? "No Content"
                         : status == 400 ? "Bad Request" : status == 403 ? "Forbidden"
                         : status == 404 ? "Not Found" : status == 413 ? "Payload Too Large"
@@ -335,7 +452,7 @@ void respond(int fd, int status, const std::string & origin, const std::string &
     if (!origin.empty()) {
         h += "Access-Control-Allow-Origin: " + origin + "\r\n";
         h += "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n";
-        h += "Access-Control-Allow-Headers: Content-Type\r\n";
+        h += "Access-Control-Allow-Headers: " + allow_headers + "\r\n";
         h += "Access-Control-Max-Age: 86400\r\n";
         h += "Vary: Origin\r\n";
     }
@@ -394,6 +511,32 @@ void run_job(int fd, unsigned job, const std::string & origin, const std::vector
             std::to_string(audio_ms) + ",\"ms\":" + std::to_string(ms) + "}");
 }
 
+constexpr float kMinConfidence = 0.15f;
+
+void run_speaktome(int fd, unsigned job, const std::string & origin, const std::vector<float> & pcm) {
+    const long audio_ms = (long) (pcm.size() * 1000 / kSampleRate);
+    std::lock_guard<std::mutex> lock(g_model_mu);
+    std::string err, text;
+    float confidence = 0.0f;
+    auto t0 = std::chrono::steady_clock::now();
+    if (job != g_latest_job) {
+        err = "superseded by a newer request";
+    } else if (transcribe(pcm, text, err, fd, job, &confidence) &&
+               (text.empty() || confidence < kMinConfidence)) {
+        err = "no speech";
+    }
+    if (!err.empty()) {
+        logf("speaktome: %ld ms of audio: %s", audio_ms, err.c_str());
+        respond(fd, 200, origin, "{\"status\":\"error\",\"message\":\"" + json_escape(err) + "\"}");
+        return;
+    }
+    logf("speaktome: transcribed %ld ms of audio in %ld ms (%zu chars)", audio_ms, ms_since(t0), text.size());
+    char conf[32];
+    snprintf(conf, sizeof conf, "%.3f", confidence);
+    respond(fd, 200, origin, "{\"status\":\"ok\",\"data\":[{\"text\":\"" + json_escape(text) +
+            "\",\"confidence\":" + conf + "}]}");
+}
+
 bool handle_client(int fd) {
     timeval tv{5, 0};
     setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
@@ -418,15 +561,17 @@ bool handle_client(int fd) {
     std::string path = head.substr(sp1 + 1, sp2 - sp1 - 1);
     path = path.substr(0, path.find('?'));
 
+    const bool speaktome = path == "/speaktome" || path == "/speaktome/";
     const std::string origin = header_value(head, "Origin");
-    if (!origin_allowed(origin)) {
+    if (!speaktome && !origin_allowed(origin)) {
         logf("rejected origin %s", origin.c_str());
         respond(fd, 403, "", "{\"error\":\"origin not allowed\"}");
         return false;
     }
 
     if (method == "OPTIONS") {
-        respond(fd, 204, origin, "");
+        const std::string asked = header_value(head, "Access-Control-Request-Headers");
+        respond(fd, 204, origin, "", speaktome && !asked.empty() ? asked : "Content-Type");
         return false;
     }
     if (method == "GET" && path == "/health") {
@@ -447,7 +592,7 @@ bool handle_client(int fd) {
         respond(fd, ok ? 200 : 500, origin, ok ? "{\"ok\":true}" : "{\"error\":\"model failed to load\"}");
         return false;
     }
-    if (method == "POST" && path == "/transcribe") {
+    if (method == "POST" && (path == "/transcribe" || speaktome)) {
         const std::string cl = header_value(head, "Content-Length");
         const size_t want = cl.empty() ? 0 : strtoul(cl.c_str(), nullptr, 10);
         if (want == 0) {
@@ -467,13 +612,20 @@ bool handle_client(int fd) {
 
         std::vector<float> pcm;
         std::string err;
-        if (!decode_audio(body, pcm, err)) {
-            respond(fd, 400, origin, "{\"error\":\"" + json_escape(err) + "\"}");
+        const bool ogg = body.size() >= 4 && memcmp(body.data(), "OggS", 4) == 0;
+        if (!(ogg ? decode_ogg_opus(body, pcm, err) : decode_audio(body, pcm, err))) {
+            respond(fd, speaktome ? 200 : 400, origin, speaktome ?
+                    "{\"status\":\"error\",\"message\":\"" + json_escape(err) + "\"}" :
+                    "{\"error\":\"" + json_escape(err) + "\"}");
             return false;
         }
         const unsigned job = ++g_latest_job;
-        std::thread([fd, job, origin, pcm = std::move(pcm)]() {
-            run_job(fd, job, origin, pcm);
+        std::thread([fd, job, origin, speaktome, pcm = std::move(pcm)]() {
+            if (speaktome) {
+                run_speaktome(fd, job, origin, pcm);
+            } else {
+                run_job(fd, job, origin, pcm);
+            }
             close(fd);
         }).detach();
         return true;
@@ -506,7 +658,8 @@ int run_file() {
 
     std::vector<float> pcm;
     std::string err, text;
-    if (!decode_audio(body, pcm, err)) {
+    const bool ogg = body.size() >= 4 && memcmp(body.data(), "OggS", 4) == 0;
+    if (!(ogg ? decode_ogg_opus(body, pcm, err) : decode_audio(body, pcm, err))) {
         logf("%s", err.c_str());
         return 1;
     }
@@ -593,7 +746,7 @@ void usage(const char * argv0) {
         "  --uid N [--gid N] drop root to this uid/gid after binding\n"
         "  --full-ctx        always encode the full 30 s window (slower)\n"
         "  --min-ctx N       smallest encoder window in 20 ms frames (default 320)\n"
-        "  --file WAV        transcribe one file and exit (testing)\n"
+        "  --file FILE       transcribe one WAV / raw PCM / Ogg Opus file and exit\n"
         "  --bench N         with --file: repeat N times and print timings\n"
         "  --verbose         show whisper.cpp logs\n", argv0);
 }

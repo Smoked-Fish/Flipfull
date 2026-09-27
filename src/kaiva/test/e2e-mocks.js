@@ -48,7 +48,32 @@
     new: () => new Promise(() => {}),
     view: () => new Promise(() => {}),
     configure: () => new Promise(() => {}),
+    setalarm: (data) => new Promise((resolve) => {
+      window.__setHidden(true);
+      setTimeout(() => {
+        const alarms = window.__alarms;
+        let result = { actionState: 'success', alarmsArray: [], errorMessage: '', addedAlarmId: null };
+        if (data.type === 'add') {
+          const d = new Date(data.alarm.time);
+          const a = { id: ++window.__alarmId, hour: d.getHours(), minute: d.getMinutes(),
+            repeat: data.alarm.repeat, label: data.alarm.label, registeredAlarms: { normal: 1 } };
+          alarms.push(a);
+          result.addedAlarmId = a.id;
+        } else if (data.type === 'getall') {
+          result.alarmsArray = JSON.parse(JSON.stringify(alarms));
+        } else if (data.type === 'delete') {
+          const i = alarms.findIndex((a) => String(a.id) === String(data.alarm.id));
+          if (i < 0) result = { errorMessage: 'Do not have this alarm' }; else alarms.splice(i, 1);
+        } else if (data.type === 'deleteall') {
+          if (!alarms.length) result = { errorMessage: 'No Alarm' }; else alarms.length = 0;
+        }
+        window.__setHidden(false);
+        resolve(result);
+      }, 100);
+    }),
   };
+  window.__alarms = window.__alarms || [];
+  window.__alarmId = 100;
   window.WebActivity = class {
     constructor(name, data) {
       this.name = name;

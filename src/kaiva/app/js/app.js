@@ -18,6 +18,11 @@ const SAYINGS = [
   'Search for chicken recipes',
   'What is baseball?',
   'Take a note',
+  'Wake me up at 6:30',
+  'Set an alarm in 20 minutes',
+  'What alarms do I have?',
+  'Cancel my 7 AM alarm',
+  'Start the timer',
 ];
 
 const TOGGLE_NAMES = {
@@ -49,6 +54,7 @@ let done = false;
 let launchedOut = false;
 let source = {};
 let handlers = {};
+let inClock = false;
 let turn = 0;
 
 function pref(name, value) {
@@ -434,6 +440,107 @@ function contactName(c) {
   return Commands.contactNames(c)[0] || '';
 }
 
+async function withClock(start) {
+  inClock = true;
+  try {
+    return await start();
+  } finally {
+    setTimeout(() => { inClock = false; }, 500);
+  }
+}
+
+async function timeFormatter(after) {
+  const h12 = await after(Promise.race([KaiOS.hour12(), wait(800)]));
+  return (hour, minute) => {
+    const opts = { hour: 'numeric', minute: '2-digit' };
+    if (typeof h12 === 'boolean') {
+      opts.hour12 = h12;
+    }
+    return new Date(2000, 0, 1, hour, minute).toLocaleTimeString('en-US', opts);
+  };
+}
+
+function dayText(date) {
+  const start = (d) => new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const days = Math.round((start(date) - start(new Date())) / 86400000);
+  return days === 0 ? 'today' : days === 1 ? 'tomorrow' :
+    date.toLocaleDateString('en-US', { weekday: 'long' });
+}
+
+function untilText(date) {
+  const minutes = Math.max(1, Math.round((date - Date.now()) / 60000));
+  const h = Math.floor(minutes / 60);
+  const m = minutes % 60;
+  return `in ${h ? `${h} h ` : ''}${h && !m ? '' : `${m} min`}`.trim();
+}
+
+const DAYS = ['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday'];
+
+function repeatText(repeat) {
+  const on = DAYS.filter((d) => repeat && repeat[d]);
+  if (!on.length) return 'Once';
+  if (on.length === 7) return 'Every day';
+  if (on.length === 5 && on.every((d, i) => d === DAYS[i])) return 'Weekdays';
+  if (on.length === 2 && on[0] === 'saturday' && on[1] === 'sunday') return 'Weekends';
+  return on.map((d) => d[0].toUpperCase() + d.slice(1, 3)).join(', ');
+}
+
+function alarmOn(a) {
+  return !!(a.registeredAlarms && (a.registeredAlarms.normal || a.registeredAlarms.snooze));
+}
+
+function showAlarms(list, fmt, note) {
+  cancelWork();
+  title('Alarms');
+  el.list.innerHTML = '';
+  const add = (cls, text) => {
+    const li = document.createElement('li');
+    li.className = cls;
+    li.textContent = text;
+    el.list.appendChild(li);
+  };
+  const soon = (a) => (a.hour * 60 + a.minute - (new Date().getHours() * 60 + new Date().getMinutes()) + 1440) % 1440;
+  const sorted = list.slice().sort((a, b) => (alarmOn(b) - alarmOn(a)) || soon(a) - soon(b));
+  add('caption', note || (list.length ? `${list.length} alarm${list.length === 1 ? '' : 's'}` : 'No alarms set'));
+  sorted.forEach((a) => add('alarm', `${fmt(a.hour, a.minute)} · ${repeatText(a.repeat)}` +
+    `${a.label ? ` · ${a.label}` : ''}${alarmOn(a) ? '' : ' (off)'}`));
+  setView('list');
+  el.list.scrollTop = 0;
+  softkeys('Back', 'mic', 'Clock');
+  on(Object.assign({
+    left: standby,
+    back: standby,
+    center: () => listen(),
+    right: () => go('Opening alarms', () => KaiOS.clockTab('alarm')),
+  }, scroller(el.list)));
+}
+
+function saidTime(when, fmt) {
+  if (when.meridiem || when.hour === 0 || when.hour > 12) {
+    return fmt(when.hour, when.minute);
+  }
+  return `${when.hour}:${String(when.minute).padStart(2, '0')}`;
+}
+
+function confirmDeleteAll(count) {
+  cancelWork();
+  showCard({ text: `Delete all ${count} alarm${count === 1 ? '' : 's'}?`, quote: false, big: true });
+  softkeys('Cancel', 'Delete', '');
+  on({
+    left: standby,
+    back: standby,
+    center: () => {
+      state = 'working';
+      progress('Deleting alarms', 'busy');
+      softkeys('', '', '');
+      on({ back: exit });
+      withClock(() => KaiOS.deleteAllAlarms()).then(
+        () => answer('Alarms deleted', `${count} alarm${count === 1 ? '' : 's'}`),
+        (e) => showError(e.message || String(e)));
+    },
+  });
+}
+
 const STALE = new Error('stale');
 
 async function handle(text) {
@@ -560,6 +667,50 @@ async function run(intent, after) {
       }
       return showText(intent.text, `No app called “${intent.app}”`);
     }
+
+    case 'alarm': {
+      if (!intent.when) {
+        return go('Opening alarms', () => KaiOS.clockTab('alarm'));
+      }
+      const fmt = await timeFormatter(after);
+      const date = Commands.alarmDate(intent.when, new Date());
+      await after(withClock(() => KaiOS.addAlarm(date)));
+      return answer(fmt(date.getHours(), date.getMinutes()),
+        `Alarm set for ${dayText(date)}, ${untilText(date)}`);
+    }
+
+    case 'alarms': {
+      const fmt = await timeFormatter(after);
+      return showAlarms(await after(withClock(() => KaiOS.alarms())), fmt);
+    }
+
+    case 'alarm-cancel': {
+      const fmt = await timeFormatter(after);
+      const list = await after(withClock(() => KaiOS.alarms()));
+      if (!list.length) {
+        return answer('No alarms', 'There is nothing to cancel');
+      }
+      if (intent.all) {
+        return confirmDeleteAll(list.length);
+      }
+      let targets = list;
+      if (intent.when) {
+        targets = list.filter((a) => Commands.alarmMatches(a, intent.when));
+        if (!targets.length) {
+          return showAlarms(list, fmt, `No alarm at ${saidTime(intent.when, fmt)}. Your alarms:`);
+        }
+      } else if (list.length > 1) {
+        return showAlarms(list, fmt, 'Which one? Say, for example, “Cancel the 7 AM alarm”.');
+      }
+      for (const a of targets) {
+        await after(withClock(() => KaiOS.deleteAlarm(a.id)));
+      }
+      return answer(targets.length === 1 ? 'Alarm deleted' : `${targets.length} alarms deleted`,
+        targets.map((a) => fmt(a.hour, a.minute)).join(', '));
+    }
+
+    case 'clock':
+      return go(`Opening the ${intent.tab}`, () => KaiOS.clockTab(intent.tab));
 
     case 'search':
       return search(intent.query);
@@ -778,7 +929,7 @@ if (MODE === 'input') {
   }
   toWorker({ type: 'hello' });
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden) {
+    if (!document.hidden || inClock) {
       return;
     }
     if (launchedOut) {

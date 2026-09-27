@@ -18,15 +18,65 @@ USERINIT = ROOT / "userinit"
 
 GOOGLE_REDIRECT = "http://localhost/redirect/loginpages/redirect.html"
 
-LIVE_SCRIPT = '    <script defer="" src="js/live_wallpaper.js"></script>\n'
+SYSTEM_SCRIPTS = ('    <script defer="" src="js/live_wallpaper.js"></script>\n'
+                  '    <script defer="" src="js/flipfull_system.js"></script>\n')
+
+OPTIONS = {"keep_folders": False}
+
+NO_FOLDERS = [
+    ("dist/app.bundle.js",
+     'X=X.concat(JSON.parse(i)||(n<=256?[]:r))',
+     'localStorage.removeItem("flipfullFolders"),'
+     'X=X.concat((JSON.parse(i)||(n<=256?[]:r)).filter(function(e){'
+     'return"games"!==e.basisname&&"utilities"!==e.basisname}))'),
+    ("dist/app.bundle.js",
+     'J=256===n?["Carrier"]:["Games","Carrier","Utilities"]',
+     'J=["Carrier"]'),
+]
+KEEP_FOLDERS = [
+    ("dist/app.bundle.js",
+     'X=X.concat(JSON.parse(i)||(n<=256?[]:r))',
+     'X=X.concat(function(s,d){if(s&&!localStorage.getItem("flipfullFolders")){'
+     'd.forEach(function(f){s.some(function(e){return e.basisname===f.basisname})||s.push(f)});'
+     'localStorage.setItem("flipfullFolders","1")}return s||d}(JSON.parse(i),n<=256?[]:r))'),
+]
+
+CALL_RECORDING_ITEM = (
+    '        <li role="menuitem" id="call-recording-item">\n'
+    '          <a class="menu-item">\n'
+    '            <span>Call recording</span>\n'
+    '          </a>\n'
+    '        </li>\n\n')
+ASSISTED_DIALING_ITEM = "        <li role=\"menuitem\" id='menuItem-assisted-dialing' class=\"hidden\">\n"
+DISPLAY_ITEM = ('              <a id="menuItem-display" class="menu-item" href="#display" '
+                'data-l10n-id="display">Display</a>\n            </li>\n')
+HOME_SHORTCUTS_ITEM = ('            <li role="menuitem">\n'
+                       '              <a id="menuItem-homeShortcuts" class="menu-item" '
+                       'href="#home_shortcuts">Home screen shortcuts</a>\n'
+                       '            </li>\n')
+NETWORK_TYPE_HIDING = (
+    "        elements.networkType.classList.add('hidden');\n"
+    "        SettingsObserver.getValue('hidemenu.networkType.temp').then((result) => {\n"
+    "          DebugHelper.log('hidemenu.networkType.temp = ' + result);\n"
+    "          if (result == 1) {\n"
+    "            elements.networkType.classList.remove('hidden');\n"
+    "          } else {\n"
+    "            elements.networkType.classList.add('hidden');\n"
+    "          }\n"
+    "        }).catch((error) => {\n"
+    "          DebugHelper.log('Error getting the value: ' + error);\n"
+    "          elements.networkType.classList.add('hidden');\n"
+    "        });\n")
+EVENT_LOGGER_START = (
+    'SettingsObserver.observe("metrics.type",null,function e(t){if("jio"===t)'
+    'LazyLoader.load(["../js/app_usage_data.js","../js/app_usage_metrics.js","../js/telemetry.js"],'
+    '()=>{window.appUsageMetrics=new AppUsageMetrics,window.appUsageMetrics.start(),new Ps,'
+    'window.isJioApplication=!0});else{const e=new Cs;e.start(),window.evlm=e}'
+    'SettingsObserver.unobserve("metrics.type",e)});')
 
 OVERLAYS = {
     "launcher": {
         "patches": [
-            ("dist/app.bundle.js",
-             'case"ArrowLeft":break;case"ArrowDown":',
-             'case"ArrowLeft":break;case"ArrowRight":O.default.launch("manifestUrl",'
-             'window.AppOrigin.getManifestURL("camera"));break;case"ArrowDown":'),
             ("dist/app.bundle.js",
              'if("TF"===s.default.getBuildOperatorName()&&"kaios-voiceassistant"===e.name)return!0;',
              ''),
@@ -34,6 +84,7 @@ OVERLAYS = {
              'if("TMO"===s.default.getBuildOperatorName()&&"kaios-voiceassistant"===e.name)return!0;',
              ''),
         ],
+        "optional_patches": lambda: KEEP_FOLDERS if OPTIONS["keep_folders"] else NO_FOLDERS,
     },
     "shared": {
         "patches": [
@@ -54,18 +105,39 @@ OVERLAYS = {
         "patches": [
             ("index.html",
              '    <script defer="" src="js/external_screen_manager.js"></script>\n',
-             '    <script defer="" src="js/external_screen_manager.js"></script>\n' + LIVE_SCRIPT),
+             '    <script defer="" src="js/external_screen_manager.js"></script>\n' + SYSTEM_SCRIPTS),
             ("index_remote.html",
              '    <script defer="" src="remote/dist/app.bundle.js"></script>\n',
-             '    <script defer="" src="remote/dist/app.bundle.js"></script>\n' + LIVE_SCRIPT),
+             '    <script defer="" src="remote/dist/app.bundle.js"></script>\n' + SYSTEM_SCRIPTS),
             ("js/init_logo_handler.js",
              'CustomLogoPath.oslogo.image="tmo"===e?`${SYSTEM_RESOURCE}branding/initlogo_tmo.png`'
              ':"mpcs"===e?`${SYSTEM_RESOURCE}branding/initlogo_mpcs.png`'
              ':`${SYSTEM_RESOURCE}branding/initlogo.png`',
              'CustomLogoPath.oslogo.image=`${SYSTEM_RESOURCE}branding/initlogo.png`'),
+            ("js/hardware_buttons.js",
+             '.prototype.repeat=function(){this.repeating=!0,this.repeatCount++,',
+             '.prototype.repeat=function(){if(!this.repeating&&window.FlipfullMedia&&'
+             'window.FlipfullMedia.hold(this.direction))return void(this.repeating=!0);'
+             'this.repeating=!0,this.repeatCount++,'),
+            ("dist/app.bundle.js", EVENT_LOGGER_START, ''),
+            ("index.html",
+             '    <script defer="" src="js/fota/fotaJs_Loader.js"></script>\n',
+             ''),
         ],
         "rewrites": [
             ("js/account_manager/oauth2_config.js", lambda text: google_oauth(text)),
+        ],
+    },
+    "settings": {
+        "patches": [
+            ("elements/call.html", ASSISTED_DIALING_ITEM, CALL_RECORDING_ITEM + ASSISTED_DIALING_ITEM),
+            ("js/panels/call/panel.js",
+             "      'menuItem-assisted-dialing': '#assisted_dialing',\n",
+             "      'menuItem-assisted-dialing': '#assisted_dialing',\n"
+             "      'call-recording-item': '#call_recording',\n"),
+            ("index.html", DISPLAY_ITEM, DISPLAY_ITEM + HOME_SHORTCUTS_ITEM),
+            ("js/panels/carrier_detail/panel.js", NETWORK_TYPE_HIDING,
+             "        elements.networkType.classList.remove('hidden');\n"),
         ],
     },
     "keyboard": {
@@ -78,7 +150,6 @@ OVERLAYS = {
         "extra_files": False,
     },
 }
-
 
 def fail(msg):
     sys.exit(f"build failed: {msg}")
@@ -130,7 +201,9 @@ def patch_text(name, path, text, cfg):
 
 
 def build_overlay(name):
-    cfg = OVERLAYS[name]
+    cfg = dict(OVERLAYS[name])
+    if "optional_patches" in cfg:
+        cfg["patches"] = cfg.get("patches", []) + cfg["optional_patches"]()
     base = BASE / name
     files_dir = SRC / "overlays" / name
     added = {}
@@ -165,9 +238,8 @@ def build_overlay(name):
           f"({(out / 'application.zip').stat().st_size} bytes)")
 
 
-def build_kaiva():
-    app = SRC / "kaiva" / "app"
-    out = USERINIT / "apps" / "kaiva"
+def build_app(name, app):
+    out = USERINIT / "apps" / name
     out.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(out / "application.zip", "w", zipfile.ZIP_DEFLATED) as z:
         for path in sorted(app.rglob("*")):
@@ -175,18 +247,22 @@ def build_kaiva():
                 zi = zipfile.ZipInfo(path.relative_to(app).as_posix(), date_time=(2026, 1, 1, 0, 0, 0))
                 zi.external_attr = 0o644 << 16
                 z.writestr(zi, path.read_bytes(), compress_type=zipfile.ZIP_DEFLATED)
-    print(f"{'kaiva':10} -> {(out / 'application.zip').relative_to(ROOT)}")
+    print(f"{name:10} -> {(out / 'application.zip').relative_to(ROOT)}")
 
 
-TARGETS = {**{n: (lambda n=n: build_overlay(n)) for n in OVERLAYS}, "kaiva": build_kaiva}
+TARGETS = {**{n: (lambda n=n: build_overlay(n)) for n in OVERLAYS},
+           "kaiva": lambda: build_app("kaiva", SRC / "kaiva" / "app"),
+           "qrreader": lambda: build_app("qrreader", SRC / "qrreader" / "app")}
 
 
-def build(names=None):
+def build(names=None, keep_folders=False):
+    OPTIONS["keep_folders"] = keep_folders
     for name in names or TARGETS:
         if name not in TARGETS:
             fail(f"unknown target {name}; choose from {', '.join(TARGETS)}")
         TARGETS[name]()
 
-
 if __name__ == "__main__":
-    build(sys.argv[1:])
+    args = sys.argv[1:]
+    keep = "--keep-folders" in args
+    build([a for a in args if a != "--keep-folders"], keep_folders=keep)

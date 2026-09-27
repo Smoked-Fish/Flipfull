@@ -283,6 +283,79 @@ async function main() {
     await page.context().close();
   }
 
+  console.log('assistant: alarms (Clock app)');
+  const ALARMS = `window.__alarms = [
+    { id: 1, hour: 7, minute: 0, label: '', registeredAlarms: { normal: 1 },
+      repeat: { monday: true, tuesday: true, wednesday: true, thursday: true, friday: true } },
+    { id: 2, hour: 21, minute: 15, label: 'Pills', registeredAlarms: {}, repeat: {} }];`;
+  async function sayWith(text, pre) {
+    stt.next = text;
+    const page = await newPage('#voice-assistant', pre);
+    await page.waitForFunction(() => document.body.dataset.view !== 'listening' ||
+      !/Listening|Starting/.test(document.getElementById('status').textContent), null, { timeout: 10000 }).catch(() => {});
+    await page.waitForTimeout(600);
+    return page;
+  }
+  {
+    const page = await say('Wake me up at 6:30 tomorrow.');
+    const add = (await log(page)).find((e) => e[0] === 'activity' && e[1] === 'setalarm');
+    const at = add && new Date(add[2].alarm.time);
+    ok(add && add[2].type === 'add' && at.getHours() === 6 && at.getMinutes() === 30 &&
+      JSON.stringify(add[2].alarm.repeat) === '{}', `setalarm add ${add && JSON.stringify(add[2])}`);
+    ok(await page.evaluate(() => window.__alarms.length) === 1, 'the Clock has the alarm');
+    ok(await page.evaluate(() => document.getElementById('text').textContent) === '6:30 AM', 'answer: 6:30 AM');
+    ok(/^Alarm set for tomorrow, in /.test(await page.evaluate(() => document.getElementById('detail').textContent)),
+      `detail: ${await page.evaluate(() => document.getElementById('detail').textContent)}`);
+    ok(await view(page) === 'card', 'still showing (the inline Clock activity did not close KaiVA)');
+    await shot(page, '15-assistant-alarm-set');
+    await page.context().close();
+  }
+  {
+    const page = await say('Set an alarm in 20 minutes.');
+    const add = (await log(page)).find((e) => e[0] === 'activity' && e[1] === 'setalarm');
+    const mins = add && Math.round((add[2].alarm.time - Date.now()) / 60000);
+    ok(mins >= 19 && mins <= 20, `in 20 minutes (${mins})`);
+    await page.context().close();
+  }
+  {
+    const page = await sayWith('What alarms do I have?', ALARMS);
+    ok(await view(page) === 'list', 'alarm list');
+    const items = await page.evaluate(() => Array.from(document.querySelectorAll('#list li')).map((l) => l.textContent));
+    ok(JSON.stringify(items) === JSON.stringify(['2 alarms', '7:00 AM · Weekdays', '9:15 PM · Once · Pills (off)']),
+      `items ${JSON.stringify(items)}`);
+    ok(await softkeys(page) === 'Back | (mic) | Clock', `softkeys ${await softkeys(page)}`);
+    await shot(page, '16-assistant-alarms');
+    await page.context().close();
+  }
+  {
+    const page = await sayWith('Cancel my 7 AM alarm.', ALARMS);
+    ok(await page.evaluate(() => window.__alarms.map((a) => a.id).join()) === '2', 'deleted the 7 AM one only');
+    ok(await page.evaluate(() => document.getElementById('text').textContent) === 'Alarm deleted', 'answer');
+    await page.context().close();
+  }
+  {
+    const page = await sayWith('Cancel my alarm.', ALARMS);
+    ok(await view(page) === 'list' && /Which one/.test(await page.evaluate(() => document.querySelector('#list li').textContent)),
+      'two alarms: asks which');
+    ok(await page.evaluate(() => window.__alarms.length) === 2, 'nothing deleted');
+    await page.context().close();
+  }
+  {
+    const page = await sayWith('Delete all alarms.', ALARMS);
+    ok(await page.evaluate(() => document.getElementById('text').textContent) === 'Delete all 2 alarms?', 'asks first');
+    ok(await page.evaluate(() => window.__alarms.length) === 2, 'nothing deleted yet');
+    await key(page, 'Enter');
+    await page.waitForTimeout(400);
+    ok(await page.evaluate(() => window.__alarms.length) === 0, 'Delete: all gone');
+    ok(await page.evaluate(() => document.getElementById('text').textContent) === 'Alarms deleted', 'answer');
+    await page.context().close();
+  }
+  {
+    const page = await say('Start the timer.');
+    ok((await log(page)).some((e) => e[0] === 'activity' && e[1] === 'view' && e[2].type === 'timer'), 'Clock opened at the timer');
+    await page.context().close();
+  }
+
   console.log('assistant: search, text, notes');
   {
     const page = await say('Search for pizza near me.');

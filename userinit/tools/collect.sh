@@ -44,6 +44,20 @@ snap getenforce.txt getenforce
 snap b2g-process-maps.txt sh -c 'cat /proc/$(getprop dev.b2g.pid)/maps'
 snap b2g-threads.txt sh -c 'P=$(getprop dev.b2g.pid); for t in /proc/$P/task/*; do echo "${t##*/} $(cat $t/comm) $(awk "{print \$14+\$15}" $t/stat)"; done'
 snap b2g-content-cmdlines.txt sh -c 'for p in $(pidof b2g); do echo "$p: $(tr "\0" " " < /proc/$p/cmdline)"; done'
+sysfs_class() {
+  for d in "$1"/*; do
+    echo "== $d -> $(readlink -f "$d")"
+    for f in "$d"/* "$d"/device/*; do
+      [ -f "$f" ] || continue
+      printf '%s %s=' "$(stat -c %A "$f")" "${f#$d/}"
+      head -c 256 "$f" 2>/dev/null | tr '\n' ' '
+      echo
+    done
+  done
+}
+snap power-supply.txt sysfs_class /sys/class/power_supply
+snap leds.txt sysfs_class /sys/class/leds
+snap api-daemon.txt sh -c 'ls -la /system/kaios /system/kaios/updater/installed; ls -laR /data/local/service'
 
 logcat -d -b all -v threadtime > $OUT/logs/logcat-all.txt 2>&1
 dmesg > $OUT/logs/dmesg.txt 2>&1
@@ -64,6 +78,10 @@ for f in /system/build.prop /vendor/build.prop /system_ext/etc/build.prop /produ
 done
 ls /*.rc > /dev/null 2>&1 && for f in /*.rc; do cp "$f" "$OUT/config/"; done
 for d in /apex/*/etc; do case "$d" in *@*) continue;; esac; copy_cfg "$d"; done
+mkdir -p $OUT/config/system/kaios
+for f in /system/kaios/*.toml /system/kaios/*.json /system/kaios/*.ver /system/kaios/updater/installed/*.toml; do
+  [ -f "$f" ] && { mkdir -p "$OUT/config$(dirname "$f")"; cp "$f" "$OUT/config$f"; }
+done
 
 cp -r /system/b2g $OUT/b2g/system-b2g
 cp -r /data/local/webapps $OUT/b2g/data-local-webapps 2>/dev/null

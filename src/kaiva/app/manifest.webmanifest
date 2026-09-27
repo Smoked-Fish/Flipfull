@@ -14,7 +14,7 @@
     { "src": "/img/kaivoice_assistant_224.png", "type": "image/png", "sizes": "224x224" }
   ],
   "b2g_features": {
-    "version": "3.0.0",
+    "version": "3.1.0",
     "origin": "kaios-voiceassistant",
     "focus_color": "#8000ff",
     "developer": { "name": "local" },

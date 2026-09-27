@@ -1,0 +1,79 @@
+<element name="home_shortcuts" extends="section">
+  <template>
+
+    <gaia-header data-href="#root">
+      <h1 slot="text">Home screen shortcuts</h1>
+    </gaia-header>
+
+    <div>
+      <header>
+        <h2>Press on the home screen</h2>
+      </header>
+      <ul role="menu">
+        <li role="menuitem" data-list="press" data-key="ArrowLeft">
+          <span>Left</span>
+          <div class="button icon icon-dialog"><select></select></div>
+        </li>
+        <li role="menuitem" data-list="press" data-key="ArrowRight">
+          <span>Right</span>
+          <div class="button icon icon-dialog"><select></select></div>
+        </li>
+        <li role="menuitem" data-list="press" data-key="ArrowUp">
+          <span>Up</span>
+          <div class="button icon icon-dialog"><select></select></div>
+        </li>
+        <li role="menuitem" data-list="press" data-key="ArrowDown">
+          <span>Down</span>
+          <div class="button icon icon-dialog"><select></select></div>
+        </li>
+      </ul>
+      <header>
+        <h2>Hold a number in the dialer</h2>
+      </header>
+      <ul role="menu">
+        <li role="menuitem" data-list="hold" data-key="0">
+          <span>Hold 0</span>
+          <div class="button icon icon-dialog"><select></select></div>
+        </li>
+        <li role="menuitem" data-list="hold" data-key="2">
+          <span>Hold 2</span>
+          <div class="button icon icon-dialog"><select></select></div>
+        </li>
+        <li role="menuitem" data-list="hold" data-key="3">
+          <span>Hold 3</span>
+          <div class="button icon icon-dialog"><select></select></div>
+        </li>
+        <li role="menuitem" data-list="hold" data-key="4">
+          <span>Hold 4</span>
+          <div class="button icon icon-dialog"><select></select></div>
+        </li>
+        <li role="menuitem" data-list="hold" data-key="5">
+          <span>Hold 5</span>
+          <div class="button icon icon-dialog"><select></select></div>
+        </li>
+        <li role="menuitem" data-list="hold" data-key="6">
+          <span>Hold 6</span>
+          <div class="button icon icon-dialog"><select></select></div>
+        </li>
+        <li role="menuitem" data-list="hold" data-key="7">
+          <span>Hold 7</span>
+          <div class="button icon icon-dialog"><select></select></div>
+        </li>
+        <li role="menuitem" data-list="hold" data-key="8">
+          <span>Hold 8</span>
+          <div class="button icon icon-dialog"><select></select></div>
+        </li>
+        <li role="menuitem" data-list="hold" data-key="9">
+          <span>Hold 9</span>
+          <div class="button icon icon-dialog"><select></select></div>
+        </li>
+        <li role="menuitem" class="description none-select text-paragraph">
+          <span>An app set for a number replaces its speed dial contact. Holding 1 always calls voicemail.</span>
+        </li>
+      </ul>
+    </div>
+
+    <panel data-path="panels/home_shortcuts/panel"></panel>
+
+  </template>
+</element>

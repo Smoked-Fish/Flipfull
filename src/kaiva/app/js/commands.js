@@ -115,6 +115,146 @@
   const SEARCH = /^(?:search(?: the web| the internet| online| google| on google| the net)?(?: for)?|google|look up|look for|find me|find|search up|web search(?: for)?)(?: about)? (.+)$/;
   const QUESTION = /^(?:what|what's|whats|who|who's|where|where's|when|why|how|which|whose|define|meaning of)\b/;
 
+  const ALARM_SET = [
+    /^(?:set|make|create|add|put|schedule)(?: up)?(?: me)?(?: an?| the| my| new| another)* alarms?(?: clock)?(?: (?:for|at|to|on))?(?: (.+))?$/,
+    /^(?:wake|get) me(?: up)?(?: (?:at|by|for))?(?: (.+))?$/,
+    /^alarm (?:for |at )?(.+)$/,
+  ];
+  const ALARM_LIST = [
+    /^(?:what|which)(?: are| is)?(?: all)?(?: my| the)? alarms?(?: (?:do i have|are set|have i set|i have|is set))?$/,
+    /^(?:show|list|check|see|read|tell)(?: me)?(?: all)?(?: my| the)? alarms?$/,
+    /^when(?:'s| is| will| does)? my(?: next)? alarm(?: (?:go off|ring|going off|set for))?$/,
+    /^(?:do i have|have i set|is there|are there|did i set) (?:an? |any )?alarms?(?: set)?$/,
+    /^(?:my )?alarms?$/,
+  ];
+  const ALARM_DELETE = /^(?:cancel|delete|remove|clear|turn off|disable|switch off|unset|get rid of)( all)?(?: of)?(?: my| the| that)?(?: (.+?))? (alarms?)(?: (?:for|at) (.+))?$/;
+  const CLOCK_TAB = /^(?:(?:set|start|open|show)(?: me)?(?: an?| the| my)? )?(timer|stopwatch|stop watch)(?: (?:for|of) .+)?$/;
+
+  const NUMBERS = {
+    zero: 0, oh: 0, o: 0, one: 1, two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7,
+    eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14,
+    fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20,
+    thirty: 30, forty: 40, fourty: 40, fifty: 50, sixty: 60, seventy: 70, eighty: 80, ninety: 90,
+    a: 1, an: 1,
+  };
+
+  function numberList(words) {
+    const out = [];
+    for (let i = 0; i < words.length; i++) {
+      const w = words[i];
+      let n = /^\d+$/.test(w) ? parseInt(w, 10) : NUMBERS[w];
+      if (n === undefined) {
+        return null;
+      }
+      const next = NUMBERS[words[i + 1]];
+      if (n >= 20 && n % 10 === 0 && next !== undefined && next > 0 && next < 10) {
+        n += next;
+        i++;
+      } else if ((w === 'oh' || w === 'o') && next !== undefined && next < 10) {
+        n = next;
+        i++;
+      }
+      out.push(n);
+    }
+    return out;
+  }
+
+  function clockTime(s) {
+    let t = ` ${String(s || '').replace(/-/g, ' ')} `.replace(/\s+/g, ' ');
+    let day = null;
+    let meridiem = null;
+    t = t.replace(/ (tomorrow|today|tonight)(?: (morning|afternoon|evening|night))? /, (m, d, part) => {
+      day = d === 'tomorrow' ? 'tomorrow' : 'today';
+      if (d === 'tonight' || /afternoon|evening|night/.test(part || '')) meridiem = 'pm';
+      if (part === 'morning') meridiem = 'am';
+      return ' ';
+    });
+    t = t.replace(/ (?:in the |this |at )?(morning|afternoon|evening|night)(?: time)? /, (m, part) => {
+      meridiem = part === 'morning' ? 'am' : 'pm';
+      return ' ';
+    });
+    t = t.replace(/ (a ?m|p ?m)(?= )/, (m, x) => {
+      meridiem = x[0] === 'a' ? 'am' : 'pm';
+      return ' ';
+    });
+    t = t.replace(/ (?:o'clock|oclock|o clock|sharp|exactly|on the dot)(?= )/g, ' ').trim()
+      .replace(/^(?:at|for|by|around|about) /, '');
+
+    const rel = t.match(/^in (?:(.+?) (hours?|hrs?)(?: and (.+?) (?:minutes?|mins?))?|(.+?) (?:minutes?|mins?))$/);
+    if (rel || /^in (?:an?|one) hour and a half$/.test(t) || /^in half an hour$/.test(t)) {
+      if (/^in half an hour$/.test(t)) return { inMinutes: 30 };
+      if (/and a half$/.test(t)) return { inMinutes: 90 };
+      const count = (words) => {
+        const n = numberList(words.split(' '));
+        return n && n.length === 1 ? n[0] : null;
+      };
+      const hours = rel[1] ? count(rel[1]) : 0;
+      const minutes = rel[3] ? count(rel[3]) : rel[4] ? count(rel[4]) : 0;
+      if (hours === null || minutes === null || hours * 60 + minutes <= 0 || hours > 23) return null;
+      return { inMinutes: hours * 60 + minutes };
+    }
+
+    let hour = null;
+    let minute = 0;
+    let m;
+    if (/^(?:noon|midday|12 noon)$/.test(t)) {
+      return { hour: 12, minute: 0, meridiem: null, day };
+    }
+    if (t === 'midnight') {
+      return { hour: 0, minute: 0, meridiem: null, day };
+    }
+    if ((m = t.match(/^(?:(a )?quarter|half|(.+?)(?: minutes?)?) (past|after|to|till|before) (.+)$/))) {
+      const base = numberList(m[4].split(' '));
+      const off = m[1] !== undefined || /^(?:a )?quarter/.test(t) ? 15 : /^half/.test(t) ? 30 :
+        (numberList(m[2].split(' ')) || [])[0];
+      if (!base || base.length !== 1 || off === undefined || off >= 60) return null;
+      hour = base[0];
+      minute = /past|after/.test(m[3]) ? off : 60 - off;
+      if (!/past|after/.test(m[3])) hour = (hour + 23) % 24;
+    } else if ((m = t.match(/^(\d{1,2})(\d{2})$/))) {
+      hour = parseInt(m[1], 10);
+      minute = parseInt(m[2], 10);
+    } else {
+      const n = numberList(t.split(' '));
+      if (!n || !n.length || n.length > 2) return null;
+      [hour, minute = 0] = n;
+    }
+    if (hour > 23 || minute > 59 || (meridiem && (hour > 12 || hour === 0))) return null;
+    if (meridiem) {
+      hour = (hour % 12) + (meridiem === 'pm' ? 12 : 0);
+    }
+    return { hour, minute, meridiem, day };
+  }
+
+  function alarmDate(when, now) {
+    const base = new Date(now.getTime());
+    if (when.inMinutes) {
+      return new Date(base.getTime() + when.inMinutes * 60000);
+    }
+    const hours = when.meridiem || when.hour === 0 || when.hour > 12 ? [when.hour] :
+      when.hour === 12 ? [12, 0] : [when.hour, when.hour + 12];
+    let best = null;
+    for (const h of hours) {
+      const d = new Date(base.getTime());
+      d.setHours(h, when.minute, 0, 0);
+      if (when.day === 'tomorrow') {
+        d.setDate(d.getDate() + 1);
+        d.setHours(h, when.minute, 0, 0);
+      } else if (d <= base) {
+        d.setDate(d.getDate() + 1);
+        d.setHours(h, when.minute, 0, 0);
+      }
+      if (!best || d < best) best = d;
+    }
+    return best;
+  }
+
+  function alarmMatches(alarm, when) {
+    if (!when || when.inMinutes || alarm.minute !== when.minute) return false;
+    if (when.meridiem || when.hour === 0 || when.hour > 12) return alarm.hour === when.hour;
+    return alarm.hour % 12 === when.hour % 12;
+  }
+
   const TOGGLES = [
     ['wifi', /^(?:the )?(?:wifi|wi fi|wireless)(?: connection)?$/],
     ['bluetooth', /^(?:the )?blue ?tooth$/],
@@ -201,6 +341,24 @@
     if (TIME.test(short)) return intent('time');
     if (DATE.test(short)) return intent('date');
     if (BATTERY.test(short)) return intent('battery');
+
+    for (const re of ALARM_SET) {
+      if ((m = short.match(re))) {
+        const when = m[1] ? clockTime(m[1]) : null;
+        if (!m[1] || when) return intent('alarm', { when, said: m[1] || '' });
+      }
+    }
+    if (ALARM_LIST.some((re) => re.test(short))) return intent('alarms');
+    if ((m = short.match(ALARM_DELETE))) {
+      const said = m[4] || m[2] || '';
+      const when = said && !/^(?:all|every|each|any)$/.test(said) ? clockTime(said) : null;
+      if (!said || when || /^(?:all|every|each|any)$/.test(said)) {
+        return intent('alarm-cancel', { when, all: !!m[1] || !when && (m[3] === 'alarms' || /^(?:all|every)$/.test(said)) });
+      }
+    }
+    if ((m = short.match(CLOCK_TAB))) {
+      return intent('clock', { tab: m[1] === 'timer' ? 'timer' : 'stopwatch' });
+    }
 
     if ((m = t.match(NOTE))) {
       return intent('note', { body: m[1] ? rawOf(suffixStart(m[1])) : '' });
@@ -380,7 +538,7 @@
   }
 
   Object.assign(exports, {
-    parse, normWord, simplify, nameScore, phoneNumber, settingsPage,
+    parse, normWord, simplify, nameScore, phoneNumber, settingsPage, clockTime, alarmDate, alarmMatches,
     matchApp, matchContact, pickNumber, splitRecipient, contactNames, MIN_SCORE,
   });
 })(typeof module !== 'undefined' ? module.exports : (window.Commands = {}));

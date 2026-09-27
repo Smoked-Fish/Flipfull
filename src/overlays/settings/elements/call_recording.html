@@ -1,0 +1,47 @@
+<element name="call_recording" extends="section">
+  <template>
+
+    <gaia-header data-href="#call">
+      <h1 slot="text">Call recording</h1>
+    </gaia-header>
+
+    <div>
+      <ul role="menu">
+        <li role="menuitem">
+          <span>Record calls</span>
+          <div class="button icon icon-dialog">
+            <select data-name="callrecording.mode">
+              <option data-l10n-id="off" value="off" selected="selected"></option>
+              <option value="manual">When I press Left</option>
+              <option value="auto">Every call</option>
+            </select>
+          </div>
+        </li>
+        <li role="menuitem" class="description none-select text-paragraph">
+          <span>During a call, press Left to start or stop recording (with "Every call", recording starts when the call connects). Recordings are saved to the callrecording folder of the default media location (Settings, Storage). Some places require everyone on the call to agree to being recorded.</span>
+        </li>
+        <li role="menuitem">
+          <span>Show a notice when recording starts</span>
+          <div class="button icon icon-dialog">
+            <select data-name="callrecording.notification.enabled" data-value-type="boolean">
+              <option data-l10n-id="on" value="true"></option>
+              <option data-l10n-id="off" value="false" selected="selected"></option>
+            </select>
+          </div>
+        </li>
+        <li role="menuitem">
+          <span>Vibrate when recording starts</span>
+          <div class="button icon icon-dialog">
+            <select data-name="callrecording.vibration.enabled" data-value-type="boolean">
+              <option data-l10n-id="on" value="true"></option>
+              <option data-l10n-id="off" value="false" selected="selected"></option>
+            </select>
+          </div>
+        </li>
+      </ul>
+    </div>
+
+    <panel data-path="panels/call_recording/panel"></panel>
+
+  </template>
+</element>
