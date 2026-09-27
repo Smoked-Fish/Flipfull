@@ -3,8 +3,10 @@
     python flip4.py build [target ...]   rebuild overlays + apps into userinit/
     python flip4.py install [--reboot]   put userinit/ on the phone (builds first)
                   [--keep-folders]       ... keeping the launcher's Games / Utilities folders
+    python flip4.py install-app ZIP      install a local application.zip as an app
     python flip4.py status               what is installed and running
     python flip4.py restart [app ...]    restart the UI (b2g), or just those apps
+    python flip4.py mon NAME...          memory and CPU of processes, every second
     python flip4.py removable [...]      pick which preloaded apps can be uninstalled
     python flip4.py backup [DIR]         copy contacts, messages, settings, app data to the PC
     python flip4.py restore DIR          put a backup back on the phone
@@ -31,6 +33,8 @@ APPS_SOCK = "/data/local/tmp/apps-uds.sock"
 KAIVA_URL = "http://kaios-voiceassistant.localhost/manifest.webmanifest"
 QR_URL = "http://qrreader.localhost/manifest.webmanifest"
 APPS_DB = "/data/local/webapps/db/apps.sqlite"
+SQLITE = "bin/sqlite3"
+OVERLAYS = "overlays"
 REMOVABLE_LIST = f"{UI}/removable-apps"
 CORE_APPS = {
     "system": "the whole phone UI", "shared": "code every app uses", "launcher": "home screen",
@@ -110,12 +114,22 @@ def installed_apps():
     return str(apps_cmd("list").get("success") or "")
 
 
+def app_db_names():
+    out = sh(f"{UI}/{SQLITE} -init /dev/null {APPS_DB} "
+             "'SELECT name FROM apps WHERE preloaded = 1'", check=False)
+    names = {line.strip() for line in out.splitlines() if line.strip()}
+    if not names:
+        sys.exit(f"couldn't read the app names from {APPS_DB} with {UI}/{SQLITE}:\n{out}")
+    return names
+
+
 def install_package(name):
     tmp_zip = f"/data/local/tmp/userinit-{name}.zip"
     sh(f"cp {UI}/apps/{name}/application.zip {tmp_zip} && chmod 0644 {tmp_zip}")
     r = apps_cmd("install", tmp_zip)
     sh(f"rm -f {tmp_zip}", check=False)
     return r
+
 
 def install_app_zip(zip_path):
     zip_path = Path(zip_path)
@@ -134,14 +148,14 @@ def install_app_zip(zip_path):
     try:
         sh(f"chmod 0644 '{remote}'")
         r = apps_cmd("install", remote)
-
-        if not apps_ok(r):
-            print(f"app install failed: {r}")
-            sys.exit(1)
-
-        print(f"app installed: {zip_path.name}")
     finally:
         sh(f"rm -f '{remote}'", check=False)
+
+    if not apps_ok(r):
+        print(f"app install failed: {r}")
+        return False
+    print(f"app installed: {zip_path.name}")
+    return True
 
 
 def install_qrreader():
@@ -178,6 +192,18 @@ def install_kaiva():
 def local_files():
     return sorted(p.relative_to(LOCAL).as_posix() for p in LOCAL.rglob("*")
                   if p.is_file() and p.name != ".gitkeep")
+
+
+def split_overlays(files, known):
+
+    missing = {}
+    for f in files:
+        parts = f.split("/")
+        if (len(parts) == 3 and parts[0] == OVERLAYS and parts[2] == "application.zip"
+                and parts[1] not in known):
+            missing[parts[1]] = f
+    skipped = tuple(f"{OVERLAYS}/{app}/" for app in missing)
+    return [f for f in files if not f.startswith(skipped)], missing
 
 
 def check_line_endings(files):
@@ -241,6 +267,14 @@ def cmd_install(args):
 
     sh(f"rm -f {UI}/uninstall")
     sh(f"mkdir -p {UI}")
+
+    if SQLITE in files:
+        push_changed([SQLITE])
+        sh(f"chmod 0755 {UI}/{SQLITE}")
+    files, as_apps = split_overlays(files, app_db_names())
+    for app in sorted(as_apps):
+        print(f"{app}: not a preloaded app on the phone - installing it as an app, not an overlay")
+
     changed = push_changed(files)
     print(f"userinit/: {len(changed)} of {len(files)} files changed and pushed")
 
@@ -267,14 +301,18 @@ def cmd_install(args):
 
     install_kaiva()
     install_qrreader()
+    for app, f in sorted(as_apps.items()):
+        print(f"{app}:", "installed" if install_app_zip(LOCAL / f) else "not installed")
 
     print(sh(f"sh {UI}/boot-completed.d/50-services.sh", check=False))
     print("Overlays and Gecko prefs apply at the next boot.")
     finish(args, "installed")
 
+
 def cmd_install_app(args):
     require_root()
-    install_app_zip(args.application)
+    if not install_app_zip(args.application):
+        sys.exit(1)
 
 
 def cmd_status(args):
@@ -322,6 +360,18 @@ def cmd_restart(args):
     sys.exit(r.returncode)
 
 
+def cmd_mon(args):
+    require_root()
+    script = f"{UI}/tools/mon.sh"
+    if not sh(f"ls {script} 2>/dev/null", check=False):
+        sys.exit("the phone's userinit is older than this command - run `flip4.py install` first")
+    names = " ".join(f"'{n}'" for n in args.names)
+    try:
+        subprocess.run([ADB, "shell", f"sh {script} -i {args.interval} {names}"])
+    except KeyboardInterrupt:
+        print()
+
+
 def cmd_cleanup(args):
     require_root()
     script = f"{UI}/tools/cleanup-old.sh"
@@ -357,7 +407,7 @@ def cmd_uninstall(args):
 
 
 def preloaded_apps(quiet=False):
-    out = sh(f"{UI}/bin/sqlite3 -init /dev/null -separator '|' {APPS_DB} "
+    out = sh(f"{UI}/{SQLITE} -init /dev/null -separator '|' {APPS_DB} "
              "'SELECT name, removable FROM apps WHERE preloaded = 1 ORDER BY name'", check=False)
     apps = []
     for line in out.splitlines():
@@ -365,7 +415,7 @@ def preloaded_apps(quiet=False):
         if name and flag in ("0", "1"):
             apps.append((name, flag == "1"))
     if not apps and not quiet:
-        sys.exit(f"couldn't read {APPS_DB} with {UI}/bin/sqlite3 - run `flip4.py install` first")
+        sys.exit(f"couldn't read {APPS_DB} with {UI}/{SQLITE} - run `flip4.py install` first")
     return apps
 
 
@@ -591,6 +641,13 @@ def main():
     ia = sub.add_parser("install-app", help="install a local application.zip on the phone")
     ia.add_argument("application", metavar="application.zip",
                     help="path to the application.zip on the PC")
+    mn = sub.add_parser("mon", help="memory (RSS) and CPU of processes every second, until Ctrl-C",
+                        description="NAME is a process name (stt-server, callrecd, b2g, api-daemon, "
+                        "an app: launcher, settings, ...) or, if nothing has that name, text in a "
+                        "command line (CallRec: the call recorder while recording). CPU is % of "
+                        "one core; the phone has 8.")
+    mn.add_argument("names", nargs="+", metavar="NAME")
+    mn.add_argument("-i", "--interval", type=int, default=1, metavar="SECONDS")
     r = sub.add_parser("removable", help="choose which preloaded apps can be uninstalled "
                        "(interactive without options)")
     g = r.add_mutually_exclusive_group()
@@ -618,9 +675,9 @@ def main():
     if args.cmd != "build":
         ADB = find_adb()
     {"build": cmd_build, "install": cmd_install, "install-app": cmd_install_app,
-    "status": cmd_status, "restart": cmd_restart, "removable": cmd_removable,
-    "backup": cmd_backup, "restore": cmd_restore, "cleanup": cmd_cleanup,
-    "uninstall": cmd_uninstall}[args.cmd](args)
+     "status": cmd_status, "restart": cmd_restart, "mon": cmd_mon, "removable": cmd_removable,
+     "backup": cmd_backup, "restore": cmd_restore, "cleanup": cmd_cleanup,
+     "uninstall": cmd_uninstall}[args.cmd](args)
 
 
 if __name__ == "__main__":

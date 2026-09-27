@@ -9,7 +9,7 @@ fi
 
 apps() {
     for p in /proc/[0-9]*; do
-        case "$(tr '\0' ' ' < "$p/cmdline" 2>/dev/null)" in
+        case "$(tr '\0' ' ' 2>/dev/null < "$p/cmdline")" in
             *b2g*" tab"*) cat "$p/comm" 2>/dev/null ;;
         esac
     done | sort -u | tr '\n' ' '

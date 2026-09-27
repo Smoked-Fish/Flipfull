@@ -2,7 +2,6 @@
 
 (function(exports) {
   const PRESS_KEY = 'home.customization.keypress';
-  const HOLD_KEY = 'home.customization.longpress';
   const INFO_EVENT = 'flipfull-outer-info';
 
   function log(msg) {
@@ -16,49 +15,14 @@
   }
 
   function startShortcuts() {
-    let pending = false;
-
-    function homescreen() {
-      try {
-        return window.homescreenLauncher && window.homescreenLauncher.ready ?
-          window.homescreenLauncher.getHomescreen() : null;
-      } catch (e) {
-        return null;
+    SettingsObserver.observe(PRESS_KEY, null, function seed(value) {
+      SettingsObserver.unobserve(PRESS_KEY, seed);
+      if (value === null) {
+        SettingsObserver.setValue([{ name: PRESS_KEY, value: [
+          { key: 'ArrowRight', type: 'manifestUrl', url: manifestURL('camera') }
+        ] }]);
       }
-    }
-
-    function reloadIfHidden() {
-      if (!pending) {
-        return;
-      }
-      const home = homescreen();
-      const top = window.Service && window.Service.query('getTopMostWindow');
-      if (!home || (top && top.isHomescreen)) {
-        return;
-      }
-      pending = false;
-      log('home screen shortcuts changed: reloading the launcher');
-      home.reload();
-    }
-
-    [PRESS_KEY, HOLD_KEY].forEach(key => {
-      let first = true;
-      SettingsObserver.observe(key, null, value => {
-        if (first) {
-          first = false;
-          if (key === PRESS_KEY && value === null) {
-            SettingsObserver.setValue([{ name: PRESS_KEY, value: [
-              { key: 'ArrowRight', type: 'manifestUrl', url: manifestURL('camera') }
-            ] }]);
-          }
-          return;
-        }
-        pending = true;
-        reloadIfHidden();
-      });
     });
-    ['appopened', 'hierarchytopmostwindowchanged', 'lockscreen-appopened']
-      .forEach(type => window.addEventListener(type, reloadIfHidden));
   }
 
   const MEDIA = {

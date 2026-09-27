@@ -44,7 +44,7 @@ KEEP_FOLDERS = [
 CALL_RECORDING_ITEM = (
     '        <li role="menuitem" id="call-recording-item">\n'
     '          <a class="menu-item">\n'
-    '            <span>Call recording</span>\n'
+    '            <span>Call Recording</span>\n'
     '          </a>\n'
     '        </li>\n\n')
 ASSISTED_DIALING_ITEM = "        <li role=\"menuitem\" id='menuItem-assisted-dialing' class=\"hidden\">\n"
@@ -52,7 +52,7 @@ DISPLAY_ITEM = ('              <a id="menuItem-display" class="menu-item" href="
                 'data-l10n-id="display">Display</a>\n            </li>\n')
 HOME_SHORTCUTS_ITEM = ('            <li role="menuitem">\n'
                        '              <a id="menuItem-homeShortcuts" class="menu-item" '
-                       'href="#home_shortcuts">Home screen shortcuts</a>\n'
+                       'href="#home_shortcuts">Home Screen Shortcuts</a>\n'
                        '            </li>\n')
 NETWORK_TYPE_HIDING = (
     "        elements.networkType.classList.add('hidden');\n"
@@ -74,9 +74,19 @@ EVENT_LOGGER_START = (
     'window.isJioApplication=!0});else{const e=new Cs;e.start(),window.evlm=e}'
     'SettingsObserver.unobserve("metrics.type",e)});')
 
+def zip_names(app):
+    with zipfile.ZipFile(BASE / app / "application.zip") as z:
+        return z.namelist()
+
+
 OVERLAYS = {
     "launcher": {
         "patches": [
+            ("dist/app.bundle.js",
+             'ee.default.getSettings().then(function(t){e.forceSettings=t,',
+             'ee.default.getSettings().then(function(t){e.forceSettings=t,'
+             '["home.customization.keypress","home.customization.longpress"].forEach(function(k){'
+             'SettingsObserver.observe(k,null,function(v){e.forceSettings[k]=v})}),'),
             ("dist/app.bundle.js",
              'if("TF"===s.default.getBuildOperatorName()&&"kaios-voiceassistant"===e.name)return!0;',
              ''),
@@ -155,6 +165,19 @@ OVERLAYS = {
             ("js/call_recording.js", 't=S(l)', 't=FlipfullCallRec.ext||S(l)'),
         ],
     },
+    "music": {
+        "remove": ["js/ads/kaiads.v5.min.js", ".KaiAds.appinfo.json",
+                   "js/ui/banner_ad.js", "js/icecast/radio_ad.js",
+                   "js/db.js", "js/ui/views/list_view.js",
+                   "js/ui/views/mainlist_view.js", "js/icecast/icecast_view.js"],
+        "rewrites": [
+            ("js/bind.js", lambda text: music_bind(text)),
+            ("js/music.js", lambda text: music_app(text)),
+            ("index.html", lambda text: music_index(text)),
+            ("style/main.css", lambda text: music_css(text)),
+        ] + [(m, lambda text: music_manifest(text)) for m in zip_names("music")
+             if m.startswith("manifest") and m.endswith(".webmanifest")],
+    },
     "keyboard": {
         "splices": [
             ("js/keypad.js",
@@ -197,6 +220,138 @@ def google_oauth(text):
     return text
 
 
+def js_group_end(text, i):
+    stack = []
+    j = i
+    while j < len(text):
+        c = text[j]
+        top = stack[-1] if stack else None
+        if top in ('"', "'"):
+            if c == "\\":
+                j += 1
+            elif c == top:
+                stack.pop()
+        elif top == "`":
+            if c == "\\":
+                j += 1
+            elif c == "`":
+                stack.pop()
+            elif text.startswith("${", j):
+                stack.append("${")
+                j += 1
+        elif c in "\"'`":
+            stack.append(c)
+        elif c in "({[" :
+            stack.append(c)
+        elif c in ")}]":
+            stack.pop()
+            if not stack:
+                return j + 1
+        j += 1
+    fail(f"unbalanced group at {i}")
+
+
+def cut(text, start, what, then=""):
+    if text.count(start) != 1 or start[-1] not in "({[":
+        fail(f"music: {what}: found {text.count(start)} times, expected 1")
+    i = text.index(start)
+    j = js_group_end(text, i + len(start) - 1)
+    if then:
+        if not text.startswith(then, j):
+            fail(f"music: {what}: expected {then!r} after it")
+        j += len(then)
+    return text[:i] + text[j:]
+
+
+def replace_exact(text, old, new, what, count=1):
+    if text.count(old) != count:
+        fail(f"music: {what}: found {text.count(old)} times, expected {count}")
+    return text.replace(old, new)
+
+
+def check_no_ads(text, path):
+    left = [w for w in ("getKaiAd", "BannerAd", "RadioAd", "banner-ad", "FullscreenAd", "kaiads",
+                        "BANNER_AD", "RADIO_AD", "musicBannerAd", "radioBannerAd", "ads-sdk")
+            if w in text]
+    if left:
+        fail(f"music: {path} still mentions {', '.join(left)}")
+    return text
+
+
+def music_bind(text):
+    text = cut(text, "BannerAd={", "BannerAd", then=",")
+    text = cut(text, "var RadioAd={", "RadioAd", then=";")
+    text = cut(text, "function showFullscreenAd(){", "showFullscreenAd")
+    text = replace_exact(text, 'const BANNER_AD_STATES={NOT_INITIALIZED:"NOT_INITIALIZED",ERROR:"ERROR",'
+                         'LOADING:"LOADING",READY:"READY"},FULL_COLLAPSE_ANIMATION_DURATION_MS=500;', "",
+                         "banner states")
+    text = replace_exact(text, 'const RADIO_AD_STATES={NOT_INITIALIZED:"NOT_INITIALIZED",ERROR:"ERROR",'
+                         'LOADING:"LOADING",READY:"READY"},RADIO_FULL_COLLAPSE_ANIMATION_DURATION_MS=500;', "",
+                         "radio ad states")
+    text = replace_exact(text, ',0<Number(window.localStorage.getItem("musicCount"))&&!BannerAd.initialized'
+                         '&&BannerAd.init()', "", "banner start", count=2)
+    text = replace_exact(text, ",RadioAd.initialized||RadioAd.init()", "", "radio ad start")
+    text = replace_exact(text, "if(this.anchor.lastChild)for(;!BannerAd.isBannerAdNode(this.anchor.lastChild);)"
+                         "this.anchor.removeChild(this.anchor.lastChild)",
+                         "for(;this.anchor.lastChild;)this.anchor.removeChild(this.anchor.lastChild)",
+                         "song list clean-up")
+    text = replace_exact(text, "{if(RadioAd.isBannerAdNode(this.anchor.lastChild))return;"
+                         "this.anchor.removeChild(this.anchor.lastChild)}",
+                         "this.anchor.removeChild(this.anchor.lastChild)", "radio list clean-up")
+    text = replace_exact(text, "removeNodewithoutBanner", "removeAllNodes", "clean-up name", count=2)
+    text = replace_exact(text, ",showFullscreenAd())", ")", "fullscreen ad at start")
+    text = replace_exact(text, '"function"==typeof getKaiAd&&', "", "full version (list back key)")
+    text = replace_exact(text, '"function"!=typeof getKaiAd||', "", "full version (start)")
+    return check_no_ads(text, "js/bind.js")
+
+
+def music_app(text):
+    text = replace_exact(text, "    let isShowFullscreenAds = false;\n", "", "fullscreen ad flag")
+    text = replace_exact(text, "            if (!isShowFullscreenAds) {\n"
+                         "                showFullscreenAd();\n"
+                         "            }\n", "", "fullscreen ad on return")
+    text = replace_exact(text, "typeof getKaiAd === 'function' && e.key !== 'EndCall'",
+                         "e.key !== 'EndCall'", "full version (overlay back key)")
+    start = "        if (typeof getKaiAd !== 'function' && document.hidden"
+    if text.count(start) != 1:
+        fail("music: js/music.js: list-only version block changed")
+    i = text.index(start)
+    cond_end = js_group_end(text, text.index("(", i))
+    block = text.index("{", cond_end)
+    if text[cond_end:block].strip():
+        fail("music: js/music.js: list-only version block changed")
+    end = js_group_end(text, block)
+    text = text[:i] + text[end:].lstrip(" ").lstrip("\n")
+    return check_no_ads(text, "js/music.js")
+
+
+def music_index(text):
+    text = replace_exact(text, '    <script src="js/ads/kaiads.v5.min.js"></script>\n', "", "SDK loader")
+    for f in ("js/ui/banner_ad.js", "js/icecast/radio_ad.js"):
+        text = replace_exact(text, f'    <!-- <script defer type="text/javascript" data-src="{f}"></script> -->\n',
+                             "", f)
+    for prefix in ("", "i-"):
+        start = f'            <div id="{prefix}banner-ad-placeholder">'
+        end = f'<div id="{prefix}banner-ad-container" tabindex="-1"></div>\n'
+        if text.count(start) != 1 or text.count(end) != 1:
+            fail(f"music: {prefix}banner placeholder markup changed")
+        text = text[:text.index(start)] + text[text.index(end) + len(end):]
+    return check_no_ads(text, "index.html")
+
+
+def music_css(text):
+    import re
+    text, n = re.subn(r"[^{}]*banner-ad[^{}]*\{[^}]*\}", "", text)
+    if n < 3:
+        fail(f"music: expected the banner styles in style/main.css, found {n} rules")
+    return check_no_ads(text, "style/main.css")
+
+
+def music_manifest(text):
+    text = replace_exact(text, ',"dependencies":{"ads-sdk":"1.4.5"}', "", "ads-sdk dependency")
+    return check_no_ads(text, "manifest.webmanifest")
+
+
 def patch_text(name, path, text, cfg):
     for p_path, rewrite in cfg.get("rewrites", []):
         if p_path == path:
@@ -232,7 +387,14 @@ def build_overlay(name):
     tmp = out / "application.zip.tmp"
     seen = set()
     with zipfile.ZipFile(base / "application.zip") as zin, zipfile.ZipFile(tmp, "w") as zout:
+        remove = set(cfg.get("remove", []))
+        missing = remove - set(zin.namelist())
+        if missing:
+            tmp.unlink()
+            fail(f"{name}: files to remove not in the base zip: {sorted(missing)}")
         for info in zin.infolist():
+            if info.filename in remove:
+                continue
             data = added.pop(info.filename, None)
             if data is None:
                 data = zin.read(info.filename)
@@ -248,7 +410,8 @@ def build_overlay(name):
         tmp.unlink()
         fail(f"{name}: files to patch not in the base zip: {sorted(targets - seen)}")
     tmp.replace(out / "application.zip")
-    shutil.copyfile(base / "manifest.webmanifest", out / "manifest.webmanifest")
+    if (base / "manifest.webmanifest").exists():
+        shutil.copyfile(base / "manifest.webmanifest", out / "manifest.webmanifest")
     print(f"{name:10} -> {(out / 'application.zip').relative_to(ROOT)} "
           f"({(out / 'application.zip').stat().st_size} bytes)")
 

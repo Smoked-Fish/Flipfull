@@ -16,7 +16,7 @@ WORK=/data/local/tmp/callrec
 
 recorders() {
     for p in /proc/[0-9]*; do
-        case "$(tr '\0' ' ' < "$p/cmdline" 2>/dev/null)" in
+        case "$(tr '\0' ' ' 2>/dev/null < "$p/cmdline")" in
             *" CallRec $WORK"*) echo "${p#/proc/}" ;;
         esac
     done
