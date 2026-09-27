@@ -27,6 +27,12 @@ OVERLAYS = {
              'case"ArrowLeft":break;case"ArrowDown":',
              'case"ArrowLeft":break;case"ArrowRight":O.default.launch("manifestUrl",'
              'window.AppOrigin.getManifestURL("camera"));break;case"ArrowDown":'),
+            ("dist/app.bundle.js",
+             'if("TF"===s.default.getBuildOperatorName()&&"kaios-voiceassistant"===e.name)return!0;',
+             ''),
+            ("dist/app.bundle.js",
+             'if("TMO"===s.default.getBuildOperatorName()&&"kaios-voiceassistant"===e.name)return!0;',
+             ''),
         ],
     },
     "shared": {
@@ -159,9 +165,9 @@ def build_overlay(name):
           f"({(out / 'application.zip').stat().st_size} bytes)")
 
 
-def build_dictate():
-    app = SRC / "stt" / "app"
-    out = USERINIT / "apps" / "dictate"
+def build_kaiva():
+    app = SRC / "kaiva" / "app"
+    out = USERINIT / "apps" / "kaiva"
     out.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(out / "application.zip", "w", zipfile.ZIP_DEFLATED) as z:
         for path in sorted(app.rglob("*")):
@@ -169,10 +175,10 @@ def build_dictate():
                 zi = zipfile.ZipInfo(path.relative_to(app).as_posix(), date_time=(2026, 1, 1, 0, 0, 0))
                 zi.external_attr = 0o644 << 16
                 z.writestr(zi, path.read_bytes(), compress_type=zipfile.ZIP_DEFLATED)
-    print(f"{'dictate':10} -> {(out / 'application.zip').relative_to(ROOT)}")
+    print(f"{'kaiva':10} -> {(out / 'application.zip').relative_to(ROOT)}")
 
 
-TARGETS = {**{n: (lambda n=n: build_overlay(n)) for n in OVERLAYS}, "dictate": build_dictate}
+TARGETS = {**{n: (lambda n=n: build_overlay(n)) for n in OVERLAYS}, "kaiva": build_kaiva}
 
 
 def build(names=None):

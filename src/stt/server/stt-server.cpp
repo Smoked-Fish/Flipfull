@@ -36,7 +36,7 @@ struct Config {
     bool short_ctx = true;
     int min_ctx = 320;
     std::string lang = "en";
-    std::vector<std::string> origins = {"http://dictate.localhost"};
+    std::vector<std::string> origins = {"http://kaios-voiceassistant.localhost"};
     std::string file;
     int bench = 1;
     bool verbose = false;
@@ -589,7 +589,7 @@ void usage(const char * argv0) {
         "  --idle SECONDS    free the model after this long unused (default 15)\n"
         "  --lang CODE       spoken language (default en)\n"
         "  --origin URL      allowed browser Origin, repeatable, '*' = any\n"
-        "                    (default http://dictate.localhost)\n"
+        "                    (default http://kaios-voiceassistant.localhost)\n"
         "  --uid N [--gid N] drop root to this uid/gid after binding\n"
         "  --full-ctx        always encode the full 30 s window (slower)\n"
         "  --min-ctx N       smallest encoder window in 20 ms frames (default 320)\n"

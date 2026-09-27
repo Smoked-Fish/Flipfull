@@ -11,6 +11,7 @@ MODEL=$DIR/models/ggml-base.en-q5_1.bin
 THREADS=4
 IDLE=15
 PORT=8321
+ORIGIN=http://kaios-voiceassistant.localhost
 RUN_UID=9999
 
 [ -f "$DIR/stt.conf" ] && . "$DIR/stt.conf"
@@ -58,7 +59,7 @@ start() {
 
     stop
     setsid "$BIN" --model "$MODEL" --threads "$THREADS" --idle "$IDLE" --port "$PORT" \
-        --uid "$RUN_UID" </dev/null >>"$LOG" 2>&1 &
+        --origin "$ORIGIN" --uid "$RUN_UID" </dev/null >>"$LOG" 2>&1 &
     sleep 1
 
     P=$(pids_of stt-server)

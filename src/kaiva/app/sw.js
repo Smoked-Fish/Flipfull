@@ -8,6 +8,7 @@ self.addEventListener('activate', (event) => {
 
 let handler = null;
 let release = null;
+let assistant = null;
 
 function finish() {
   handler = null;
@@ -22,9 +23,20 @@ self.onsystemmessage = (evt) => {
     return;
   }
   const request = evt.data.webActivityRequestHandler();
-  if (request.source.name === 'voice-assistant') {
-    evt.waitUntil(clients.openWindow('/index.html').catch(
-      (err) => console.error(`Dictate: openWindow failed: ${err}`)));
+  const source = request.source;
+
+  if (source.name === 'voice-assistant') {
+    assistant = { data: source.data || {}, at: Date.now() };
+    evt.waitUntil(
+      clients.openWindow('/index.html#voice-assistant').then(
+        (win) => win && win.postMessage({ type: 'assistant', data: assistant.data }),
+        (err) => console.error(`KaiVA: openWindow failed: ${err}`)
+      )
+    );
+    return;
+  }
+
+  if (source.name !== 'voice-input') {
     return;
   }
   if (handler) {
@@ -32,12 +44,10 @@ self.onsystemmessage = (evt) => {
     finish();
   }
   handler = request;
-  const source = handler.source;
-
   evt.waitUntil(
-    clients.openWindow('/index.html#activity', { disposition: 'inline' }).then(
+    clients.openWindow('/index.html#voice-input', { disposition: 'inline' }).then(
       (win) => win && win.postMessage({ type: 'activity', source }),
-      (err) => console.error(`Dictate: openWindow failed: ${err}`)
+      (err) => console.error(`KaiVA: openWindow failed: ${err}`)
     )
   );
   evt.waitUntil(new Promise((resolve) => { release = resolve; }));
@@ -46,8 +56,13 @@ self.onsystemmessage = (evt) => {
 self.addEventListener('message', (event) => {
   const data = event.data || {};
   if (data.type === 'hello') {
-    if (handler) {
-      event.source.postMessage({ type: 'activity', source: handler.source });
+    const url = (event.source && event.source.url) || '';
+    if (url.endsWith('#voice-input')) {
+      if (handler) {
+        event.source.postMessage({ type: 'activity', source: handler.source });
+      }
+    } else if (assistant && Date.now() - assistant.at < 10000) {
+      event.source.postMessage({ type: 'assistant', data: assistant.data });
     }
     return;
   }

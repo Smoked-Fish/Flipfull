@@ -1,6 +1,6 @@
 """One place to build, install, inspect and remove everything custom on the phone.
 
-    python flip4.py build [target ...]   rebuild overlays + Dictate into userinit/
+    python flip4.py build [target ...]   rebuild overlays + KaiVA into userinit/
     python flip4.py install [--reboot]   put userinit/ on the phone (builds first)
     python flip4.py status               what is installed and running
     python flip4.py cleanup [--yes]      delete files left by the old layouts
@@ -23,7 +23,8 @@ UI = "/data/local/userinit"
 MANIFEST = f"{UI}/.installed-files"
 HOOK_RC = "/vendor/etc/init/init.userinit.rc"
 APPS_SOCK = "/data/local/tmp/apps-uds.sock"
-DICTATE_URL = "http://dictate.localhost/manifest.webmanifest"
+KAIVA_URL = "http://kaios-voiceassistant.localhost/manifest.webmanifest"
+REPLACED_APPS = {"Dictate": "http://dictate.localhost/manifest.webmanifest"}
 FWD_PORT = 6123
 TEXT_SUFFIXES = {".sh", ".js", ".md", ".conf", ".rc"}
 TEXT_NAMES = {"hosts"}
@@ -78,6 +79,39 @@ def apps_cmd(cmd, param=None):
     finally:
         adb("forward", "--remove", f"tcp:{FWD_PORT}", check=False)
     return json.loads(buf) if buf.strip() else {}
+
+
+def apps_ok(r):
+    return isinstance(r, dict) and "success" in r
+
+
+def installed_apps():
+    return str(apps_cmd("list").get("success") or "")
+
+
+def install_kaiva():
+    apps = installed_apps()
+    replaced = [name for name, url in REPLACED_APPS.items() if url in apps]
+    for name in replaced:
+        r = apps_cmd("uninstall", REPLACED_APPS[name])
+        print(f"{name}:", "uninstalled, KaiVA replaces it" if apps_ok(r) else f"not uninstalled ({r})")
+    if replaced and KAIVA_URL in apps:
+        apps_cmd("uninstall", KAIVA_URL)
+    fresh = KAIVA_URL not in installed_apps()
+
+    tmp_zip = "/data/local/tmp/userinit-kaiva.zip"
+    sh(f"cp {UI}/apps/kaiva/application.zip {tmp_zip} && chmod 0644 {tmp_zip}")
+    r = apps_cmd("install", tmp_zip)
+    sh(f"rm -f {tmp_zip}", check=False)
+    if not apps_ok(r):
+        print(f"KaiVA: install failed: {r}")
+    elif fresh:
+        print("KaiVA: installed; it is now the keyboard's voice input and the assistant")
+    elif replaced:
+        print("KaiVA: updated. Open Voice Assistant once so the keyboard's voice input "
+              "points at it again")
+    else:
+        print("KaiVA: updated")
 
 
 def local_files():
@@ -168,11 +202,7 @@ def cmd_install(args):
 
     print(sh(f"sh {UI}/tools/cleanup-old.sh --userinit-only", check=False))
 
-    tmp_zip = "/data/local/tmp/userinit-dictate.zip"
-    sh(f"cp {UI}/apps/dictate/application.zip {tmp_zip} && chmod 0644 {tmp_zip}")
-    r = apps_cmd("install", tmp_zip)
-    sh(f"rm -f {tmp_zip}", check=False)
-    print("Dictate:", "installed" if "success" in json.dumps(r) else f"install failed: {r}")
+    install_kaiva()
 
     print(sh(f"sh {UI}/boot-completed.d/50-services.sh", check=False))
     print("Overlays and Gecko prefs apply at the next boot.")
@@ -191,6 +221,15 @@ def cmd_status(args):
              check=False) or "  none")
     print("\nservices:")
     print(sh(f"for s in {UI}/services/*/service.sh; do sh $s status; done", check=False))
+    print("\nvoice apps:")
+    try:
+        apps = installed_apps()
+        print("  KaiVA:", "installed" if KAIVA_URL in apps else "not installed")
+        for name, url in REPLACED_APPS.items():
+            if url in apps:
+                print(f"  {name}: still installed (flip4.py install replaces it)")
+    except OSError as e:
+        print(f"  app list unavailable ({e})")
     print("\nGecko prefs block:", "present" if sh(
         "grep -l '^// >>> userinit' /data/b2g/mozilla/*.default/user.js 2>/dev/null",
         check=False) else "not written yet (next boot)")
@@ -221,8 +260,11 @@ def cmd_uninstall(args):
     print(sh(f"for s in {UI}/services/*/service.sh; do [ -f $s ] && sh $s stop; done", check=False))
     print(sh(f"[ -f {UI}/post-fs-data.d/30-gecko-prefs.sh ] && sh {UI}/post-fs-data.d/30-gecko-prefs.sh remove",
              check=False))
-    r = apps_cmd("uninstall", DICTATE_URL)
-    print("Dictate:", "uninstalled" if "success" in json.dumps(r) else f"not uninstalled ({r})")
+    apps = installed_apps()
+    for name, url in {"KaiVA": KAIVA_URL, **REPLACED_APPS}.items():
+        if url in apps:
+            r = apps_cmd("uninstall", url)
+            print(f"{name}:", "uninstalled" if apps_ok(r) else f"not uninstalled ({r})")
     push_changed(["run.sh"])
     sh(f"chmod 0755 {UI}/run.sh; touch {UI}/uninstall")
     print("Everything else is removed at the next boot; the phone then boots stock.")
@@ -242,7 +284,7 @@ def main():
     global ADB
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
-    b = sub.add_parser("build", help="rebuild overlays and the Dictate app into userinit/")
+    b = sub.add_parser("build", help="rebuild overlays and the KaiVA app into userinit/")
     b.add_argument("targets", nargs="*")
     i = sub.add_parser("install", help="install / update everything on the phone")
     i.add_argument("--no-build", action="store_true", help="push userinit/ as it is")

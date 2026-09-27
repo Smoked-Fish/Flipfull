@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en-US" dir="ltr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1">
+  <meta name="theme-color" content="#000000">
+  <title>KaiVA</title>
+  <link rel="stylesheet" href="style.css">
+  <script defer src="js/commands.js"></script>
+  <script defer src="js/system.js"></script>
+  <script defer src="js/audio.js"></script>
+  <script defer src="js/stt.js"></script>
+  <script defer src="js/app.js"></script>
+</head>
+<body>
+  <div id="panel">
+    <header id="title"></header>
+    <p id="status" role="status"></p>
+    <div id="anim" data-stage="wait" aria-hidden="true"><i></i><i></i><i></i></div>
+    <div id="card" tabindex="-1">
+      <img id="quote" src="img/quote.svg" alt="">
+      <p id="text"></p>
+      <p id="detail"></p>
+    </div>
+    <div id="standby">
+      <p class="hint">Press <span class="mic-inline"></span> to speak</p>
+      <img src="img/img_phone.png" alt="">
+    </div>
+    <ul id="list"></ul>
+    <footer id="softkeys">
+      <span id="sk-left"></span>
+      <span id="sk-center"></span>
+      <span id="sk-right"></span>
+    </footer>
+  </div>
+</body>
+</html>
