@@ -108,7 +108,7 @@ function FlipfullMapsPage(pageCss, navCss) {
         <div class="fn-text"></div>
       </div>
     </div>
-    <div class="fn-then">Then <span></span></div>
+    <div class="fn-then" hidden>Then <span></span></div>
     <div class="fn-map">
       <div class="fn-tiles"></div>
       <svg class="fn-line"><path/><circle r="5"/></svg>
@@ -130,13 +130,16 @@ function FlipfullMapsPage(pageCss, navCss) {
     constructor() {
       this.frame = document.createElement('iframe');
       this.frame.id = 'flipfull-nav';
+      this.frame.srcdoc = '<!DOCTYPE html><html><head><meta charset="utf-8">' +
+        `<style>${navCss}</style></head><body>${SCREEN}</body></html>`;
+      this.ready = new Promise(resolve => this.frame.addEventListener('load', resolve, { once: true }));
       document.body.appendChild(this.frame);
+      this.watch = null;
+    }
+
+    setUp() {
       this.win = this.frame.contentWindow;
       this.doc = this.frame.contentDocument;
-      const sheet = this.doc.createElement('style');
-      sheet.textContent = navCss;
-      this.doc.head.appendChild(sheet);
-      this.doc.body.innerHTML = SCREEN;
       const $ = selector => this.doc.querySelector(selector);
       this.ui = {
         icon: $('.fn-icon'), number: $('.fn-dist b'), unit: $('.fn-dist span'), text: $('.fn-text'),
@@ -145,7 +148,6 @@ function FlipfullMapsPage(pageCss, navCss) {
         eta: $('.fn-eta'), left: $('.fn-left'), steps: $('.fn-steps'), mute: $('.fn-mute'),
       };
       this.tiles = new Map();
-      this.watch = null;
       this.fix = null;
       this.state = null;
       this.backArmed = 0;
@@ -171,6 +173,11 @@ function FlipfullMapsPage(pageCss, navCss) {
 
     async start(screen) {
       root.setAttribute('data-flipfull-nav', 'on');
+      await this.ready;
+      if (nav !== this) {
+        return true;
+      }
+      this.setUp();
       this.message('Loading route…');
       let loaded;
       try {
@@ -186,6 +193,12 @@ function FlipfullMapsPage(pageCss, navCss) {
       this.url = loaded.url;
       this.setRoute(loaded.route, seen.routeTiles);
       this.zoom = this.guidance.tune.zoom;
+      const first = loaded.route.steps[0];
+      this.state = {
+        next: 0, text: first.text, maneuver: first.maneuver, toNext: loaded.route.meters, then: null,
+        metres: loaded.route.meters, seconds: loaded.route.seconds, arrived: false,
+      };
+      this.render();
       this.message('Waiting for GPS…');
       this.watch = navigator.geolocation.watchPosition(
         position => this.onFix(position.coords),
@@ -250,6 +263,11 @@ function FlipfullMapsPage(pageCss, navCss) {
         speed: coords.speed, heading: coords.heading,
       };
       const state = this.guidance.update(fix);
+      if (!state) {
+        const [number, unit] = MapsRoute.distanceParts(fix.accuracy, this.route.imperial);
+        this.message(`Waiting for GPS (now ±${number} ${unit})`);
+        return;
+      }
       this.fix = fix;
       this.state = state;
       if (!this.rerouting && Date.now() > this.noticeUntil) {
@@ -326,11 +344,13 @@ function FlipfullMapsPage(pageCss, navCss) {
 
     drawMap() {
       const { fix, state, ui, zoom } = this;
+      const points = this.guidance.points;
+      const from = fix || points[0];
       const width = ui.map.clientWidth;
       const height = ui.map.clientHeight;
-      const me = MapsRoute.worldPixel(fix.lat, fix.lng, zoom);
-      const left = me.x - width / 2;
-      const top = me.y - height * 0.62;
+      const centre = MapsRoute.worldPixel(from.lat, from.lng, zoom);
+      const left = centre.x - width / 2;
+      const top = centre.y - height * 0.62;
 
       const wanted = new Set();
       const template = this.routeTiles || seen.tiles;
@@ -367,14 +387,17 @@ function FlipfullMapsPage(pageCss, navCss) {
         const w = MapsRoute.worldPixel(p.lat, p.lng, zoom);
         return [Math.round(w.x - left), Math.round(w.y - top)];
       };
-      const ahead = this.guidance.points.slice(state.next);
-      ui.line.setAttribute('d', `M${[fix].concat(ahead).map(toScreen).join('L')}`);
+      const ahead = points.slice(state.next);
+      ui.line.setAttribute('d', `M${[from].concat(ahead).map(toScreen).join('L')}`);
       const [dx, dy] = toScreen(ahead[0]);
       ui.dot.setAttribute('cx', dx);
       ui.dot.setAttribute('cy', dy);
 
-      const heading = fix.speed > 1 && fix.heading !== null && !isNaN(fix.heading) ? fix.heading : state.heading;
-      ui.me.style.transform = `translate(${Math.round(width / 2) - 12}px, ${Math.round(height * 0.62) - 12}px) rotate(${Math.round(heading)}deg)`;
+      ui.me.hidden = !fix;
+      if (fix) {
+        const heading = fix.speed > 1 && fix.heading !== null && !isNaN(fix.heading) ? fix.heading : state.heading;
+        ui.me.style.transform = `translate(${Math.round(width / 2) - 12}px, ${Math.round(height * 0.62) - 12}px) rotate(${Math.round(heading)}deg)`;
+      }
     }
 
     key(name) {
@@ -416,7 +439,7 @@ function FlipfullMapsPage(pageCss, navCss) {
         case 'ArrowDown':
           if (listing) {
             steps.scrollTop += name === 'ArrowUp' ? -48 : 48;
-          } else if (this.fix) {
+          } else if (this.guidance) {
             const z = this.zoom + (name === 'ArrowUp' ? 1 : -1);
             this.zoom = Math.max(ZOOMS[0], Math.min(ZOOMS[1], z));
             this.drawMap();

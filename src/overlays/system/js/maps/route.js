@@ -213,6 +213,9 @@ var MapsRoute = (function() {
     }
 
     update(fix) {
+      if (!this.next && fix.accuracy > 80) {
+        return null;
+      }
       const points = this.points;
       const lastPoint = points.length - 1;
       const tune = this.tune;
