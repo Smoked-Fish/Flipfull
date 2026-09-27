@@ -20,6 +20,7 @@ GOOGLE_REDIRECT = "http://localhost/redirect/loginpages/redirect.html"
 
 SYSTEM_SCRIPTS = ('    <script defer="" src="js/live_wallpaper.js"></script>\n'
                   '    <script defer="" src="js/flipfull_system.js"></script>\n')
+MAPS_SCRIPT = '    <script defer="" src="js/flipfull_maps.js"></script>\n'
 
 OPTIONS = {"keep_folders": False}
 
@@ -115,7 +116,7 @@ OVERLAYS = {
         "patches": [
             ("index.html",
              '    <script defer="" src="js/external_screen_manager.js"></script>\n',
-             '    <script defer="" src="js/external_screen_manager.js"></script>\n' + SYSTEM_SCRIPTS),
+             '    <script defer="" src="js/external_screen_manager.js"></script>\n' + SYSTEM_SCRIPTS + MAPS_SCRIPT),
             ("index_remote.html",
              '    <script defer="" src="remote/dist/app.bundle.js"></script>\n',
              '    <script defer="" src="remote/dist/app.bundle.js"></script>\n' + SYSTEM_SCRIPTS),

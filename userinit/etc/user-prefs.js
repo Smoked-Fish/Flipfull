@@ -5,10 +5,6 @@ user_pref("privacy.trackingprotection.enabled", true);
 
 user_pref("font.name-list.emoji", "Noto Color Emoji");
 
-user_pref("geo.provider.use_mls", true);
-user_pref("geo.provider.network.url", "https://api.beacondb.net/v1/geolocate");
-
-
 user_pref("network.http.customheader.hosts", "");
 user_pref("datareporting.healthreport.uploadEnabled", false);
 user_pref("datareporting.policy.dataSubmissionEnabled", false);

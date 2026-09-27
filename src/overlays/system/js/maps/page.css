@@ -1,0 +1,36 @@
+.ml-snackbar-container[data-flipfull-hidden] {
+  display: none !important;
+}
+
+button[data-action]:has(> div > div[style*="background-color"]) > div {
+  background: none !important;
+  border-color: transparent !important;
+}
+button[data-action]:focus > div > div[style*="background-color"] {
+  box-shadow: 0 0 0 2px #fff, 0 0 0 4px #1a73e8;
+}
+button[data-action]:has(> div > div[style*="background-color"]) label {
+  display: block;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+button[data-action]:focus:has(> div > div[style*="background-color"]) label {
+  font-weight: 700;
+}
+
+button[jsaction^="tinymenubar."] {
+  color: #202124 !important;
+  font-weight: 600 !important;
+}
+
+#flipfull-nav {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  z-index: 2147483647;
+  background: #e8eaed;
+}
