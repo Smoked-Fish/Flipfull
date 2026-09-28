@@ -297,24 +297,58 @@ reconcile_apps() {
     done
 }
 
-core_app() {
+app_info() {
+    core= rank=3 about=
     case $1 in
-        system) echo "the whole phone UI" ;;
-        shared) echo "code every app uses" ;;
-        launcher) echo "home screen" ;;
-        keyboard) echo "typing" ;;
-        settings) echo "Settings" ;;
-        callscreen) echo "phone calls" ;;
-        emergency-call) echo "emergency calls" ;;
-        network-alerts) echo "emergency alerts" ;;
-        ftu) echo "first-run setup" ;;
-        customization) echo "carrier setup" ;;
-        loginpages) echo "account sign-in" ;;
-        stk) echo "SIM menus" ;;
-        wappush) echo "carrier messages" ;;
-        wallpaper) echo "wallpaper picker" ;;
-        ringtones) echo "ringtone picker" ;;
+        kaios-news) rank=1 about="KaiOS's news reader." ;;
+        kaios-weather) rank=1 about="KaiOS's weather forecast app." ;;
+        kaios-pay) rank=1 about="KaiOS's mobile payment wallet. It isn't in the app list." ;;
+        kaios-todo) rank=1 about="A to-do list." ;;
+        youtube) rank=1 about="Opens m.youtube.com in the browser; nothing else is installed." ;;
+        googlesearch) rank=1 about="Opens Google Search in the browser. The browser itself (Internet in the app list) stays." ;;
+        maps) rank=1 about="Google Maps, a web app. Flipfull's Google Maps navigation works in it." ;;
+        kaios-2048|kaios-birdy|kaios-gems|kaios-guardians|kaios-whackamole|brickbreaker2018)
+            rank=1 about="A game KaiOS preinstalls." ;;
+        engmode) rank=2 about="Engineering mode: hidden radio and hardware test menus, opened with dialer codes." ;;
+        mmitest) rank=2 about="The factory's hardware test (keys, screens, sound, camera), opened with a dialer code." ;;
+        logmanager) rank=2 about="Saves logs for bug reports, opened with a dialer code." ;;
+        tctfota) rank=2 about="TCL's system updater (Settings > Device > Software update). A system update removes root and Flipfull." ;;
+        antitheft) rank=2 about="Kill-switch: rings the phone at full volume when KaiOS's anti-theft service tells it to." ;;
+        download) rank=2 about="Lets other apps attach a file you downloaded." ;;
+        kaios-store) about="KaiStore: installs and updates KaiOS apps, Music and Video included." ;;
+        calculator) about="A calculator." ;;
+        calendar) about="Calendar; syncs with Google and Exchange accounts." ;;
+        camera) about="Photos and video. Two presses of the quick access button open it; other apps use it to attach a photo." ;;
+        clock) about="Alarms, timer and stopwatch. Without it alarms don't ring." ;;
+        communications) about="Your recent calls. Calling works without it: the dialer is part of the home screen." ;;
+        contact) about="Your contacts. Messages, Call Log and the dialer pick numbers from it." ;;
+        email) about="E-mail for Gmail, Outlook and other accounts." ;;
+        filemanager) about="Browses the phone's storage and the SD card." ;;
+        fm) about="FM radio; wired headphones are its antenna." ;;
+        gallery) about="Your photos; other apps pick photos from it." ;;
+        music) about="Music player and Icecast internet radio." ;;
+        notes) about="Simple text notes." ;;
+        soundrecorder) about="Voice recordings." ;;
+        video) about="Video player, with YouTube picks." ;;
+        sms) rank=4 core="text messages" about="Text and picture messages (SMS, MMS)." ;;
+        bluetooth) rank=4 core="Bluetooth pairing" about="Bluetooth pairing requests and file transfers." ;;
+        system) rank=4 core="the whole phone UI" about="The status bar, lock screen, notifications, outer screen and everything around the apps." ;;
+        shared) rank=4 core="code every app uses" about="Fonts, sounds, wallpapers and code the other apps load." ;;
+        launcher) rank=4 core="home screen" about="The home screen, the app list and the dialer." ;;
+        keyboard) rank=4 core="typing" about="Typing in every text field." ;;
+        settings) rank=4 core="Settings" about="Settings." ;;
+        callscreen) rank=4 core="phone calls" about="The screen during a call." ;;
+        emergency-call) rank=4 core="emergency calls" about="Emergency calls from the lock screen." ;;
+        network-alerts) rank=4 core="emergency alerts" about="Wireless emergency alerts: AMBER, extreme weather, presidential." ;;
+        ftu) rank=4 core="first-run setup" about="The setup the phone runs when it first starts, and after a reset." ;;
+        customization) rank=4 core="carrier setup" about="Applies the carrier's settings for the SIM you put in." ;;
+        loginpages) rank=4 core="account sign-in" about="The sign-in pages of Settings > Accounts." ;;
+        stk) rank=4 core="SIM menus" about="SIM Toolkit: your SIM card's own menu and carrier services." ;;
+        wappush) rank=4 core="carrier messages" about="Receives the carrier's WAP push and settings messages." ;;
+        wallpaper) rank=4 core="wallpaper picker" about="The wallpaper picker in Settings." ;;
+        ringtones) rank=4 core="ringtone picker" about="Picks ringtones and notification sounds." ;;
     esac
+    printf '%s\t%s\t%s' "$core" "$rank" "$about"
 }
 
 preloaded() {
@@ -326,8 +360,10 @@ app_manifest() {
     m=$VROOT/$1/manifest.webmanifest
     if [ -f "$m" ]; then
         cat "$m"
-    else
+    elif [ -f "$VROOT/$1/application.zip" ]; then
         unzip -p "$VROOT/$1/application.zip" manifest.webmanifest 2>/dev/null
+    else
+        cat "$VROOT/cached/$1/manifest.webmanifest" 2>/dev/null
     fi
 }
 
@@ -343,10 +379,10 @@ removable_wanted() {
 
 removable_pending() {
     [ -f "$REMOVABLE" ] || return 1
-    preloaded | while read -r name flag; do
-        removable_wanted "$name" "$flag" && want=1 || want=0
-        [ "$want" = "$flag" ] || echo "$name"
-    done | grep -q .
+    preloaded | awk -v list="$REMOVABLE" '
+        BEGIN { while ((getline name < list) > 0) want[name] = 1 }
+        ($1 in want) != ($2 == 1) { differs = 1; exit }
+        END { exit !differs }'
 }
 
 cmd_removable() {
@@ -356,7 +392,7 @@ cmd_removable() {
     if [ "$1" != set ]; then
         echo "$apps" | while read -r name flag; do
             removable_wanted "$name" "$flag" && want=1 || want=0
-            printf 'app\t%s\t%s\t%s\t%s\t%s\n' "$name" "$flag" "$want" "$(app_title "$name")" "$(core_app "$name")"
+            printf 'app\t%s\t%s\t%s\t%s\t%s\n' "$name" "$flag" "$want" "$(app_title "$name")" "$(app_info "$name")"
         done
         return
     fi

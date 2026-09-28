@@ -3,6 +3,7 @@
 (function(exports) {
   const INFO_EVENT = 'flipfull-outer-info';
   const MUSIC_EVENT = 'flipfull-now-playing';
+  const TIMEOUT_SETTING = 'flipfull.subscreen.timeout';
 
   function featureOn(id) {
     return !!(window.FlipfullFeatures && window.FlipfullFeatures[id]);
@@ -342,7 +343,21 @@
     render();
   }
 
+  function startTimeout() {
+    let seconds = null;
+    SettingsObserver.observe(TIMEOUT_SETTING, null, value => {
+      seconds = value;
+    });
+    exports.FlipfullOuterScreen = {
+      stayOn: () => seconds === 0,
+      dimAfter: (stock, dimFor) => (seconds ? Math.max(stock, seconds * 1000 - dimFor) : stock)
+    };
+  }
+
   function startRemote() {
+    if (featureOn('outer-screen-timeout')) {
+      startTimeout();
+    }
     const info = featureOn('outer-screen-info');
     const music = featureOn('outer-screen-music');
     if (!info && !music) {

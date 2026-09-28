@@ -5,18 +5,17 @@
   const M = window.FlipfullModel;
   const $ = (id) => document.getElementById(id);
   const el = {
-    body: document.body, titleText: $('title-text'), busy: $('busy'),
+    body: document.body, bar: $('bar'), barTitle: $('bar-title'), barCount: $('bar-count'), busy: $('busy'),
     offlineWhy: $('offline-why'), notice: $('notice'), features: $('features'),
-    sectionName: $('section-name'), sectionCount: $('section-count'),
     menuItems: $('menu-items'), removableItems: $('removable-items'),
     googleClient: $('google-client'), logText: $('log-text'),
     aboutVersion: $('about-version'), aboutHook: $('about-hook'),
     updateText: $('update-text'), updateNotes: $('update-notes'), updateLog: $('update-log'),
-    toast: $('toast'), dialog: $('dialog'), dialogText: $('dialog-text'),
+    toast: $('toast'), dialog: $('dialog'), dialogTitle: $('dialog-title'), dialogText: $('dialog-text'),
     left: $('sk-left'), center: $('sk-center'), right: $('sk-right'),
   };
   const TITLES = {
-    list: 'Flipfull', menu: 'Options', removable: 'Uninstallable apps',
+    menu: 'Options', removable: 'Preinstalled apps',
     google: 'Google sign-in client', log: 'Boot log', about: 'About Flipfull',
     update: 'Check for updates',
   };
@@ -40,6 +39,9 @@
   let release = null;
   let update = null;
   let pollTimer = null;
+  let changed = false;
+  const wanted = {};
+  let sending = null;
 
   function run(...words) {
     return fetch(API, { method: 'POST', body: words.join(' '), cache: 'no-store' })
@@ -57,22 +59,30 @@
     });
   }
 
+  function failed(e) {
+    if (e instanceof TypeError) {
+      el.offlineWhy.textContent = e.message;
+      show('offline');
+    } else {
+      message(e.message);
+    }
+  }
+
+  function settled() {
+    return sending ? sending.then(settled) : Promise.resolve();
+  }
+
   function work(label, fn) {
     if (busy) {
       return Promise.resolve();
     }
     busy = true;
     el.busy.textContent = label;
-    return fn().catch((e) => {
-      if (e instanceof TypeError) {
-        el.offlineWhy.textContent = e.message;
-        show('offline');
-      } else {
-        message(e.message);
-      }
-    }).finally(() => {
+    el.body.classList.add('busy');
+    return settled().then(fn).catch(failed).finally(() => {
       busy = false;
       el.busy.textContent = '';
+      el.body.classList.remove('busy');
     });
   }
 
@@ -86,8 +96,16 @@
     el.toast.textContent = text;
     el.toast.classList.toggle('error', !!isError);
     el.toast.classList.add('show');
+    placeToast();
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => el.toast.classList.remove('show'), 4000);
+  }
+
+  function placeToast() {
+    const r = document.querySelector(`#${view} .row.focus`);
+    const main = document.querySelector('main').getBoundingClientRect();
+    const box = r && r.getBoundingClientRect();
+    el.toast.classList.toggle('top', !!box && box.top + box.height / 2 > main.top + main.height / 2);
   }
 
   function closeDialog() {
@@ -96,24 +114,25 @@
     updateKeys();
   }
 
-  function ask(text, ok, onOk) {
+  function openDialog(title, text) {
+    el.dialogTitle.textContent = title || '';
     el.dialogText.textContent = text;
     el.dialog.classList.add('show');
     el.dialog.scrollTop = 0;
-    dialogKeys = {
-      left: closeDialog,
-      right: () => {
-        closeDialog();
-        onOk();
-      },
-      back: closeDialog,
-    };
-    softkeys('Cancel', '', ok);
   }
 
-  function message(text) {
-    el.dialogText.textContent = text;
-    el.dialog.classList.add('show');
+  function ask(text, ok, onOk, no = 'Cancel', onNo = null) {
+    openDialog('', text);
+    const then = (fn) => () => {
+      closeDialog();
+      if (fn) fn();
+    };
+    dialogKeys = { left: then(onNo), right: then(onOk), back: closeDialog };
+    softkeys(no, '', ok);
+  }
+
+  function message(text, title) {
+    openDialog(title, text);
     dialogKeys = { center: closeDialog, back: closeDialog };
     softkeys('', 'OK', '');
   }
@@ -152,11 +171,16 @@
     if (rows.length) {
       focus[name] = step ? (focus[name] + step + rows.length) % rows.length : Math.min(focus[name], rows.length - 1);
       rows.forEach((r, i) => r.classList.toggle('focus', i === focus[name]));
-      rows[focus[name]].scrollIntoView({ block: 'nearest' });
+      const r = rows[focus[name]];
+      if (r.previousElementSibling && r.previousElementSibling.tagName === 'H2') {
+        r.previousElementSibling.scrollIntoView({ block: 'nearest' });
+      }
+      r.scrollIntoView({ block: 'nearest' });
       if (focus[name] === 0) {
         box.scrollTop = 0;
       }
     }
+    placeToast();
     updateKeys();
   }
 
@@ -173,7 +197,9 @@
   function show(name) {
     view = name;
     el.body.dataset.view = name;
-    el.titleText.textContent = TITLES[name] || 'Flipfull';
+    el.bar.classList.remove('paged');
+    el.barTitle.textContent = TITLES[name] || 'Flipfull';
+    el.barCount.textContent = '';
     render();
   }
 
@@ -190,31 +216,39 @@
   }
 
   function renderList() {
-    const notes = [];
-    if (state.hook === false) {
-      notes.push("The boot hook is missing, so nothing here starts when the phone does.");
-    }
-    if (state.reboot) {
-      notes.push('Some changes wait for a reboot.');
-    }
-    el.notice.textContent = notes.join(' ');
+    el.notice.textContent = state.hook === false ?
+      "The boot hook is missing, so nothing here starts when the phone does." : '';
     groups = M.sections(registry, state);
     section = Math.min(section, Math.max(0, groups.length - 1));
     const group = groups[section];
-    el.sectionName.textContent = group ? group.name : '';
-    el.sectionCount.textContent = groups.length > 1 ? `${section + 1}/${groups.length}` : '';
+    el.barTitle.textContent = group ? group.name : 'Flipfull';
+    el.barCount.textContent = groups.length > 1 ? `${section + 1}/${groups.length}` : '';
+    el.bar.classList.toggle('paged', groups.length > 1);
     listItems = group ? group.items : [];
     el.features.textContent = '';
     listItems.forEach((item) => {
-      const r = row(item.title, item.on, M.statusText(item), item.about, item.usable === 'no' ? 'unusable' : '');
+      const saving = item.id in wanted;
+      if (saving) {
+        item.on = wanted[item.id];
+      }
+      const classes = [item.usable === 'no' && 'unusable', saving && 'saving'].filter(Boolean).join(' ');
+      const r = row(item.title, item.on, saving ? '' : M.statusText(item), '', classes);
       r.querySelector('.status').classList.toggle('waiting', item.pending);
       el.features.appendChild(r);
     });
     moveFocus('list', 0);
   }
 
+  function showInfo(item) {
+    message(M.infoText(item), item.title);
+  }
+
+  function rebootPending() {
+    return !!(state.reboot || state.removablePending);
+  }
+
   const MENU = [
-    ['Uninstallable apps', () => showRemovable()],
+    ['Preinstalled apps', () => showRemovable()],
     ['Google sign-in client', () => show('google')],
     ['Reboot', () => reboot()],
     ["Restart the phone's UI", () => restartUi()],
@@ -226,18 +260,27 @@
 
   function renderMenu() {
     el.menuItems.textContent = '';
-    MENU.forEach(([name]) => el.menuItems.appendChild(row(name, null)));
+    MENU.forEach(([name]) => {
+      const r = row(name, null, name === 'Reboot' && rebootPending() ? 'Some changes wait for it' : '');
+      r.querySelector('.status').classList.add('waiting');
+      el.menuItems.appendChild(r);
+    });
     moveFocus('menu', 0);
   }
 
   function renderRemovable() {
     el.removableItems.textContent = '';
-    apps.forEach((app) => {
-      let status = app.core ? `The phone needs it: ${app.core}` : '';
-      if (app.chosen !== app.removable) {
-        status = `${status ? `${status}. ` : ''}Changes at the next reboot`;
-      }
-      el.removableItems.appendChild(row(app.title, app.chosen, status, app.title !== app.name ? app.name : ''));
+    M.removableGroups(apps).forEach((group) => {
+      const head = document.createElement('h2');
+      head.textContent = group.name;
+      el.removableItems.appendChild(head);
+      group.apps.forEach((app) => {
+        let status = app.core ? `The phone needs it: ${app.core}` : '';
+        if (app.chosen !== app.removable) {
+          status = `${status ? `${status}. ` : ''}Changes at the next reboot`;
+        }
+        el.removableItems.appendChild(row(app.title, app.chosen, status, app.about || app.name));
+      });
     });
     moveFocus('removable', 0);
   }
@@ -298,14 +341,13 @@
     switch (view) {
       case 'list': {
         const item = listItems[focus.list];
-        const pending = state.reboot || state.removablePending;
         keys = {
           left: () => show('menu'),
           center: item && (() => toggle(item)),
-          right: pending && reboot,
-          back: () => window.close(),
+          right: item && (() => showInfo(item)),
+          back: leave,
         };
-        softkeys('Options', item ? (item.on ? 'Turn off' : 'Turn on') : '', pending ? 'Reboot' : '');
+        softkeys('Options', item ? (item.on ? 'Turn off' : 'Turn on') : '', item ? 'Info' : '');
         break;
       }
       case 'menu':
@@ -353,7 +395,7 @@
       toast(`${item.title} can't work on this phone: ${item.reason}`, true);
       return;
     }
-    const go = () => setFeature(item, on);
+    const go = () => setFeature(item.id, on);
     if (!on && item['ask-off']) {
       ask(item['ask-off'], 'Turn off', go);
     } else {
@@ -361,32 +403,89 @@
     }
   }
 
-  function setFeature(item, on) {
-    return work(on ? 'Turning on…' : 'Turning off…', () => run('set', item.id, on ? 'on' : 'off').then((out) => {
-      const result = M.parseSet(out);
-      return refresh().then(() => {
+  function setFeature(id, on) {
+    wanted[id] = on;
+    render();
+    if (!sending) {
+      sendWanted();
+    }
+  }
+
+  function sendWanted() {
+    Object.keys(wanted).forEach((id) => {
+      if (wanted[id] === state.features[id].on) {
+        delete wanted[id];
+      }
+    });
+    const batch = Object.entries(wanted);
+    if (!batch.length) {
+      render();
+      return;
+    }
+    sending = run('set', ...batch.flatMap(([id, on]) => [id, on ? 'on' : 'off']))
+      .then((out) => refresh().then(() => report(batch, M.parseSet(out))),
+        (e) => refresh().catch(() => {}).then(() => {
+          throw e;
+        }))
+      .catch(failed)
+      .finally(() => {
+        batch.forEach(([id, on]) => {
+          if (wanted[id] === on) {
+            delete wanted[id];
+          }
+        });
+        sending = null;
         render();
-        if (result.errors.length) {
-          message(result.errors.join('\n'));
-          return;
+        if (Object.keys(wanted).length) {
+          sendWanted();
         }
-        let text = `${item.title} is ${on ? 'on' : 'off'}.`;
-        if (result.also.length) {
-          text += ` So is ${result.also.map((a) => itemOf(a.id).title).join(', ')}.`;
-        }
-        const now = state.features[item.id];
-        if (now && now.pending) {
-          text += ' Reboot to finish.';
-        }
-        toast(text);
       });
-    }, (e) => refresh().then(render, () => {}).then(() => {
-      throw e;
-    })));
+  }
+
+  function report(batch, result) {
+    changed = true;
+    if (result.errors.length) {
+      message(result.errors.join('\n'));
+      return;
+    }
+    const title = (id) => itemOf(id).title;
+    const all = batch.concat(result.also.map((a) => [a.id, a.on]));
+    let text;
+    if (batch.length === 1) {
+      text = `${title(batch[0][0])} is ${batch[0][1] ? 'on' : 'off'}.`;
+      if (result.also.length) {
+        text += ` So is ${result.also.map((a) => title(a.id)).join(', ')}.`;
+      }
+    } else {
+      text = [true, false].map((on) => {
+        const names = all.filter(([, v]) => v === on).map(([id]) => title(id));
+        return names.length ? `Turned ${on ? 'on' : 'off'}: ${names.join(', ')}.` : '';
+      }).filter(Boolean).join(' ');
+    }
+    if (all.some(([id]) => state.features[id].pending)) {
+      text += ' Reboot to finish.';
+    }
+    toast(text);
   }
 
   function reboot() {
     ask('Reboot the phone now?', 'Reboot', () => work('Rebooting…', () => run('reboot')));
+  }
+
+  function leave() {
+    const close = () => {
+      if (changed && rebootPending()) {
+        ask('Some changes wait for a reboot. Reboot now?', 'Reboot', () => work('Rebooting…', () => run('reboot')),
+          'Later', () => window.close());
+      } else {
+        window.close();
+      }
+    };
+    if (sending) {
+      work('Saving…', settled).then(close);
+    } else {
+      close();
+    }
   }
 
   function restartUi() {
@@ -463,6 +562,7 @@
         return refresh().then(() => {
           renderUpdate();
           if (update.status === 'done') {
+            changed = true;
             toast(`Flipfull is updated to ${M.installedVersion(state.version)}.${state.reboot ? ' Reboot to finish.' : ''}`);
           } else {
             message(`The update failed: ${update.detail}`);
@@ -505,6 +605,7 @@
     const names = apps.filter((a) => a.chosen).map((a) => a.name);
     work('Saving…', () => run('removable', 'set', ...names).then(refresh).then(() => {
       appsChanged = false;
+      changed = true;
       show('menu');
       toast(state.removablePending ? 'Saved. The next reboot applies it.' : 'Saved.');
     }));
@@ -515,7 +616,7 @@
       render();
       const f = state.features['google-accounts'];
       if (f && !f.on) {
-        ask(`${text.trim()}.\n\nTurn on Google accounts too?`, 'Turn on', () => setFeature(itemOf('google-accounts'), true));
+        ask(`${text.trim()}.\n\nTurn on Google accounts too?`, 'Turn on', () => setFeature('google-accounts', true));
       } else {
         toast(text.trim());
       }
@@ -586,7 +687,7 @@
 
   window.addEventListener('keydown', onKey);
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden && view === 'list' && !busy && !dialogKeys) {
+    if (!document.hidden && view === 'list' && !busy && !sending && !dialogKeys) {
       refresh().then(renderList, () => {});
     }
   });

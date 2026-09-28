@@ -53,17 +53,35 @@
     return state;
   }
 
+  const RANKS = { 1: 'Extras', 2: 'Hidden tools', 3: 'Apps', 4: 'The phone needs these' };
+
   function parseRemovable(text) {
     return text.split('\n').filter((line) => line.startsWith('app\t')).map((line) => {
       const f = line.replace(/\r$/, '').split('\t');
+      const core = f[5] || '';
       return {
         name: f[1],
         removable: f[2] === '1',
         chosen: f[3] === '1',
         title: f[4] || f[1],
-        core: f[5] || '',
+        core,
+        rank: Number(f[6]) in RANKS ? Number(f[6]) : (core ? 4 : 3),
+        about: f[7] || '',
       };
-    }).sort((a, b) => a.title.localeCompare(b.title));
+    }).sort((a, b) => a.rank - b.rank || a.title.localeCompare(b.title));
+  }
+
+  function removableGroups(apps) {
+    const out = [];
+    apps.forEach((app) => {
+      let group = out[out.length - 1];
+      if (!group || group.rank !== app.rank) {
+        group = { rank: app.rank, name: RANKS[app.rank], apps: [] };
+        out.push(group);
+      }
+      group.apps.push(app);
+    });
+    return out;
   }
 
   function parseSet(text) {
@@ -107,6 +125,11 @@
       return `Partly works here: ${item.reason}`;
     }
     return '';
+  }
+
+  function infoText(item) {
+    const status = statusText(item);
+    return [item.about || '', status && `${status}.`].filter(Boolean).join('\n\n');
   }
 
   function installedVersion(version) {
@@ -163,7 +186,7 @@
   }
 
   exports.FlipfullModel = {
-    parseIni, parseState, parseRemovable, parseSet, sections, statusText,
+    parseIni, parseState, parseRemovable, removableGroups, parseSet, sections, statusText, infoText,
     installedVersion, compareVersions, pickUpdate, parseUpdate,
   };
   if (typeof module !== 'undefined') {

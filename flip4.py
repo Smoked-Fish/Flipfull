@@ -341,10 +341,10 @@ def pick_removable(apps, chosen):
     names = [a["name"] for a in apps]
     core = {a["name"]: a["core"] for a in apps if a["core"]}
     while True:
-        print("\nPreloaded apps ([x] = can be uninstalled from the app list):")
+        print("\nPreloaded apps, least needed first ([x] = can be uninstalled from the app list):")
         for i, a in enumerate(apps, 1):
-            note = f"  (core: {a['core']})" if a["core"] else ""
-            print(f"  {i:3} [{'x' if a['name'] in chosen else ' '}] {a['name']}{note}")
+            note = f" (core: {a['core']})" if a["core"] else ""
+            print(f"  {i:3} [{'x' if a['name'] in chosen else ' '}] {a['name']:<16}{note} {a['about']}")
         answer = input("\nToggle numbers (e.g. 3 7-9), a = all but core, n = none, "
                        "Enter = save, q = quit: ").strip().lower()
         if answer == "":
@@ -379,7 +379,10 @@ def cmd_removable(args):
     for line in flipfull("removable").splitlines():
         f = line.split("\t")
         if f[0] == "app" and len(f) >= 6:
-            apps.append({"name": f[1], "now": f[2] == "1", "chosen": f[3] == "1", "core": f[5]})
+            rank = f[6] if len(f) > 6 and f[6].isdigit() else ("4" if f[5] else "3")
+            apps.append({"name": f[1], "now": f[2] == "1", "chosen": f[3] == "1", "core": f[5],
+                         "rank": int(rank), "about": f[7] if len(f) > 7 else ""})
+    apps.sort(key=lambda a: (a["rank"], a["name"]))
     if not apps:
         sys.exit("couldn't read the preloaded apps from the phone")
     names = {a["name"] for a in apps}

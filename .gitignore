@@ -12,3 +12,4 @@ src/overlays/system/resources/branding/initlogo_flipfull.png
 client_secret*.json
 backups/
 dist/
+system_apps/

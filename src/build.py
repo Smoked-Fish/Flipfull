@@ -90,6 +90,65 @@ FOLDERS = [
      'J=256===n||' + on("no-folders") + '?["Carrier"]:["Games","Carrier","Utilities"]'),
 ]
 
+CLOCK_SECONDS = [
+    ("dist/app.bundle.js",
+     'this.timer=setTimeout(function(){e.start()},1e3*(60-t.getSeconds()))',
+     'this.timer=setTimeout(function(){e.start()},' + on("clock-seconds")
+     + '?1020-t.getMilliseconds():1e3*(60-t.getSeconds()))'),
+    ("dist/app.bundle.js", 'm2:d[1],ampm:c})', 'm2:d[1],ampm:c,flipfullSeconds:("0"+e.getSeconds()).slice(-2)})'),
+    ("dist/app.bundle.js",
+     'p.default.createElement("div",{className:"clock-ampm","data-hour-24":!window.api.hour12},this.state.ampm)',
+     on("clock-seconds") + '?p.default.createElement("div",{className:"flipfull-clock-side"},'
+     'p.default.createElement("div",{className:"clock-ampm","data-hour-24":!window.api.hour12},this.state.ampm),'
+     'p.default.createElement("div",{className:"flipfull-clock-seconds"},this.state.flipfullSeconds))'
+     ':p.default.createElement("div",{className:"clock-ampm","data-hour-24":!window.api.hour12},this.state.ampm)'),
+]
+CLOCK_SECONDS_CSS = (
+    ".flipfull-clock-side{display:flex;flex-direction:column;justify-content:flex-end;"
+    "margin-inline-start:.3rem;margin-bottom:.3rem}"
+    ".flipfull-clock-side .clock-ampm{align-self:flex-start;margin:0;line-height:1.6rem}"
+    ".flipfull-clock-seconds{font-size:2.2rem;line-height:2.4rem;font-weight:400}")
+
+METRO_NAME = [
+    ("dist/app.bundle.js",
+     'n.push({signalLevel:s,carrierName:u,stateL10nId:l,isVoWifi:h})',
+     'n.push({signalLevel:s,carrierName:' + on("metro-name")
+     + '&&"string"==typeof u?u.replace(/Metro by T-Mobile/gi,"Metro"):u,stateL10nId:l,isVoWifi:h})'),
+]
+
+BATTERY_FULL = [
+    ("js/battery_overlay.js",
+     "    shouldNotifyBatteryFull: function() {\n",
+     "    shouldNotifyBatteryFull: function() {\n"
+     "      if (" + on("no-battery-full") + ") {\n"
+     "        return false;\n"
+     "      }\n"),
+]
+
+SUBSCREEN_TIMEOUT_ITEM = (
+    '        <li role="menuitem" id="flipfull-subscreen-timeout">\n'
+    '          <span>Sub-screen timeout</span>\n'
+    '          <div class="button icon icon-dialog">\n'
+    '            <select data-name="flipfull.subscreen.timeout" data-value-type="integer">\n'
+    '              <option value="10">10 seconds</option>\n'
+    + "".join(f'              <option value="{v}" data-l10n-id="{l10n}"></option>\n' for v, l10n in (
+        (15, "fifteen-seconds"), (30, "thirty-seconds"), (60, "one-minute"), (120, "two-minutes"),
+        (300, "five-minutes"), (600, "ten-minutes"), (0, "never"))) +
+    '            </select>\n'
+    '          </div>\n'
+    '        </li>\n')
+AUTO_LOCK_ITEM = '        <li role="menuitem" id="auto-lock" class="auto-height hidden">\n'
+OUTER_SCREEN_TIMEOUT = [
+    ("remote/dist/app.bundle.js",
+     ',this._timerID=window.setTimeout(function(){!t.state.lidOpen&&t.attentionScreen.state.show',
+     ',this._timerID=null,window.FlipfullOuterScreen&&FlipfullOuterScreen.stayOn()||'
+     '(this._timerID=window.setTimeout(function(){!t.state.lidOpen&&t.attentionScreen.state.show'),
+    ("remote/dist/app.bundle.js",
+     't._timerID=null},this.state.timeout)}},{key:"setOffTimeout"',
+     't._timerID=null},window.FlipfullOuterScreen?FlipfullOuterScreen.dimAfter(this.state.timeout,'
+     'this.props.timeout):this.state.timeout))}},{key:"setOffTimeout"'),
+]
+
 CALL_RECORDING_ITEM = (
     '        <li role="menuitem" id="call-recording-item">\n'
     '          <a class="menu-item">\n'
@@ -189,12 +248,12 @@ OVERLAYS = {
              'if("TMO"===s.default.getBuildOperatorName()&&"kaios-voiceassistant"===e.name)return!0;',
              'if(!' + on("kaiva") + '&&"TMO"===s.default.getBuildOperatorName()&&'
              '"kaios-voiceassistant"===e.name)return!0;'),
-        ] + NO_SIDE_MENU + FOLDERS,
+        ] + NO_SIDE_MENU + FOLDERS + CLOCK_SECONDS + METRO_NAME,
         "rewrites": [
             ("dist/app.bundle.js", lambda text: f'document.documentElement.classList.toggle("{NO_SIDE_MENU_CLASS}",'
              + on("no-side-menu") + ");" + text),
             ("dist/app.style.css", lambda text: text + f"\n.{NO_SIDE_MENU_CLASS} .ClockComponent,"
-             f".{NO_SIDE_MENU_CLASS} #simcard-info{{margin-left:0}}\n"),
+             f".{NO_SIDE_MENU_CLASS} #simcard-info{{margin-left:0}}\n" + CLOCK_SECONDS_CSS + "\n"),
         ],
     },
     "shared": {
@@ -232,7 +291,7 @@ OVERLAYS = {
             ("dist/app.bundle.js", EVENT_LOGGER_START, on("block-telemetry") + "||" + EVENT_LOGGER_START),
             ("js/fota/fotaJs_Loader.js", "\nfotaLoader.init();\n",
              "\n" + on("block-updates") + "||fotaLoader.init();\n"),
-        ] + HARDWARE_BUTTONS + ([
+        ] + HARDWARE_BUTTONS + BATTERY_FULL + OUTER_SCREEN_TIMEOUT + ([
             ("js/init_logo_handler.js",
              'CustomLogoPath.oslogo.image="tmo"===e?',
              'CustomLogoPath.oslogo.image=' + on("boot-animation") +
@@ -267,6 +326,12 @@ OVERLAYS = {
              "        if (" + on("network-type") + ") {\n"
              "          elements.networkType.classList.remove('hidden');\n"
              "        } else {\n" + NETWORK_TYPE_HIDING + "        }\n"),
+            ("elements/display.html", AUTO_LOCK_ITEM, SUBSCREEN_TIMEOUT_ITEM + AUTO_LOCK_ITEM),
+            ("js/panels/display/panel.js",
+             "        listElements = panel.querySelectorAll('li');\n",
+             "        panel.querySelector('#flipfull-subscreen-timeout').classList.toggle('hidden', !"
+             + on("outer-screen-timeout") + ");\n"
+             "        listElements = panel.querySelectorAll('li');\n"),
         ],
     },
     "callscreen": {
