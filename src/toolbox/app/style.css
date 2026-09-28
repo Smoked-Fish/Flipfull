@@ -223,7 +223,6 @@ h2 {
   box-shadow: 0 0.2rem 0.8rem rgba(0, 0, 0, 0.6);
 }
 
-#toast.top { top: 3.2rem; bottom: auto; }
 #toast.show { display: block; }
 #toast.error { color: var(--error); }
 

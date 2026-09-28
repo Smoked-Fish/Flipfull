@@ -380,7 +380,10 @@ OVERLAYS = {
     "video": {
         "remove": ["js/ads/kaiads.v5.min.js", "js/ads/fullscreen.js", ".KaiAds.appinfo.json"],
         "patches": [
-            ("js/video_utils.js", 'supportKaiAds:"function"==typeof getKaiAd,', 'supportKaiAds:!0,'),
+            ("index.html", '    <script defer="" src="http://shared.localhost/js/utils/l10n/l10n.js"></script>\n',
+             FEATURES_SCRIPT + '    <script defer="" src="http://shared.localhost/js/utils/l10n/l10n.js"></script>\n'),
+            ("js/video_utils.js", 'supportKaiAds:"function"==typeof getKaiAd,',
+             'supportKaiAds:!' + on("video-no-youtube") + ','),
         ],
         "rewrites": [
             ("index.html", lambda text: video_index(text)),

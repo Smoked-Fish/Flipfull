@@ -96,16 +96,8 @@
     el.toast.textContent = text;
     el.toast.classList.toggle('error', !!isError);
     el.toast.classList.add('show');
-    placeToast();
     clearTimeout(toastTimer);
     toastTimer = setTimeout(() => el.toast.classList.remove('show'), 4000);
-  }
-
-  function placeToast() {
-    const r = document.querySelector(`#${view} .row.focus`);
-    const main = document.querySelector('main').getBoundingClientRect();
-    const box = r && r.getBoundingClientRect();
-    el.toast.classList.toggle('top', !!box && box.top + box.height / 2 > main.top + main.height / 2);
   }
 
   function closeDialog() {
@@ -180,7 +172,6 @@
         box.scrollTop = 0;
       }
     }
-    placeToast();
     updateKeys();
   }
 
@@ -385,10 +376,6 @@
     }
   }
 
-  function itemOf(id) {
-    return registry.find((f) => f.id === id) || { id, title: id };
-  }
-
   function toggle(item) {
     const on = !item.on;
     if (on && item.usable === 'no') {
@@ -423,7 +410,7 @@
       return;
     }
     sending = run('set', ...batch.flatMap(([id, on]) => [id, on ? 'on' : 'off']))
-      .then((out) => refresh().then(() => report(batch, M.parseSet(out))),
+      .then((out) => refresh().then(() => report(M.parseSet(out))),
         (e) => refresh().catch(() => {}).then(() => {
           throw e;
         }))
@@ -442,30 +429,11 @@
       });
   }
 
-  function report(batch, result) {
+  function report(result) {
     changed = true;
     if (result.errors.length) {
       message(result.errors.join('\n'));
-      return;
     }
-    const title = (id) => itemOf(id).title;
-    const all = batch.concat(result.also.map((a) => [a.id, a.on]));
-    let text;
-    if (batch.length === 1) {
-      text = `${title(batch[0][0])} is ${batch[0][1] ? 'on' : 'off'}.`;
-      if (result.also.length) {
-        text += ` So is ${result.also.map((a) => title(a.id)).join(', ')}.`;
-      }
-    } else {
-      text = [true, false].map((on) => {
-        const names = all.filter(([, v]) => v === on).map(([id]) => title(id));
-        return names.length ? `Turned ${on ? 'on' : 'off'}: ${names.join(', ')}.` : '';
-      }).filter(Boolean).join(' ');
-    }
-    if (all.some(([id]) => state.features[id].pending)) {
-      text += ' Reboot to finish.';
-    }
-    toast(text);
   }
 
   function reboot() {

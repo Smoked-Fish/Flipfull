@@ -179,7 +179,7 @@ restart_changed() {
     changed=$(printf '%s\n%s\n' "$1" "$2" | awk '$1 == "feature"' | sort | uniq -u | awk '{ print $2 }' | sort -u)
     [ -n "$changed" ] || return 0
     apps=$(needs | awk -v ids=" $(echo $changed) " '
-        $2 == "overlay" && ($3 == "launcher" || $3 == "settings") && index(ids, " " $1 " ") { print $3 }' | sort -u)
+        $2 == "overlay" && ($3 == "launcher" || $3 == "settings" || $3 == "video") && index(ids, " " $1 " ") { print $3 }' | sort -u)
     for app in $apps; do
         same_dir "$USERINIT/overlays/$app" "$(readlink -f "$VROOT/$app")" || continue
         if sh "$USERINIT/tools/restart.sh" "$app" >/dev/null; then
@@ -329,7 +329,7 @@ app_info() {
         music) about="Music player and Icecast internet radio." ;;
         notes) about="Simple text notes." ;;
         soundrecorder) about="Voice recordings." ;;
-        video) about="Video player, with YouTube picks." ;;
+        video) about="Video player, with YouTube picks unless Flipfull takes them out." ;;
         sms) rank=4 core="text messages" about="Text and picture messages (SMS, MMS)." ;;
         bluetooth) rank=4 core="Bluetooth pairing" about="Bluetooth pairing requests and file transfers." ;;
         system) rank=4 core="the whole phone UI" about="The status bar, lock screen, notifications, outer screen and everything around the apps." ;;
