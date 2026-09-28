@@ -1,61 +1,44 @@
-"""One place to build, install, inspect and remove everything custom on the phone.
+"""Build Flipfull and manage it on the phone from the PC.
 
     python flip4.py build [target ...]   rebuild overlays + apps into userinit/
     python flip4.py install [--reboot]   put userinit/ on the phone (builds first)
-                  [--keep-folders]       ... keeping the launcher's Games / Utilities folders
-    python flip4.py install-app ZIP      install a local application.zip as an app
-    python flip4.py status               what is installed and running
+    python flip4.py release [DIR]        a zip anyone with a rooted phone can install
+    python flip4.py features             the features, and which are on
+    python flip4.py on ID... [--reboot]  turn features on (off: the same)
+    python flip4.py status               what is installed, mounted and running
     python flip4.py restart [app ...]    restart the UI (b2g), or just those apps
     python flip4.py mon NAME...          memory and CPU of processes, every second
     python flip4.py removable [...]      pick which preloaded apps can be uninstalled
+    python flip4.py google-client [FILE] use your own Google sign-in client
+    python flip4.py install-app ZIP      install a local application.zip as an app
     python flip4.py backup [DIR]         copy contacts, messages, settings, app data to the PC
     python flip4.py restore DIR          put a backup back on the phone
     python flip4.py cleanup [--yes]      delete files left by the old layouts
     python flip4.py uninstall [--reboot] remove everything; the phone boots stock
 """
 import argparse
+import configparser
 import hashlib
 import json
 import os
 import shutil
-import socket
 import subprocess
 import sys
 import time
+import zipfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 LOCAL = ROOT / "userinit"
 UI = "/data/local/userinit"
-MANIFEST = f"{UI}/.installed-files"
-HOOK_RC = "/vendor/etc/init/init.userinit.rc"
-APPS_SOCK = "/data/local/tmp/apps-uds.sock"
-KAIVA_URL = "http://kaios-voiceassistant.localhost/manifest.webmanifest"
-QR_URL = "http://qrreader.localhost/manifest.webmanifest"
-APPS_DB = "/data/local/webapps/db/apps.sqlite"
-SQLITE = "bin/sqlite3"
-OVERLAYS = "overlays"
-REMOVABLE_LIST = f"{UI}/removable-apps"
-CORE_APPS = {
-    "system": "the whole phone UI", "shared": "code every app uses", "launcher": "home screen",
-    "keyboard": "typing", "settings": "Settings", "callscreen": "phone calls",
-    "emergency-call": "emergency calls", "network-alerts": "emergency alerts",
-    "ftu": "first-run setup", "customization": "carrier setup", "loginpages": "account sign-in",
-    "stk": "SIM menus", "wappush": "carrier messages", "wallpaper": "wallpaper picker",
-    "ringtones": "ringtone picker",
-}
+FLIPFULL = f"{UI}/flipfull"
+STAGING = f"{UI}/.staging"
 BACKUP_PATHS = ["data/local/service/api-daemon", "data/local/webapps", "data/b2g/mozilla"]
 BACKUP_EXCLUDES = ["*/startupCache", "*/shader-cache", "*/safebrowsing", "*/cache2",
                    "data/local/webapps/downloading"]
 MEDIA_PATHS = {"internal": "/data/media", "sdcard": "/mnt/sdcard"}
-REPLACED_APPS = {"Dictate": "http://dictate.localhost/manifest.webmanifest"}
-FWD_PORT = 6123
-TEXT_SUFFIXES = {".sh", ".js", ".md", ".conf", ".rc"}
-TEXT_NAMES = {"hosts"}
-RUNTIME = ("run.log", "run.log.old", "busybox-path.sh", "bin/bbx/", "uninstall", ".overlays-mounted",
-           "disable", "services/stt/server.log", "services/stt/server.log.old",
-           "services/stt/stt.conf", "services/callrec/callrecd.log", "services/callrec/callrecd.log.old",
-           "services/callrec/callrec.conf", "removable-apps")
+TEXT_SUFFIXES = {".sh", ".js", ".md", ".conf", ".rc", ".ini", ".awk", ".hosts"}
+TEXT_NAMES = {"flipfull", "api"}
 
 
 def find_adb():
@@ -84,126 +67,31 @@ def sh(cmd, check=True):
     return adb("shell", cmd, check=check)
 
 
+def sh_live(cmd):
+    return subprocess.run([ADB, "shell", cmd]).returncode
+
+
 def require_root():
     if sh("id -u", check=False) != "0":
         sys.exit("adbd is not running as root (run: adb root)")
 
 
-def apps_cmd(cmd, param=None):
-    adb("forward", f"tcp:{FWD_PORT}", f"localfilesystem:{APPS_SOCK}")
-    try:
-        with socket.create_connection(("127.0.0.1", FWD_PORT), timeout=60) as s:
-            msg = {"cmd": cmd} if param is None else {"cmd": cmd, "param": param}
-            s.sendall((json.dumps(msg) + "\n").encode())
-            buf = b""
-            while b"\n" not in buf:
-                chunk = s.recv(65536)
-                if not chunk:
-                    break
-                buf += chunk
-    finally:
-        adb("forward", "--remove", f"tcp:{FWD_PORT}", check=False)
-    return json.loads(buf) if buf.strip() else {}
+def require_flipfull():
+    require_root()
+    if sh(f"[ -f {FLIPFULL} ] && echo y", check=False) != "y":
+        sys.exit("Flipfull isn't on the phone, or is from before features.ini - run `flip4.py install` first")
 
 
-def apps_ok(r):
-    return isinstance(r, dict) and "success" in r
-
-
-def installed_apps():
-    return str(apps_cmd("list").get("success") or "")
-
-
-def app_db_names():
-    out = sh(f"{UI}/{SQLITE} -init /dev/null {APPS_DB} "
-             "'SELECT name FROM apps WHERE preloaded = 1'", check=False)
-    names = {line.strip() for line in out.splitlines() if line.strip()}
-    if not names:
-        sys.exit(f"couldn't read the app names from {APPS_DB} with {UI}/{SQLITE}:\n{out}")
-    return names
-
-
-def install_package(name):
-    tmp_zip = f"/data/local/tmp/userinit-{name}.zip"
-    sh(f"cp {UI}/apps/{name}/application.zip {tmp_zip} && chmod 0644 {tmp_zip}")
-    r = apps_cmd("install", tmp_zip)
-    sh(f"rm -f {tmp_zip}", check=False)
-    return r
-
-
-def install_app_zip(zip_path):
-    zip_path = Path(zip_path)
-
-    if not zip_path.is_file():
-        sys.exit(f"application package not found: {zip_path}")
-
-    if zip_path.suffix.lower() != ".zip":
-        sys.exit(f"application package must be a .zip file: {zip_path}")
-
-    remote = f"/data/local/tmp/flip4-{zip_path.name}"
-
-    print(f"pushing {zip_path} ...")
-    adb("push", str(zip_path), remote)
-
-    try:
-        sh(f"chmod 0644 '{remote}'")
-        r = apps_cmd("install", remote)
-    finally:
-        sh(f"rm -f '{remote}'", check=False)
-
-    if not apps_ok(r):
-        print(f"app install failed: {r}")
-        return False
-    print(f"app installed: {zip_path.name}")
-    return True
-
-
-def install_qrreader():
-    fresh = QR_URL not in installed_apps()
-    r = install_package("qrreader")
-    if not apps_ok(r):
-        print(f"QR Reader: install failed: {r}")
-    else:
-        print("QR Reader:", "installed" if fresh else "updated")
-
-
-def install_kaiva():
-    apps = installed_apps()
-    replaced = [name for name, url in REPLACED_APPS.items() if url in apps]
-    for name in replaced:
-        r = apps_cmd("uninstall", REPLACED_APPS[name])
-        print(f"{name}:", "uninstalled, KaiVA replaces it" if apps_ok(r) else f"not uninstalled ({r})")
-    if replaced and KAIVA_URL in apps:
-        apps_cmd("uninstall", KAIVA_URL)
-    fresh = KAIVA_URL not in installed_apps()
-
-    r = install_package("kaiva")
-    if not apps_ok(r):
-        print(f"KaiVA: install failed: {r}")
-    elif fresh:
-        print("KaiVA: installed; it is now the keyboard's voice input and the assistant")
-    elif replaced:
-        print("KaiVA: updated. Open Voice Assistant once so the keyboard's voice input "
-              "points at it again")
-    else:
-        print("KaiVA: updated")
+def flipfull(*words, live=False):
+    cmd = f"sh {FLIPFULL} " + " ".join(words)
+    if live:
+        return sh_live(cmd)
+    return subprocess.run([ADB, "shell", cmd], capture_output=True, text=True).stdout
 
 
 def local_files():
     return sorted(p.relative_to(LOCAL).as_posix() for p in LOCAL.rglob("*")
                   if p.is_file() and p.name != ".gitkeep")
-
-
-def split_overlays(files, known):
-
-    missing = {}
-    for f in files:
-        parts = f.split("/")
-        if (len(parts) == 3 and parts[0] == OVERLAYS and parts[2] == "application.zip"
-                and parts[1] not in known):
-            missing[parts[1]] = f
-    skipped = tuple(f"{OVERLAYS}/{app}/" for app in missing)
-    return [f for f in files if not f.startswith(skipped)], missing
 
 
 def check_line_endings(files):
@@ -215,7 +103,38 @@ def check_line_endings(files):
                  "prevent that - re-checkout with `git add --renormalize .`:\n  " + "\n  ".join(bad))
 
 
-def push_changed(files):
+def version():
+    try:
+        return subprocess.run(["git", "-C", str(ROOT), "describe", "--always", "--dirty"],
+                              capture_output=True, text=True).stdout.strip() or "unknown"
+    except OSError:
+        return "unknown"
+
+
+def files_list(files):
+    return (f"# Flipfull {version()} built {time.strftime('%Y-%m-%d %H:%M')}\n"
+            + "\n".join(files) + "\n")
+
+
+def google_client_file():
+    found = sorted(ROOT.glob("client_secret*.json"))
+    if len(found) > 1:
+        sys.exit(f"more than one Google client JSON in the repo root, keep only one: {[f.name for f in found]}")
+    return found[0] if found else None
+
+
+def cmd_build(args):
+    sys.path.insert(0, str(ROOT / "src"))
+    import build
+    build.build(args.targets)
+
+
+def cmd_install(args):
+    require_root()
+    if not args.no_build:
+        cmd_build(argparse.Namespace(targets=[]))
+    files = local_files()
+    check_line_endings(files)
 
     out = sh(f"cd {UI} 2>/dev/null && md5sum " + " ".join(f"'{f}'" for f in files) + " 2>/dev/null",
              check=False)
@@ -225,139 +144,137 @@ def push_changed(files):
         if len(parts) == 2:
             on_phone[parts[1]] = parts[0]
     changed = [f for f in files
-               if on_phone.get(f) != hashlib.md5((LOCAL / f).read_bytes()).hexdigest()]
-    staging = f"{UI}/.staging"
-    sh(f"rm -rf {staging}")
+               if on_phone.get(f) != hashlib.md5((LOCAL / f).read_bytes()).hexdigest()
+               or f in ("flipfull", "lib/common.sh", "lib/plan.awk")]
+    sh(f"rm -rf {STAGING} && mkdir -p {STAGING}")
     for f in changed:
-        adb("push", str(LOCAL / f), f"{staging}/{f}")
-    if changed:
-        sh(f"cd {UI} && for f in " + " ".join(f"'{f}'" for f in changed) +
-           f"; do mkdir -p \"$(dirname \"$f\")\" && mv -f \"{staging}/$f\" \"$f\"; done; rm -rf {staging}")
-    return changed
-
-
-def version():
+        adb("push", str(LOCAL / f), f"{STAGING}/{f}")
+    tmp = ROOT / ".files.tmp"
+    tmp.write_text(files_list(files), newline="\n")
     try:
-        return subprocess.run(["git", "-C", str(ROOT), "describe", "--always", "--dirty"],
-                              capture_output=True, text=True).stdout.strip() or "unknown"
-    except OSError:
-        return "unknown"
-
-
-def cmd_build(args):
-    sys.path.insert(0, str(ROOT / "src"))
-    import build
-    build.build(args.targets, keep_folders=getattr(args, "keep_folders", False))
-
-
-def cmd_install(args):
-    if args.keep_folders and args.no_build:
-        sys.exit("--keep-folders changes how the launcher overlay is built; drop --no-build")
-    require_root()
-    if sh(f"ls {HOOK_RC}", check=False) != HOOK_RC:
-        print(f"WARNING: {HOOK_RC} is missing - nothing in userinit will run at boot "
-              "until the boot hook is flashed (src/boot-hook/README.md)")
-    if not args.no_build:
-        cmd_build(argparse.Namespace(targets=[], keep_folders=args.keep_folders))
-
-    files = local_files()
-    check_line_endings(files)
-    old = [l for l in sh(f"cat {MANIFEST} 2>/dev/null", check=False).splitlines()
-           if l and not l.startswith("#")]
-
-    sh(f"rm -f {UI}/uninstall")
-    sh(f"mkdir -p {UI}")
-
-    if SQLITE in files:
-        push_changed([SQLITE])
-        sh(f"chmod 0755 {UI}/{SQLITE}")
-    files, as_apps = split_overlays(files, app_db_names())
-    for app in sorted(as_apps):
-        print(f"{app}: not a preloaded app on the phone - installing it as an app, not an overlay")
-
-    changed = push_changed(files)
-    print(f"userinit/: {len(changed)} of {len(files)} files changed and pushed")
-
-    stale = sorted(set(old) - set(files) - set(RUNTIME))
-    if stale:
-        sh("rm -f " + " ".join(f"'{UI}/{f}'" for f in stale))
-        print("removed files no longer in the repo:", ", ".join(stale))
-    manifest = f"# Flipfull {version()} installed {time.strftime('%Y-%m-%d %H:%M')}\n" + \
-               "\n".join(files) + "\n"
-    tmp = ROOT / ".installed-files.tmp"
-    tmp.write_text(manifest, newline="\n")
-    try:
-        adb("push", str(tmp), MANIFEST)
+        adb("push", str(tmp), f"{STAGING}/.files")
     finally:
         tmp.unlink()
+    rc = sh_live(f"sh {STAGING}/flipfull setup --from {STAGING}")
+    sh(f"rm -rf {STAGING}", check=False)
+    if rc != 0:
+        sys.exit("setup failed on the phone")
 
-    sh(f"chown -R root:root {UI}; "
-       f"find {UI} -type d -exec chmod 0711 {{}} \\; ; "
-       f"find {UI} -type f -exec chmod 0644 {{}} \\; ; "
-       f"find {UI} -type f \\( -name '*.sh' -o -path '*/bin/*' -o -name stt-server -o -name ttlfix \\) "
-       f"-exec chmod 0755 {{}} \\;")
-
-    print(sh(f"sh {UI}/tools/cleanup-old.sh --userinit-only", check=False))
-
-    install_kaiva()
-    install_qrreader()
-    for app, f in sorted(as_apps.items()):
-        print(f"{app}:", "installed" if install_app_zip(LOCAL / f) else "not installed")
-
-    print(sh(f"sh {UI}/boot-completed.d/50-services.sh", check=False))
-    print("Overlays and Gecko prefs apply at the next boot.")
+    client = google_client_file()
+    if client:
+        import_google_client(client)
     finish(args, "installed")
 
 
-def cmd_install_app(args):
-    require_root()
-    if not install_app_zip(args.application):
+def cmd_release(args):
+    if not args.no_build:
+        cmd_build(argparse.Namespace(targets=[]))
+    files = local_files()
+    check_line_endings(files)
+    name = f"flipfull-{version()}"
+    dest = Path(args.dir) if args.dir else ROOT / "dist"
+    dest.mkdir(parents=True, exist_ok=True)
+    out = dest / f"{name}.zip"
+    release = ROOT / "src" / "release"
+
+    def add(z, path, arcname, mode=0o644):
+        zi = zipfile.ZipInfo(f"{name}/{arcname}", date_time=time.localtime()[:6])
+        zi.external_attr = mode << 16
+        zi.compress_type = zipfile.ZIP_DEFLATED
+        z.writestr(zi, path.read_bytes() if isinstance(path, Path) else path)
+
+    with zipfile.ZipFile(out, "w") as z:
+        for f in files:
+            add(z, LOCAL / f, f"flipfull/{f}")
+        add(z, files_list(files).encode(), "flipfull/.files")
+        add(z, release / "install.sh", "install.sh", 0o755)
+        add(z, release / "install.bat", "install.bat")
+        add(z, release / "README.txt", "README.txt")
+    print(f"{out} ({out.stat().st_size / 1e6:.1f} MB): unzip it, then run install.bat (Windows) "
+          "or install.sh with the phone connected")
+
+
+def cmd_features(args):
+    require_flipfull()
+    ini = configparser.ConfigParser(interpolation=None)
+    ini.read_string(flipfull("features"))
+    rows = {}
+    reboot = False
+    for line in flipfull("state").splitlines():
+        f = line.split("\t")
+        if f[0] == "feature" and len(f) >= 7:
+            rows[f[1]] = f
+        elif f[0] == "reboot":
+            reboot = f[1] == "yes"
+    for fid in ini.sections():
+        f = rows.get(fid)
+        if not f:
+            continue
+        if ini[fid].get("section"):
+            print(f"\n{ini[fid]['section']}")
+        note = ""
+        if f[4] == "yes":
+            note = "  (after a reboot)"
+        if f[5] != "yes":
+            note += f"  - {'unusable' if f[5] == 'no' else 'partly'}: {f[6]}"
+        print(f"  [{'x' if f[2] == 'on' else ' '}] {fid:20} {ini[fid].get('title', '')}{note}")
+    if reboot:
+        print("\nSome changes wait for a reboot.")
+
+
+def cmd_set(args):
+    require_flipfull()
+    value = "on" if args.cmd == "on" else "off"
+    rc = flipfull("set", *(f"{i} {value}" for i in args.ids), live=True)
+    if rc != 0:
         sys.exit(1)
+    waiting = any(line == "reboot\tyes" for line in flipfull("state").splitlines())
+    finish(args, "done", needs_reboot=waiting)
+
+
+def cmd_install_app(args):
+    require_flipfull()
+    zip_path = Path(args.application)
+    if not zip_path.is_file() or zip_path.suffix.lower() != ".zip":
+        sys.exit(f"not an application.zip: {zip_path}")
+    remote = f"/data/local/tmp/flip4-{zip_path.name}"
+    adb("push", str(zip_path), remote)
+    try:
+        rc = flipfull("install-app", f"'{remote}'", live=True)
+    finally:
+        sh(f"rm -f '{remote}'", check=False)
+    sys.exit(rc)
+
+
+def import_google_client(path):
+    remote = "/data/local/tmp/flip4-client_secret.json"
+    adb("push", str(path), remote)
+    try:
+        return flipfull("google-client", "import", remote, live=True)
+    finally:
+        sh(f"rm -f {remote}", check=False)
+
+
+def cmd_google_client(args):
+    require_flipfull()
+    if args.remove:
+        sys.exit(flipfull("google-client", "remove", live=True))
+    path = Path(args.file) if args.file else google_client_file()
+    if not path:
+        sys.exit("no client_secret*.json in the repo root; name the file")
+    if import_google_client(path) != 0:
+        sys.exit(1)
+    print("Turn on the google-accounts feature (flip4.py on google-accounts --reboot) if it's off.")
 
 
 def cmd_status(args):
-    require_root()
-    print(sh(f"head -1 {MANIFEST} 2>/dev/null || echo 'userinit: not installed by flip4.py'", check=False))
-    hook = sh(f"ls {HOOK_RC} 2>/dev/null", check=False)
-    print("boot hook:", "present" if hook else "MISSING")
-    if sh(f"ls {UI}/uninstall 2>/dev/null", check=False):
-        print("uninstall pending: the next boot removes everything")
-    print("\noverlays and boot media mounted:")
-    print(sh("awk '$4 ~ /userinit\\/(overlays|media)/ {print \"  \" $5 \"  <-  \" $4}' /proc/self/mountinfo",
-             check=False) or "  none")
-    print("\nservices:")
-    print(sh(f"for s in {UI}/services/*/service.sh; do sh $s status; done", check=False))
-    print("\napps:")
-    try:
-        apps = installed_apps()
-        print("  KaiVA:", "installed" if KAIVA_URL in apps else "not installed")
-        print("  QR Reader:", "installed" if QR_URL in apps else "not installed")
-        for name, url in REPLACED_APPS.items():
-            if url in apps:
-                print(f"  {name}: still installed (flip4.py install replaces it)")
-    except OSError as e:
-        print(f"  app list unavailable ({e})")
-    removable = [name for name, on in preloaded_apps(quiet=True) if on]
-    print("  preloaded apps you can uninstall:", ", ".join(removable) if removable else "none")
-    print("\nupdaters (stopped after boot, 10-no-updates.sh):")
-    print(sh("for s in update_engine updater-daemon; do echo \"  $s: $(getprop init.svc.$s)\"; done",
-             check=False))
-    print("\nGecko prefs block:", "present" if sh(
-        "grep -l '^// >>> userinit' /data/b2g/mozilla/*.default/user.js 2>/dev/null",
-        check=False) else "not written yet (next boot)")
-    print("\nlast boot (run.log):")
-    print(sh(f"tail -15 {UI}/run.log 2>/dev/null", check=False))
+    require_flipfull()
+    flipfull("status", live=True)
 
 
 def cmd_restart(args):
-    require_root()
-    script = f"{UI}/tools/restart.sh"
-    if not sh(f"ls {script} 2>/dev/null", check=False):
-        sys.exit("the phone's userinit is older than this command - run `flip4.py install` first")
-    r = subprocess.run([ADB, "shell", f"sh {script} " + " ".join(f"'{a}'" for a in args.apps)],
-                       capture_output=True, text=True)
-    print((r.stdout + r.stderr).strip())
-    sys.exit(r.returncode)
+    require_flipfull()
+    sys.exit(flipfull("restart", *(f"'{a}'" for a in args.apps), live=True))
 
 
 def cmd_mon(args):
@@ -391,32 +308,9 @@ def cmd_cleanup(args):
 
 
 def cmd_uninstall(args):
-    require_root()
-    print(sh(f"for s in {UI}/services/*/service.sh; do [ -f $s ] && sh $s stop; done", check=False))
-    apps = installed_apps()
-    for name, url in {"KaiVA": KAIVA_URL, "QR Reader": QR_URL, **REPLACED_APPS}.items():
-        if url in apps:
-            r = apps_cmd("uninstall", url)
-            print(f"{name}:", "uninstalled" if apps_ok(r) else f"not uninstalled ({r})")
-    push_changed(["run.sh"])
-    sh(f"chmod 0755 {UI}/run.sh; touch {UI}/uninstall")
-    print("Everything else is removed at the next boot (preloaded apps you made removable "
-          "go back to stock); the phone then boots stock.")
-    print("(Changed your mind before rebooting? `flip4.py install` cancels it.)")
+    require_flipfull()
+    flipfull("uninstall", live=True)
     finish(args, "uninstall scheduled")
-
-
-def preloaded_apps(quiet=False):
-    out = sh(f"{UI}/{SQLITE} -init /dev/null -separator '|' {APPS_DB} "
-             "'SELECT name, removable FROM apps WHERE preloaded = 1 ORDER BY name'", check=False)
-    apps = []
-    for line in out.splitlines():
-        name, _, flag = line.partition("|")
-        if name and flag in ("0", "1"):
-            apps.append((name, flag == "1"))
-    if not apps and not quiet:
-        sys.exit(f"couldn't read {APPS_DB} with {UI}/{SQLITE} - run `flip4.py install` first")
-    return apps
 
 
 def parse_picks(answer, count):
@@ -433,12 +327,13 @@ def parse_picks(answer, count):
 
 
 def pick_removable(apps, chosen):
-    names = [name for name, _ in apps]
+    names = [a["name"] for a in apps]
+    core = {a["name"]: a["core"] for a in apps if a["core"]}
     while True:
         print("\nPreloaded apps ([x] = can be uninstalled from the app list):")
-        for i, name in enumerate(names, 1):
-            core = f"  (core: {CORE_APPS[name]})" if name in CORE_APPS else ""
-            print(f"  {i:3} [{'x' if name in chosen else ' '}] {name}{core}")
+        for i, a in enumerate(apps, 1):
+            note = f"  (core: {a['core']})" if a["core"] else ""
+            print(f"  {i:3} [{'x' if a['name'] in chosen else ' '}] {a['name']}{note}")
         answer = input("\nToggle numbers (e.g. 3 7-9), a = all but core, n = none, "
                        "Enter = save, q = quit: ").strip().lower()
         if answer == "":
@@ -446,7 +341,7 @@ def pick_removable(apps, chosen):
         if answer == "q":
             return None
         if answer == "a":
-            chosen = {n for n in names if n not in CORE_APPS}
+            chosen = {n for n in names if n not in core}
             continue
         if answer == "n":
             chosen = set()
@@ -459,8 +354,8 @@ def pick_removable(apps, chosen):
             name = names[i - 1]
             if name in chosen:
                 chosen.discard(name)
-            elif name in CORE_APPS and input(
-                    f"  {name} is {CORE_APPS[name]}; without it the phone may not work. "
+            elif name in core and input(
+                    f"  {name} is {core[name]}; without it the phone may not work. "
                     "Make it removable anyway? [y/N] ").strip().lower() != "y":
                 continue
             else:
@@ -468,25 +363,27 @@ def pick_removable(apps, chosen):
 
 
 def cmd_removable(args):
-    require_root()
-    if not sh(f"ls {UI}/post-fs-data.d/02-removable-apps.sh 2>/dev/null", check=False):
-        sys.exit("the phone's userinit is older than this command - run `flip4.py install` first")
-    apps = preloaded_apps()
-    names = {name for name, _ in apps}
-    saved = sh(f"[ -f {REMOVABLE_LIST} ] && echo list && cat {REMOVABLE_LIST}", check=False).split()
-    now = ({n for n in saved[1:] if n in names} if saved[:1] == ["list"]
-           else {name for name, on in apps if on})
+    require_flipfull()
+    apps = []
+    for line in flipfull("removable").splitlines():
+        f = line.split("\t")
+        if f[0] == "app" and len(f) >= 6:
+            apps.append({"name": f[1], "now": f[2] == "1", "chosen": f[3] == "1", "core": f[5]})
+    if not apps:
+        sys.exit("couldn't read the preloaded apps from the phone")
+    names = {a["name"] for a in apps}
+    now = {a["name"] for a in apps if a["chosen"]}
     if args.list:
-        for name, on in apps:
-            pending = "" if (name in now) == on else " (from the next boot)"
-            print(f"{'x' if name in now else ' '} {name}{pending}")
+        for a in apps:
+            pending = "" if a["chosen"] == a["now"] else " (from the next boot)"
+            print(f"{'x' if a['chosen'] else ' '} {a['name']}{pending}")
         return
-    apps = [(name, name in now) for name, _ in apps]
     unknown = sorted(set(args.add + args.remove) - names)
     if unknown:
         sys.exit(f"not preloaded apps: {', '.join(unknown)} (see `flip4.py removable --list`)")
+    core = {a["name"] for a in apps if a["core"]}
     if args.all:
-        chosen = {n for n in names if n not in CORE_APPS} | (now & set(CORE_APPS))
+        chosen = (names - core) | (now & core)
     elif args.none:
         chosen = set()
     elif args.add or args.remove:
@@ -500,12 +397,8 @@ def cmd_removable(args):
     if not gained and not lost:
         print("nothing to change")
         return
-    tmp = ROOT / ".removable-apps.tmp"
-    tmp.write_text("".join(f"{n}\n" for n in sorted(chosen)), newline="\n")
-    try:
-        adb("push", str(tmp), REMOVABLE_LIST)
-    finally:
-        tmp.unlink()
+    if flipfull("removable", "set", *sorted(chosen), live=True) != 0:
+        sys.exit(1)
     if gained:
         print("can be uninstalled after the reboot:", ", ".join(gained))
         print("Uninstall them from the app list (Options > Uninstall). An update to the phone's "
@@ -615,25 +508,33 @@ def cmd_restore(args):
     print("restored; the phone is rebooting")
 
 
-def finish(args, what):
+def finish(args, what, needs_reboot=True):
     if getattr(args, "reboot", False):
         adb("reboot")
         print(f"{what}; rebooting")
-    else:
+    elif needs_reboot:
         print(f"{what}; reboot to apply (adb reboot)")
+    else:
+        print(what)
 
 
 def main():
     global ADB
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
-    b = sub.add_parser("build", help="rebuild overlays and the KaiVA app into userinit/")
+    b = sub.add_parser("build", help="rebuild overlays and apps into userinit/")
     b.add_argument("targets", nargs="*")
-    i = sub.add_parser("install", help="install / update everything on the phone")
+    i = sub.add_parser("install", help="install / update Flipfull on the phone")
     i.add_argument("--no-build", action="store_true", help="push userinit/ as it is")
-    i.add_argument("--keep-folders", action="store_true",
-                   help="the launcher keeps its Games and Utilities folders")
     i.add_argument("--reboot", action="store_true")
+    rl = sub.add_parser("release", help="build a zip with install.sh / install.bat (default dist/)")
+    rl.add_argument("dir", nargs="?")
+    rl.add_argument("--no-build", action="store_true", help="zip userinit/ as it is")
+    sub.add_parser("features", help="list the features and which are on")
+    for name in ("on", "off"):
+        s = sub.add_parser(name, help=f"turn features {name} (ids: `flip4.py features`)")
+        s.add_argument("ids", nargs="+", metavar="ID")
+        s.add_argument("--reboot", action="store_true", help="reboot if a change waits for one")
     sub.add_parser("status", help="show what is installed and running")
     rt = sub.add_parser("restart", help="restart the phone's UI (b2g) without a reboot, "
                         "or only the named apps (launcher, settings, ...)")
@@ -653,10 +554,14 @@ def main():
     g = r.add_mutually_exclusive_group()
     g.add_argument("--all", action="store_true", help="every preloaded app except the core ones")
     g.add_argument("--none", action="store_true", help="none (as the phone came)")
-    g.add_argument("--list", action="store_true", help="show which are removable now")
+    g.add_argument("--list", action="store_true", help="show which are removable")
     r.add_argument("--add", nargs="+", default=[], metavar="APP")
     r.add_argument("--remove", nargs="+", default=[], metavar="APP")
     r.add_argument("--reboot", action="store_true")
+    gc = sub.add_parser("google-client", help="use your own Google sign-in client "
+                        "(default: client_secret*.json in the repo root)")
+    gc.add_argument("file", nargs="?")
+    gc.add_argument("--remove", action="store_true")
     bk = sub.add_parser("backup", help="copy the phone's data to the PC (default backups/<date>)")
     bk.add_argument("dir", nargs="?")
     bk.add_argument("--media", action="store_true", help="also photos, music, recordings (both storages)")
@@ -672,12 +577,13 @@ def main():
     u.add_argument("--reboot", action="store_true")
     args = p.parse_args()
 
-    if args.cmd != "build":
+    if args.cmd not in ("build", "release"):
         ADB = find_adb()
-    {"build": cmd_build, "install": cmd_install, "install-app": cmd_install_app,
-     "status": cmd_status, "restart": cmd_restart, "mon": cmd_mon, "removable": cmd_removable,
-     "backup": cmd_backup, "restore": cmd_restore, "cleanup": cmd_cleanup,
-     "uninstall": cmd_uninstall}[args.cmd](args)
+    {"build": cmd_build, "install": cmd_install, "release": cmd_release, "features": cmd_features,
+     "on": cmd_set, "off": cmd_set, "install-app": cmd_install_app, "status": cmd_status,
+     "restart": cmd_restart, "mon": cmd_mon, "removable": cmd_removable,
+     "google-client": cmd_google_client, "backup": cmd_backup, "restore": cmd_restore,
+     "cleanup": cmd_cleanup, "uninstall": cmd_uninstall}[args.cmd](args)
 
 
 if __name__ == "__main__":

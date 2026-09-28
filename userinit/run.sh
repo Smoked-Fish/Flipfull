@@ -9,6 +9,8 @@ STAGE="$1"
 
 log() { echo "$*" >> "$LOG"; }
 
+uptime_s() { cut -d' ' -f1 /proc/uptime; }
+
 if [ -f "$LOG" ]; then
     SIZE=$(stat -c %s "$LOG" 2>/dev/null)
     case "$SIZE" in
@@ -27,11 +29,14 @@ if [ -z "$STAGE" ]; then
 fi
 
 if [ "$STAGE" = post-fs-data ] && [ -e "$BASE/uninstall" ]; then
-    if [ -f "$BASE/removable-apps" ] && [ -f "$BASE/post-fs-data.d/02-removable-apps.sh" ]; then
+    if [ -f "$BASE/config/removable-apps" ] && [ -f "$BASE/post-fs-data.d/02-removable-apps.sh" ]; then
         sh "$BASE/post-fs-data.d/02-removable-apps.sh" reset >> "$LOG" 2>&1
     fi
-    if [ -f "$BASE/post-fs-data.d/30-gecko-prefs.sh" ]; then
-        sh "$BASE/post-fs-data.d/30-gecko-prefs.sh" remove >> "$LOG" 2>&1
+    if [ -f "$BASE/flipfull" ]; then
+        sh "$BASE/flipfull" publish --remove >> "$LOG" 2>&1
+    fi
+    if [ -f "$BASE/post-fs-data.d/04-gecko-prefs.sh" ]; then
+        sh "$BASE/post-fs-data.d/04-gecko-prefs.sh" remove >> "$LOG" 2>&1
     fi
     log "-- uninstall requested: removing everything in $BASE except run.sh"
     for f in "$BASE"/* "$BASE"/.[!.]*; do
@@ -70,7 +75,7 @@ fi
 
 for f in "$DIR"/*.sh; do
     [ -e "$f" ] || continue
-    log "-- $(date +%T) running $f"
+    log "-- $(date +%T) ($(uptime_s)) running $f"
 
     if [ "$HAVE_TIMEOUT" = 1 ]; then
         timeout "$SCRIPT_TIMEOUT" sh "$f" < /dev/null >> "$LOG" 2>&1
@@ -86,5 +91,5 @@ for f in "$DIR"/*.sh; do
     fi
 done
 
-log "-- $(date +%T) stage=$STAGE done"
+log "-- $(date +%T) ($(uptime_s)) stage=$STAGE done"
 exit 0

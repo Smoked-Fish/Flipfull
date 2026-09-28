@@ -296,6 +296,9 @@
   }
 
   function start() {
+    if (!(window.FlipfullFeatures && window.FlipfullFeatures['live-wallpaper'])) {
+      return;
+    }
     try {
       if (/index_remote\.html$/.test(location.pathname)) {
         startRemote();

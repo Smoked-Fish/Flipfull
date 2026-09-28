@@ -4,7 +4,10 @@
 
 
 
-import json
+
+
+import configparser
+import hashlib
 import re
 import shutil
 import sys
@@ -16,30 +19,36 @@ SRC = ROOT / "src"
 BASE = SRC / "overlays" / "base"
 USERINIT = ROOT / "userinit"
 
-GOOGLE_REDIRECT = "http://localhost/redirect/loginpages/redirect.html"
+# stock app md5 where base/ isn't a copy of it
+STOCK_MD5 = {
+    "launcher": "b9a1b93d1784faa661ad3b2db3f2d858",
+    "shared": "8aba4d99da9c602cfe76eb22c041eafd",
+    "wallpaper": "a0499ffb65d077bc3263f4b16b687692",
+}
+
+
+def on(feature):
+    return f'!!(window.FlipfullFeatures&&FlipfullFeatures["{feature}"])'
+
+
+FEATURES_SCRIPT = '    <script src="http://127.0.0.1/flipfull/features.js"></script>\n'
 
 SYSTEM_SCRIPTS = ('    <script defer="" src="js/live_wallpaper.js"></script>\n'
                   '    <script defer="" src="js/flipfull_system.js"></script>\n')
 MAPS_SCRIPT = '    <script defer="" src="js/flipfull_maps.js"></script>\n'
 
-OPTIONS = {"keep_folders": False}
-
-NO_FOLDERS = [
+FOLDERS = [
     ("dist/app.bundle.js",
      'X=X.concat(JSON.parse(i)||(n<=256?[]:r))',
-     'localStorage.removeItem("flipfullFolders"),'
-     'X=X.concat((JSON.parse(i)||(n<=256?[]:r)).filter(function(e){'
-     'return"games"!==e.basisname&&"utilities"!==e.basisname}))'),
+     'X=X.concat(' + on("no-folders") + '?(localStorage.setItem("flipfullNoFolders","1"),'
+     '(JSON.parse(i)||(n<=256?[]:r)).filter(function(e){'
+     'return"games"!==e.basisname&&"utilities"!==e.basisname})):'
+     'function(s,d){if(s&&localStorage.getItem("flipfullNoFolders")){'
+     'd.forEach(function(f){s.some(function(e){return e.basisname===f.basisname})||s.push(f)});'
+     'localStorage.removeItem("flipfullNoFolders")}return s||d}(JSON.parse(i),n<=256?[]:r))'),
     ("dist/app.bundle.js",
      'J=256===n?["Carrier"]:["Games","Carrier","Utilities"]',
-     'J=["Carrier"]'),
-]
-KEEP_FOLDERS = [
-    ("dist/app.bundle.js",
-     'X=X.concat(JSON.parse(i)||(n<=256?[]:r))',
-     'X=X.concat(function(s,d){if(s&&!localStorage.getItem("flipfullFolders")){'
-     'd.forEach(function(f){s.some(function(e){return e.basisname===f.basisname})||s.push(f)});'
-     'localStorage.setItem("flipfullFolders","1")}return s||d}(JSON.parse(i),n<=256?[]:r))'),
+     'J=256===n||' + on("no-folders") + '?["Carrier"]:["Games","Carrier","Utilities"]'),
 ]
 
 CALL_RECORDING_ITEM = (
@@ -75,6 +84,34 @@ EVENT_LOGGER_START = (
     'window.isJioApplication=!0});else{const e=new Cs;e.start(),window.evlm=e}'
     'SettingsObserver.unobserve("metrics.type",e)});')
 
+GOOGLE_CLIENT = """
+// Flipfull (feature google-accounts): your own Google sign-in client instead
+// of the one above, read from the phone (`flipfull google-client import`).
+window.FlipfullGoogleClient = (function(google) {
+  const FILE = '/data/local/userinit/config/google-client.json';
+  const stock = { client_id: google.client_id, client_secret: google.client_secret };
+  let own = null;
+  ['client_id', 'client_secret'].forEach(key => Object.defineProperty(google, key, {
+    get: () => (own || stock)[key],
+    enumerable: true
+  }));
+  function load() {
+    if (!(window.FlipfullFeatures && window.FlipfullFeatures['google-accounts'])) {
+      own = null;
+      return Promise.resolve();
+    }
+    return IOUtils.readJSON(FILE).then(json => {
+      own = { client_id: json.web.client_id, client_secret: json.web.client_secret };
+    }, () => {
+      own = null;
+    });
+  }
+  load();
+  return { load };
+}(Oauth2Config.google));
+"""
+
+
 def zip_names(app):
     with zipfile.ZipFile(BASE / app / "application.zip") as z:
         return z.namelist()
@@ -83,19 +120,25 @@ def zip_names(app):
 OVERLAYS = {
     "launcher": {
         "patches": [
+            ("index.html", '    <script src="js/debug_helper.js"></script>\n',
+             FEATURES_SCRIPT + '    <script src="js/debug_helper.js"></script>\n'),
             ("dist/app.bundle.js",
              'ee.default.getSettings().then(function(t){e.forceSettings=t,',
-             'ee.default.getSettings().then(function(t){e.forceSettings=t,'
+             'ee.default.getSettings().then(function(t){e.forceSettings=t,' + on("home-shortcuts") + '&&'
              '["home.customization.keypress","home.customization.longpress"].forEach(function(k){'
-             'SettingsObserver.observe(k,null,function(v){e.forceSettings[k]=v})}),'),
+             'SettingsObserver.observe(k,null,function(v){null===v&&"home.customization.keypress"===k?'
+             'SettingsObserver.setValue([{name:k,value:[{key:"ArrowRight",type:"manifestUrl",'
+             'url:window.AppOrigin?AppOrigin.getManifestURL("camera"):"http://camera.localhost/manifest.webmanifest"}]}])'
+             ':e.forceSettings[k]=v})}),'),
             ("dist/app.bundle.js",
              'if("TF"===s.default.getBuildOperatorName()&&"kaios-voiceassistant"===e.name)return!0;',
-             ''),
+             'if(!' + on("kaiva") + '&&"TF"===s.default.getBuildOperatorName()&&'
+             '"kaios-voiceassistant"===e.name)return!0;'),
             ("dist/app.bundle.js",
              'if("TMO"===s.default.getBuildOperatorName()&&"kaios-voiceassistant"===e.name)return!0;',
-             ''),
-        ],
-        "optional_patches": lambda: KEEP_FOLDERS if OPTIONS["keep_folders"] else NO_FOLDERS,
+             'if(!' + on("kaiva") + '&&"TMO"===s.default.getBuildOperatorName()&&'
+             '"kaios-voiceassistant"===e.name)return!0;'),
+        ] + FOLDERS,
     },
     "shared": {
         "patches": [
@@ -115,40 +158,62 @@ OVERLAYS = {
     "system": {
         "patches": [
             ("index.html",
+             '    <script defer="" src="js/remote_helper.js"></script>\n',
+             FEATURES_SCRIPT + '    <script defer="" src="js/remote_helper.js"></script>\n'),
+            ("index_remote.html",
+             '    <script src="http://shared.localhost/js/utils/common/app_origin.js"></script>\n',
+             FEATURES_SCRIPT + '    <script src="http://shared.localhost/js/utils/common/app_origin.js"></script>\n'),
+            ("index.html",
              '    <script defer="" src="js/external_screen_manager.js"></script>\n',
              '    <script defer="" src="js/external_screen_manager.js"></script>\n' + SYSTEM_SCRIPTS + MAPS_SCRIPT),
             ("index_remote.html",
              '    <script defer="" src="remote/dist/app.bundle.js"></script>\n',
              '    <script defer="" src="remote/dist/app.bundle.js"></script>\n' + SYSTEM_SCRIPTS),
             ("js/init_logo_handler.js",
-             'CustomLogoPath.oslogo.image="tmo"===e?`${SYSTEM_RESOURCE}branding/initlogo_tmo.png`'
-             ':"mpcs"===e?`${SYSTEM_RESOURCE}branding/initlogo_mpcs.png`'
-             ':`${SYSTEM_RESOURCE}branding/initlogo.png`',
-             'CustomLogoPath.oslogo.image=`${SYSTEM_RESOURCE}branding/initlogo.png`'),
+             'CustomLogoPath.oslogo.image="tmo"===e?',
+             'CustomLogoPath.oslogo.image=' + on("boot-animation") +
+             '?`${SYSTEM_RESOURCE}branding/initlogo_flipfull.png`:"tmo"===e?'),
             ("js/hardware_buttons.js",
              '.prototype.repeat=function(){this.repeating=!0,this.repeatCount++,',
              '.prototype.repeat=function(){if(!this.repeating&&window.FlipfullMedia&&'
              'window.FlipfullMedia.hold(this.direction))return void(this.repeating=!0);'
              'this.repeating=!0,this.repeatCount++,'),
-            ("dist/app.bundle.js", EVENT_LOGGER_START, ''),
-            ("index.html",
-             '    <script defer="" src="js/fota/fotaJs_Loader.js"></script>\n',
-             ''),
+            ("dist/app.bundle.js", EVENT_LOGGER_START, on("no-telemetry") + "||" + EVENT_LOGGER_START),
+            ("js/fota/fotaJs_Loader.js", "\nfotaLoader.init();\n",
+             "\n" + on("no-updates") + "||fotaLoader.init();\n"),
+            ("js/account_manager/google_authenticator.js",
+             "    const codeChallenge = await getChallenge();\n",
+             "    await FlipfullGoogleClient.load();\n    const codeChallenge = await getChallenge();\n"),
         ],
         "rewrites": [
-            ("js/account_manager/oauth2_config.js", lambda text: google_oauth(text)),
+            ("js/account_manager/oauth2_config.js", lambda text: text + GOOGLE_CLIENT),
         ],
     },
     "settings": {
         "patches": [
+            ("index.html",
+             '    <script src="http://shared.localhost/js/utils/common/app_origin.js"></script>\n',
+             FEATURES_SCRIPT + '    <script src="http://shared.localhost/js/utils/common/app_origin.js"></script>\n'),
             ("elements/call.html", ASSISTED_DIALING_ITEM, CALL_RECORDING_ITEM + ASSISTED_DIALING_ITEM),
             ("js/panels/call/panel.js",
              "      'menuItem-assisted-dialing': '#assisted_dialing',\n",
              "      'menuItem-assisted-dialing': '#assisted_dialing',\n"
              "      'call-recording-item': '#call_recording',\n"),
+            ("js/panels/call/panel.js",
+             "        listElements = panel.querySelectorAll('li');\n",
+             "        panel.querySelector('#call-recording-item').classList.toggle('hidden', !"
+             + on("call-recording") + ");\n"
+             "        listElements = panel.querySelectorAll('li');\n"),
             ("index.html", DISPLAY_ITEM, DISPLAY_ITEM + HOME_SHORTCUTS_ITEM),
+            ("js/panels/root/panel.js",
+             "        RootManager.init();\n",
+             "        RootManager.init();\n"
+             "        panel.querySelector('#menuItem-homeShortcuts').parentNode.classList.toggle('hidden', !"
+             + on("home-shortcuts") + ");\n"),
             ("js/panels/carrier_detail/panel.js", NETWORK_TYPE_HIDING,
-             "        elements.networkType.classList.remove('hidden');\n"),
+             "        if (" + on("network-type") + ") {\n"
+             "          elements.networkType.classList.remove('hidden');\n"
+             "        } else {\n" + NETWORK_TYPE_HIDING + "        }\n"),
         ],
     },
     "callscreen": {
@@ -192,33 +257,6 @@ OVERLAYS = {
 
 def fail(msg):
     sys.exit(f"build failed: {msg}")
-
-
-def google_oauth(text):
-    found = sorted(ROOT.glob("client_secret*.json"))
-    if not found:
-        print("           no client_secret*.json in the repo root - stock Google client kept")
-        return text
-    if len(found) > 1:
-        fail(f"more than one Google client JSON, keep only one: {[f.name for f in found]}")
-    try:
-        client = json.loads(found[0].read_text(encoding="utf-8"))
-    except ValueError as e:
-        fail(f"{found[0].name}: not valid JSON ({e})")
-    web = client.get("web")
-    if not web:
-        fail(f"{found[0].name}: not a 'Web application' client; create one of that type")
-    if GOOGLE_REDIRECT not in web.get("redirect_uris", []):
-        fail(f"{found[0].name}: add {GOOGLE_REDIRECT} under 'Authorized redirect URIs' "
-             "in the Cloud Console, then download the JSON again")
-    for key in ("client_id", "client_secret"):
-        if not web.get(key):
-            fail(f"{found[0].name}: no {key}")
-        text, n = re.subn(rf"({key}:\s*')[^']*(')", lambda m: m.group(1) + web[key] + m.group(2), text)
-        if n != 1:
-            fail(f"oauth2_config.js: {key} found {n} times, expected 1")
-    print(f"           Google client from {found[0].name}: {web['client_id']}")
-    return text
 
 
 def js_group_end(text, i):
@@ -372,9 +410,7 @@ def patch_text(name, path, text, cfg):
 
 
 def build_overlay(name):
-    cfg = dict(OVERLAYS[name])
-    if "optional_patches" in cfg:
-        cfg["patches"] = cfg.get("patches", []) + cfg["optional_patches"]()
+    cfg = OVERLAYS[name]
     base = BASE / name
     files_dir = SRC / "overlays" / name
     added = {}
@@ -413,6 +449,8 @@ def build_overlay(name):
     tmp.replace(out / "application.zip")
     if (base / "manifest.webmanifest").exists():
         shutil.copyfile(base / "manifest.webmanifest", out / "manifest.webmanifest")
+    stock = STOCK_MD5.get(name) or hashlib.md5((base / "application.zip").read_bytes()).hexdigest()
+    (out / "stock.md5").write_text(stock + "\n", newline="\n")
     print(f"{name:10} -> {(out / 'application.zip').relative_to(ROOT)} "
           f"({(out / 'application.zip').stat().st_size} bytes)")
 
@@ -426,22 +464,50 @@ def build_app(name, app):
                 zi = zipfile.ZipInfo(path.relative_to(app).as_posix(), date_time=(2026, 1, 1, 0, 0, 0))
                 zi.external_attr = 0o644 << 16
                 z.writestr(zi, path.read_bytes(), compress_type=zipfile.ZIP_DEFLATED)
+    shutil.copyfile(app / "manifest.webmanifest", out / "manifest.webmanifest")
     print(f"{name:10} -> {(out / 'application.zip').relative_to(ROOT)}")
 
 
 TARGETS = {**{n: (lambda n=n: build_overlay(n)) for n in OVERLAYS},
            "kaiva": lambda: build_app("kaiva", SRC / "kaiva" / "app"),
-           "qrreader": lambda: build_app("qrreader", SRC / "qrreader" / "app")}
+           "qrreader": lambda: build_app("qrreader", SRC / "qrreader" / "app"),
+           "flipfull": lambda: build_app("flipfull", SRC / "toolbox" / "app")}
 
 
-def build(names=None, keep_folders=False):
-    OPTIONS["keep_folders"] = keep_folders
+def check_features():
+    ini = configparser.ConfigParser(interpolation=None)
+    ini.read(USERINIT / "features.ini", encoding="utf-8")
+    exists = {
+        "overlays": lambda n: n in OVERLAYS,
+        "apps": lambda n: n in TARGETS and n not in OVERLAYS,
+        "services": lambda n: (USERINIT / "services" / n / "service.sh").is_file(),
+        "hosts": lambda n: (USERINIT / "etc" / "hosts.d" / f"{n}.hosts").is_file(),
+        "prefs": lambda n: (USERINIT / "etc" / "prefs.d" / f"{n}.js").is_file(),
+    }
+    bad = []
+    for fid in ini.sections():
+        f = ini[fid]
+        if not re.fullmatch(r"[a-z0-9-]+", fid):
+            bad.append(f"[{fid}]: an id is lowercase letters, digits and dashes")
+        if not f.get("title") or not f.get("about"):
+            bad.append(f"[{fid}]: no title or about")
+        if f.get("default") not in ("on", "off"):
+            bad.append(f"[{fid}] default: on or off")
+        for key, ok in exists.items():
+            bad += [f"[{fid}] {key}: there's no {n}" for n in f.get(key, "").split() if not ok(n)]
+        bad += [f"[{fid}] requires: no feature {n}" for n in f.get("requires", "").split() if n not in ini]
+    if not ini.sections():
+        bad.append("no features")
+    if bad:
+        fail("userinit/features.ini:\n  " + "\n  ".join(bad))
+
+
+def build(names=None):
+    check_features()
     for name in names or TARGETS:
         if name not in TARGETS:
             fail(f"unknown target {name}; choose from {', '.join(TARGETS)}")
         TARGETS[name]()
 
 if __name__ == "__main__":
-    args = sys.argv[1:]
-    keep = "--keep-folders" in args
-    build([a for a in args if a != "--keep-folders"], keep_folders=keep)
+    build(sys.argv[1:])

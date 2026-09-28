@@ -14,13 +14,7 @@ WORK=/data/local/tmp/callrec
 
 [ -f "$DIR/callrec.conf" ] && . "$DIR/callrec.conf"
 
-recorders() {
-    for p in /proc/[0-9]*; do
-        case "$(tr '\0' ' ' 2>/dev/null < "$p/cmdline")" in
-            *" CallRec $WORK"*) echo "${p#/proc/}" ;;
-        esac
-    done
-}
+recorders() { pgrep -f " CallRec $WORK" 2>/dev/null; }
 
 stop() {
     for p in $(pids_of callrecd) $(recorders); do
@@ -42,7 +36,9 @@ status() {
         [ -f "$WORK/state" ] && log "last recording: $(cat "$WORK/state")"
     else
         log "not running"
+        return 1
     fi
+    return 0
 }
 
 start() {

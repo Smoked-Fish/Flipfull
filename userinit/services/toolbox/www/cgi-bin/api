@@ -1,0 +1,40 @@
+#!/system/bin/sh
+
+APP=http://flipfull.localhost
+CR=$(printf '\r')
+
+reply() {
+    cat <<EOF
+Status: $1$CR
+Content-Type: text/plain; charset=utf-8$CR
+Cache-Control: no-store$CR
+Access-Control-Allow-Origin: $APP$CR
+$CR
+$2
+EOF
+    exit 0
+}
+
+[ "$HTTP_ORIGIN" = "$APP" ] && [ "$HTTP_HOST" = 127.0.0.1:8323 ] || reply "403 Forbidden" "Only the Flipfull app"
+[ "$REQUEST_METHOD" = POST ] || reply "405 Method Not Allowed" "POST a command"
+case $CONTENT_LENGTH in
+    ''|*[!0-9]*) reply "411 Length Required" "No command" ;;
+esac
+[ "$CONTENT_LENGTH" -le 4096 ] || reply "413 Payload Too Large" "Too long"
+
+set -f
+set -- $(head -c "$CONTENT_LENGTH")
+for w; do
+    case $w in
+        *[!A-Za-z0-9._-]*) reply "400 Bad Request" "Not a command: $w" ;;
+    esac
+done
+case $1 in
+    state|features|set|removable|google-client|log|restart|reboot|uninstall) ;;
+    *) reply "400 Bad Request" "Not a command: $1" ;;
+esac
+
+if out=$(sh /data/local/userinit/flipfull "$@" 2>&1); then
+    reply "200 OK" "$out"
+fi
+reply "500 Internal Server Error" "$out"

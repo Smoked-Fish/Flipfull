@@ -36,7 +36,9 @@ status() {
         fi
     else
         log "not running"
+        return 1
     fi
+    return 0
 }
 
 start() {

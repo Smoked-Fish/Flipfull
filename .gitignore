@@ -6,3 +6,4 @@ userinit/overlays/
 userinit/apps/
 client_secret*.json
 backups/
+dist/

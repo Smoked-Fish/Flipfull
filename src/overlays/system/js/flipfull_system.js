@@ -1,8 +1,11 @@
 'use strict';
 
 (function(exports) {
-  const PRESS_KEY = 'home.customization.keypress';
   const INFO_EVENT = 'flipfull-outer-info';
+
+  function featureOn(id) {
+    return !!(window.FlipfullFeatures && window.FlipfullFeatures[id]);
+  }
 
   function log(msg) {
     try {
@@ -12,17 +15,6 @@
 
   function manifestURL(name) {
     return window.AppOrigin ? window.AppOrigin.getManifestURL(name) : `http://${name}.localhost/manifest.webmanifest`;
-  }
-
-  function startShortcuts() {
-    SettingsObserver.observe(PRESS_KEY, null, function seed(value) {
-      SettingsObserver.unobserve(PRESS_KEY, seed);
-      if (value === null) {
-        SettingsObserver.setValue([{ name: PRESS_KEY, value: [
-          { key: 'ArrowRight', type: 'manifestUrl', url: manifestURL('camera') }
-        ] }]);
-      }
-    });
   }
 
   const MEDIA = {
@@ -66,7 +58,7 @@
 
   const FlipfullMedia = {
     hold(direction) {
-      if (!window.ScreenManager || window.ScreenManager.lidOpened !== false) {
+      if (!featureOn('track-skip') || !window.ScreenManager || window.ScreenManager.lidOpened !== false) {
         return false;
       }
       const message = MEDIA[direction];
@@ -111,8 +103,9 @@
 
   function startMain() {
     exports.FlipfullMedia = FlipfullMedia;
-    startShortcuts();
-    startOuterFeed();
+    if (featureOn('outer-screen-info')) {
+      startOuterFeed();
+    }
   }
 
   const STYLE = `
@@ -201,7 +194,9 @@
   function start() {
     try {
       if (/index_remote\.html$/.test(location.pathname)) {
-        startRemote();
+        if (featureOn('outer-screen-info')) {
+          startRemote();
+        }
       } else {
         startMain();
       }

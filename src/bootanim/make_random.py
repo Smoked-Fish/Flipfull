@@ -12,7 +12,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent.parent
 OUT = ROOT / "userinit" / "media"
-INITLOGO = ROOT / "src" / "overlays" / "system" / "resources" / "branding" / "initlogo.png"
+INITLOGO = ROOT / "src" / "overlays" / "system" / "resources" / "branding" / "initlogo_flipfull.png"
 
 FPS = 24
 LOOP_FRAMES = 72

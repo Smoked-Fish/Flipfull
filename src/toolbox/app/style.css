@@ -1,0 +1,241 @@
+:root {
+  --gs80: #1e1e26;
+  --gs60: #272730;
+  --muted: #b2b2c2;
+  --purple: #8000ff;
+  --purple-light: #b366ff;
+  --amber: #ffc36b;
+  --error: #ff6b81;
+}
+
+* { box-sizing: border-box; }
+
+html { font-size: 10px; }
+
+html, body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: #000;
+  color: #fff;
+  font-family: "Open Sans", sans-serif;
+}
+
+body {
+  display: flex;
+  flex-direction: column;
+}
+
+#title {
+  flex: none;
+  display: flex;
+  height: 3.4rem;
+  line-height: 3.4rem;
+  padding: 0 1rem;
+  background: var(--gs80);
+}
+
+#title-text {
+  flex: 1;
+  font-size: 1.7rem;
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#busy {
+  flex: none;
+  font-size: 1.3rem;
+  color: var(--purple-light);
+}
+
+main {
+  position: relative;
+  flex: 1;
+  overflow: hidden;
+}
+
+main > section {
+  display: none;
+  position: absolute;
+  inset: 0;
+  overflow-y: auto;
+}
+
+body[data-view="loading"] #loading,
+body[data-view="offline"] #offline,
+body[data-view="list"] #list,
+body[data-view="menu"] #menu,
+body[data-view="removable"] #removable,
+body[data-view="google"] #google,
+body[data-view="log"] #log,
+body[data-view="about"] #about { display: block; }
+
+.text {
+  margin: 1rem;
+  font-size: 1.4rem;
+  line-height: 2rem;
+  word-break: break-word;
+}
+
+ol.text { padding-left: 1.6rem; }
+ol.text li { margin-bottom: 0.6rem; }
+
+.muted { color: var(--muted); }
+
+h2 {
+  margin: 0;
+  padding: 0.8rem 1rem 0.3rem;
+  font-size: 1.2rem;
+  font-weight: 600;
+  color: var(--purple-light);
+  text-transform: uppercase;
+  letter-spacing: 0.05rem;
+}
+
+.row {
+  padding: 0.7rem 1rem;
+  border-bottom: 0.1rem solid var(--gs60);
+}
+
+.row.focus { background: var(--purple); }
+
+.row-head {
+  display: flex;
+  align-items: center;
+}
+
+.row .name {
+  flex: 1;
+  font-size: 1.6rem;
+  line-height: 2.1rem;
+}
+
+.row.unusable .name { color: var(--muted); }
+.row.focus.unusable .name { color: #fff; }
+
+.row .status,
+.row .about {
+  margin: 0.2rem 0 0;
+  font-size: 1.25rem;
+  line-height: 1.7rem;
+  color: var(--muted);
+}
+
+.row .status:empty { display: none; }
+.row .status.waiting { color: var(--amber); }
+.row .about { display: none; }
+.row.focus .about { display: block; color: #fff; }
+.row.focus .status { color: #fff; }
+
+.switch {
+  flex: none;
+  position: relative;
+  width: 3.4rem;
+  height: 1.8rem;
+  margin-left: 0.8rem;
+  border-radius: 0.9rem;
+  background: #4a4a55;
+}
+
+.switch::after {
+  content: "";
+  position: absolute;
+  top: 0.2rem;
+  left: 0.2rem;
+  width: 1.4rem;
+  height: 1.4rem;
+  border-radius: 50%;
+  background: #c8c8d2;
+}
+
+.row.on .switch { background: var(--purple-light); }
+.row.on .switch::after { left: 1.8rem; background: #fff; }
+.row.focus .switch { background: rgba(255, 255, 255, 0.35); }
+.row.focus.on .switch { background: #fff; }
+.row.focus.on .switch::after { background: var(--purple); }
+
+.notice {
+  margin: 0;
+  padding: 0.7rem 1rem;
+  font-size: 1.3rem;
+  line-height: 1.8rem;
+  background: #3a2c10;
+  color: var(--amber);
+}
+
+.notice:empty { display: none; }
+
+#log-text {
+  margin: 0;
+  padding: 0.6rem;
+  font-size: 1.1rem;
+  line-height: 1.5rem;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+#toast {
+  display: none;
+  position: absolute;
+  left: 0.6rem;
+  right: 0.6rem;
+  bottom: 3.6rem;
+  padding: 0.8rem 1rem;
+  border-radius: 0.6rem;
+  background: var(--gs60);
+  font-size: 1.35rem;
+  line-height: 1.9rem;
+  box-shadow: 0 0.2rem 0.8rem rgba(0, 0, 0, 0.6);
+}
+
+#toast.show { display: block; }
+#toast.error { color: var(--error); }
+
+#dialog {
+  display: none;
+  position: absolute;
+  top: 3.4rem;
+  bottom: 3rem;
+  left: 0;
+  right: 0;
+  padding: 1.2rem 1rem;
+  overflow-y: auto;
+  background: rgba(0, 0, 0, 0.92);
+}
+
+#dialog.show { display: block; }
+
+#dialog-text {
+  margin: 0;
+  font-size: 1.5rem;
+  line-height: 2.1rem;
+  white-space: pre-wrap;
+}
+
+#softkeys {
+  flex: none;
+  display: flex;
+  height: 3rem;
+  line-height: 3rem;
+  padding: 0 0.6rem;
+  background: var(--gs80);
+  font-size: 1.4rem;
+  font-weight: 600;
+}
+
+#softkeys span {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+#sk-center {
+  text-align: center;
+  text-transform: uppercase;
+}
+
+#sk-right { text-align: right; }

@@ -9,8 +9,13 @@
 *.c         text eol=lf
 *.config    text eol=lf
 *.webmanifest text eol=lf
-userinit/etc/hosts text eol=lf
+*.ini       text eol=lf
+*.awk       text eol=lf
+*.hosts     text eol=lf
+*.bat       text eol=crlf
 userinit/run.sh    text eol=lf
+userinit/flipfull  text eol=lf
+userinit/services/*/www/cgi-bin/* text eol=lf
 
 *.zip   binary
 *.bin   binary

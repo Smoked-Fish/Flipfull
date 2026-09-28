@@ -4,7 +4,7 @@
 LOG_TAG=removable-apps
 
 DB=/data/local/webapps/db/apps.sqlite
-LIST="$USERINIT/removable-apps"
+LIST="$USERINIT/config/removable-apps"
 SQLITE="$USERINIT/bin/sqlite3"
 
 if [ ! -f "$DB" ]; then

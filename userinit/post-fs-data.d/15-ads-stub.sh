@@ -3,6 +3,11 @@
 . /data/local/userinit/lib/common.sh
 LOG_TAG=ads-stub
 
+if ! planned feature ad-block on; then
+    log "ad-block is off - real ads SDK in use"
+    exit 0
+fi
+
 SRC="$USERINIT/etc/ads-sdk-stub.js"
 SERVED=/data/local/service/api-daemon/http_root/sdk/ads/ads-sdk.min.js
 ORIGINAL=/system/kaios/http_root/sdk/ads/ads-sdk.min.js

@@ -33,8 +33,16 @@ mount_over() {
     done
 }
 
-mount_over bootanimation.zip bootanimation.zip bootanimation_metro.zip bootanimation_tcl.zip
-mount_over bootanimation_external.zip \
-    bootanimation_external.zip bootanimation_external_mpcs.zip bootanimation_external_tcl.zip
-mount_over poweron-sound.wav poweron-sound.wav poweron-sound_metro.wav poweron-sound_tcl.ogg
+if planned feature boot-animation on; then
+    mount_over bootanimation.zip bootanimation.zip bootanimation_metro.zip bootanimation_tcl.zip
+    mount_over bootanimation_external.zip \
+        bootanimation_external.zip bootanimation_external_mpcs.zip bootanimation_external_tcl.zip
+else
+    log "boot-animation is off - stock boot animation"
+fi
+if planned feature silent-boot on; then
+    mount_over poweron-sound.wav poweron-sound.wav poweron-sound_metro.wav poweron-sound_tcl.ogg
+else
+    log "silent-boot is off - stock boot sound"
+fi
 exit 0

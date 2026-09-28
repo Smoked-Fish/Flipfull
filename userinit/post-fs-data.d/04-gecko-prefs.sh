@@ -3,9 +3,15 @@
 . /data/local/userinit/lib/common.sh
 LOG_TAG=gecko-prefs
 
-PREFS="$USERINIT/etc/user-prefs.js"
-BEGIN="// >>> userinit: managed block, edit $PREFS instead"
+PREFS="$USERINIT/state/user-prefs.js"
+BEGIN="// >>> userinit: managed block, from $USERINIT/etc/prefs.d (features.ini)"
 END="// <<< userinit"
+
+if [ "$1" != remove ]; then
+    for g in $(awk '$1 == "prefs" { print $2 }' "$BOOT_PLAN" 2>/dev/null); do
+        cat "$USERINIT/etc/prefs.d/$g.js" || log "etc/prefs.d/$g.js missing" >&2
+    done > "$PREFS"
+fi
 
 pref_names() {
     sed -n 's/^[[:space:]]*user_pref([[:space:]]*"\([^"]*\)".*/\1/p'
@@ -36,7 +42,7 @@ for profile in /data/b2g/mozilla/*.default; do
         continue
     fi
     if [ ! -s "$PREFS" ]; then
-        log "$PREFS missing or empty - no managed prefs"
+        log "no feature that's on sets Gecko prefs"
         continue
     fi
     if [ -s "$f" ] && [ -n "$(tail -c1 "$f")" ]; then

@@ -3,6 +3,10 @@
 (function() {
   const MAPS = 'http://cached.localhost/maps/manifest.webmanifest';
 
+  if (!(window.FlipfullFeatures && window.FlipfullFeatures.maps)) {
+    return;
+  }
+
   const WATCH_NAV = `new Promise(resolve => {
     const root = document.documentElement;
     const was = root.getAttribute('data-flipfull-nav');

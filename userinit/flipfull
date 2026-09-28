@@ -1,0 +1,521 @@
+#!/system/bin/sh
+
+HERE=$(cd "$(dirname "$0")" && pwd)
+. "$HERE/lib/common.sh"
+
+REGISTRY=$USERINIT/features.ini
+PLAN_AWK=$USERINIT/lib/plan.awk
+CONFIG=$USERINIT/config
+STATE=$USERINIT/state
+CHOICES=$CONFIG/features
+REMOVABLE=$CONFIG/removable-apps
+GOOGLE_CLIENT=$CONFIG/google-client.json
+MANIFEST=$USERINIT/.installed-files
+VROOT=/data/local/webapps/vroot
+APPS_SOCK=/data/local/tmp/apps-uds.sock
+APPS_DB=/data/local/webapps/db/apps.sqlite
+SQLITE=$USERINIT/bin/sqlite3
+API_DAEMON_CONFIG=/data/local/service/api-daemon/config.toml
+GOOGLE_REDIRECT=http://localhost/redirect/loginpages/redirect.html
+DICTATE=http://dictate.localhost/manifest.webmanifest
+
+die() {
+    echo "error: $*" >&2
+    exit 1
+}
+
+plan() { awk -f "$PLAN_AWK" -v choices="$CHOICES" "$REGISTRY"; }
+
+needs() { awk -f "$PLAN_AWK" -v mode=needs "$REGISTRY"; }
+
+http_root() {
+    r=$(sed -n '/^\[http\]/,/^\[/s/^root_path *= *"\(.*\)"/\1/p' "$API_DAEMON_CONFIG" 2>/dev/null)
+    echo "${r:-/data/local/service/api-daemon/http_root}"
+}
+
+publish() {
+    dir=$(http_root)/flipfull
+    mkdir -p "$dir" || return 1
+    plan | awk -v src="$USERINIT/flipfull" '
+        BEGIN {
+            print "// Written by " src ": the Flipfull features that are on."
+            printf "window.FlipfullFeatures = {"
+        }
+        $1 == "feature" && $3 == "on" { printf "%s\"%s\": true", n++ ? ", " : "", $2 }
+        END { print "};" }' > "$dir/features.js.tmp" &&
+        chmod 0644 "$dir/features.js.tmp" && mv -f "$dir/features.js.tmp" "$dir/features.js"
+}
+
+overlay_status() {
+    src=$USERINIT/overlays/$1
+    if [ ! -f "$src/application.zip" ]; then
+        echo "not on the phone"
+        return
+    fi
+    if [ -n "$PRELOADED" ] && ! echo "$PRELOADED" | grep -qx "$1"; then
+        echo ok
+        return
+    fi
+    dst=$(readlink -f "$VROOT/$1" 2>/dev/null)
+    if [ -z "$dst" ] || [ ! -d "$dst" ]; then
+        echo "the phone has no $1 app"
+    elif same_dir "$src" "$dst" || stock_matches "$src" "$dst/application.zip"; then
+        echo ok
+    else
+        echo "made for another version of the phone's $1 app"
+    fi
+}
+
+availability() {
+    PRELOADED=$(preloaded_apps)
+    needs | awk '{ print $2, $3 }' | sort -u | while read -r kind name; do
+        case $kind in
+            overlay) echo "overlay $name $(overlay_status "$name")" ;;
+            app) [ -f "$USERINIT/apps/$name/application.zip" ] && echo "app $name ok" ||
+                     echo "app $name not on the phone" ;;
+            service) [ -f "$USERINIT/services/$name/service.sh" ] && echo "service $name ok" ||
+                         echo "service $name not on the phone" ;;
+        esac
+    done
+}
+
+cmd_state() {
+    mkdir -p "$STATE"
+    avail=$STATE/.avail.$$
+    availability > "$avail"
+    pending=0
+    removable_pending && pending=1
+    printf 'version\t%s\n' "$(version)"
+    printf 'hook\t%s\n' "$(hook_file >/dev/null && echo yes || echo no)"
+    printf 'removable\t%s\n' "$([ $pending = 1 ] && echo pending || echo saved)"
+    printf 'google-client\t%s\n' "$(google_client_id)"
+    awk -f "$PLAN_AWK" -v mode=state -v choices="$CHOICES" -v boot="$BOOT_PLAN" \
+        -v avail="$avail" -v pending=$pending "$REGISTRY"
+    rm -f "$avail"
+}
+
+cmd_set() {
+    [ $# -gt 0 ] && [ $(($# % 2)) -eq 0 ] || die "usage: flipfull set ID on|off ..."
+    changes=""
+    while [ $# -gt 0 ]; do
+        changes="$changes $1=$2"
+        shift 2
+    done
+    out=$(awk -f "$PLAN_AWK" -v mode=choose -v choices="$CHOICES" -v changes="$changes" "$REGISTRY") ||
+        die "${out#error }"
+    before=$(plan)
+    mkdir -p "$CONFIG"
+    echo "$out" | awk '$1 == "choice" { print $2 "=" $3 }' > "$CHOICES.tmp" && mv -f "$CHOICES.tmp" "$CHOICES"
+    echo "$out" | awk '$1 == "also" { print "also " $2 " " $3 }'
+    after=$(plan)
+    publish || echo "error: couldn't write features.js in $(http_root)"
+    reconcile_services "$after"
+    reconcile_apps "$after"
+    restart_changed "$before" "$after"
+}
+
+restart_changed() {
+    changed=$(printf '%s\n%s\n' "$1" "$2" | awk '$1 == "feature"' | sort | uniq -u | awk '{ print $2 }' | sort -u)
+    [ -n "$changed" ] || return 0
+    apps=$(needs | awk -v ids=" $(echo $changed) " '
+        $2 == "overlay" && ($3 == "launcher" || $3 == "settings") && index(ids, " " $1 " ") { print $3 }' | sort -u)
+    for app in $apps; do
+        same_dir "$USERINIT/overlays/$app" "$(readlink -f "$VROOT/$app")" || continue
+        sh "$USERINIT/tools/restart.sh" "$app" >/dev/null && echo "restarted $app"
+    done
+}
+
+running() { sh "$USERINIT/services/$1/service.sh" status >/dev/null 2>&1; }
+
+reconcile_services() {
+    wanted_plan=$1
+    shift
+    for s in "$USERINIT"/services/*/service.sh; do
+        [ -f "$s" ] || continue
+        d=${s%/service.sh}
+        name=${d##*/}
+        want=0
+        if [ "$name" = toolbox ] || echo "$wanted_plan" | grep -qx "service $name"; then
+            want=1
+        fi
+        [ -e "$d/disabled" ] && want=0
+        if running "$name"; then
+            if [ $want = 0 ]; then
+                sh "$s" stop >/dev/null 2>&1
+                echo "stopped $name"
+            elif echo " $* " | grep -q " $name "; then
+                sh "$s" restart >/dev/null 2>&1 && echo "restarted $name" || echo "error: $name didn't start again"
+            fi
+        elif [ $want = 1 ]; then
+            sh "$s" start >/dev/null 2>&1 && echo "started $name" || echo "error: $name didn't start (services/$name)"
+        fi
+    done
+}
+
+apps_cmd() {
+    if [ $# -gt 1 ]; then
+        echo "{\"cmd\":\"$1\",\"param\":\"$2\"}"
+    else
+        echo "{\"cmd\":\"$1\"}"
+    fi | nc -U -W 120 "$APPS_SOCK" 2>&1
+}
+
+apps_ok() { case $1 in *'"success"'*) return 0 ;; esac; return 1; }
+
+json_value() {
+    tr -d '\n' | grep -o "\"$1\" *: *\"[^\"]*\"" | head -1 | sed 's/.*"\([^"]*\)"$/\1/'
+}
+
+app_url() {
+    m=$USERINIT/apps/$1/manifest.webmanifest
+    [ -f "$m" ] || return 1
+    origin=$(json_value origin < "$m")
+    [ -n "$origin" ] && echo "http://$origin.localhost/manifest.webmanifest"
+}
+
+install_zip() {
+    tmp=/data/local/tmp/flipfull-$2.zip
+    cp "$1" "$tmp" && chmod 0644 "$tmp" || return 1
+    r=$(apps_cmd install "$tmp")
+    rm -f "$tmp"
+    if apps_ok "$r"; then
+        echo "installed $2"
+    else
+        echo "error: $2 didn't install: $r"
+        return 1
+    fi
+}
+
+app_install() {
+    url=$(app_url "$1")
+    if [ "$1" = kaiva ]; then
+        list=$(apps_cmd list)
+        case $list in *"$DICTATE"*)
+            apps_ok "$(apps_cmd uninstall "$DICTATE")" && echo "uninstalled Dictate; KaiVA replaces it"
+            case $list in *"$url"*) apps_cmd uninstall "$url" >/dev/null ;; esac ;;
+        esac
+    fi
+    install_zip "$USERINIT/apps/$1/application.zip" "$1"
+}
+
+installed_names() { echo "$1" | tr -d '\\' | grep -o '"name":"[^"]*"' | cut -d'"' -f4; }
+
+reconcile_apps() {
+    wanted_plan=$1
+    shift
+    list=$(apps_cmd list)
+    apps_ok "$list" || {
+        echo "error: api-daemon's app list isn't available: $list"
+        return 1
+    }
+    for d in "$USERINIT"/apps/*/; do
+        name=$(basename "$d")
+        url=$(app_url "$name") || continue
+        installed=0
+        case $list in *"$url"*) installed=1 ;; esac
+        want=0
+        if [ "$name" = flipfull ] || echo "$wanted_plan" | grep -qx "app $name"; then
+            want=1
+        fi
+        if [ $want = 1 ] && { [ $installed = 0 ] || echo " $* " | grep -q " $name "; }; then
+            app_install "$name"
+        elif [ $want = 0 ] && [ $installed = 1 ]; then
+            apps_ok "$(apps_cmd uninstall "$url")" && echo "uninstalled $name" || echo "error: $name didn't uninstall"
+        fi
+    done
+    pre=$(preloaded_apps)
+    [ -n "$pre" ] || return 0
+    names=$(installed_names "$list")
+    for app in $(echo "$wanted_plan" | awk '$1 == "overlay" { print $2 }'); do
+        echo "$pre" | grep -qx "$app" && continue
+        if ! echo "$names" | grep -qx "$app" || echo " $* " | grep -q " $app "; then
+            install_zip "$USERINIT/overlays/$app/application.zip" "$app"
+        fi
+    done
+}
+
+core_app() {
+    case $1 in
+        system) echo "the whole phone UI" ;;
+        shared) echo "code every app uses" ;;
+        launcher) echo "home screen" ;;
+        keyboard) echo "typing" ;;
+        settings) echo "Settings" ;;
+        callscreen) echo "phone calls" ;;
+        emergency-call) echo "emergency calls" ;;
+        network-alerts) echo "emergency alerts" ;;
+        ftu) echo "first-run setup" ;;
+        customization) echo "carrier setup" ;;
+        loginpages) echo "account sign-in" ;;
+        stk) echo "SIM menus" ;;
+        wappush) echo "carrier messages" ;;
+        wallpaper) echo "wallpaper picker" ;;
+        ringtones) echo "ringtone picker" ;;
+    esac
+}
+
+preloaded() {
+    "$SQLITE" -init /dev/null -separator ' ' "$APPS_DB" \
+        'SELECT name, removable FROM apps WHERE preloaded = 1 ORDER BY name' 2>/dev/null
+}
+
+app_title() {
+    m=$VROOT/$1/manifest.webmanifest
+    if [ -f "$m" ]; then
+        json_value name < "$m"
+    else
+        unzip -p "$VROOT/$1/application.zip" manifest.webmanifest 2>/dev/null | json_value name
+    fi
+}
+
+removable_wanted() {
+    if [ -f "$REMOVABLE" ]; then
+        grep -qx "$1" "$REMOVABLE"
+    else
+        [ "$2" = 1 ]
+    fi
+}
+
+removable_pending() {
+    [ -f "$REMOVABLE" ] || return 1
+    preloaded | while read -r name flag; do
+        removable_wanted "$name" "$flag" && want=1 || want=0
+        [ "$want" = "$flag" ] || echo "$name"
+    done | grep -q .
+}
+
+cmd_removable() {
+    [ -x "$SQLITE" ] || die "$SQLITE is missing"
+    apps=$(preloaded)
+    [ -n "$apps" ] || die "couldn't read the apps from $APPS_DB"
+    if [ "$1" != set ]; then
+        echo "$apps" | while read -r name flag; do
+            removable_wanted "$name" "$flag" && want=1 || want=0
+            printf 'app\t%s\t%s\t%s\t%s\t%s\n' "$name" "$flag" "$want" "$(app_title "$name")" "$(core_app "$name")"
+        done
+        return
+    fi
+    shift
+    for name; do
+        echo "$apps" | grep -q "^$name " || die "$name isn't a preloaded app"
+    done
+    mkdir -p "$CONFIG"
+    for name; do echo "$name"; done | sort -u > "$REMOVABLE.tmp" && mv -f "$REMOVABLE.tmp" "$REMOVABLE"
+    echo "saved $# removable apps; the next boot applies it"
+}
+
+google_client_id() {
+    id=
+    [ -f "$GOOGLE_CLIENT" ] && id=$(json_value client_id < "$GOOGLE_CLIENT")
+    echo "${id:--}"
+}
+
+check_google_client() {
+    grep -q '"web"' "$1" || die "$1 isn't a Web application client; create one of that type in Google Cloud"
+    grep -qF "$GOOGLE_REDIRECT" "$1" ||
+        die "add $GOOGLE_REDIRECT under Authorized redirect URIs in Google Cloud, then download the JSON again"
+    [ -n "$(json_value client_id < "$1")" ] && [ -n "$(json_value client_secret < "$1")" ] ||
+        die "$1 has no client_id or client_secret"
+}
+
+cmd_google_client() {
+    case $1 in
+        '')
+            google_client_id ;;
+        import)
+            src=$2
+            if [ -z "$src" ]; then
+                found=$(find /data/media /mnt/sdcard/ /storage/ -maxdepth 4 -name 'client_secret*.json' 2>/dev/null)
+                [ -n "$found" ] && src=$(ls -t $found | head -1)
+            fi
+            [ -n "$src" ] || die "no client_secret*.json on the phone: copy the file from Google Cloud to its storage"
+            check_google_client "$src"
+            mkdir -p "$CONFIG"
+            cp "$src" "$GOOGLE_CLIENT.tmp" && chmod 0600 "$GOOGLE_CLIENT.tmp" &&
+                mv -f "$GOOGLE_CLIENT.tmp" "$GOOGLE_CLIENT" || die "couldn't save it in $CONFIG"
+            echo "Google sign-in client $(google_client_id) from $src" ;;
+        remove)
+            rm -f "$GOOGLE_CLIENT"
+            echo "Google sign-in client removed" ;;
+        *)
+            die "usage: flipfull google-client [import [FILE] | remove]" ;;
+    esac
+}
+
+version() {
+    v=$(head -1 "$MANIFEST" 2>/dev/null)
+    echo "${v:-# Flipfull (not installed)}" | sed 's/^# //'
+}
+
+hook_file() {
+    for f in /system/etc/init/*.rc /vendor/etc/init/*.rc /odm/etc/init/*.rc \
+             /product/etc/init/*.rc /system_ext/etc/init/*.rc; do
+        grep -q "$USERINIT/run.sh" "$f" 2>/dev/null && { echo "$f"; return 0; }
+    done
+    return 1
+}
+
+sync_from() {
+    src=$1
+    [ -f "$src/.files" ] || die "$src/.files is missing"
+    mkdir -p "$STATE" "$CONFIG" || die "can't write $USERINIT"
+    rm -f "$USERINIT/uninstall"
+    legacy=0
+    [ -f "$MANIFEST" ] && ! grep -qx features.ini "$MANIFEST" && [ ! -f "$CHOICES" ] && legacy=1
+    : > "$STATE/changed"
+    grep -v '^#' "$src/.files" > "$STATE/.files.new"
+    [ -s "$STATE/.files.new" ] || die "$src/.files lists no files"
+    while read -r f; do
+        [ -n "$f" ] || continue
+        if [ -f "$src/$f" ]; then
+            cmp -s "$src/$f" "$USERINIT/$f" && continue
+            mkdir -p "$(dirname "$USERINIT/$f")" && mv -f "$src/$f" "$USERINIT/$f" || die "couldn't update $f"
+            echo "$f" >> "$STATE/changed"
+        elif [ ! -f "$USERINIT/$f" ]; then
+            die "$f is missing from $src"
+        fi
+    done < "$STATE/.files.new"
+    grep -v '^#' "$MANIFEST" 2>/dev/null | grep -vxF -f "$STATE/.files.new" | while read -r f; do
+        [ -n "$f" ] || continue
+        rm -f "$USERINIT/$f" && echo "removed $f (no longer in Flipfull)"
+        (cd "$USERINIT" && rmdir -p "$(dirname "$f")" 2>/dev/null)
+    done
+    rm -f "$STATE/.files.new"
+    cp "$src/.files" "$MANIFEST"
+    echo "$(wc -l < "$STATE/changed") of $(grep -vc '^#' "$src/.files") files changed"
+    if [ $legacy = 1 ]; then
+        awk '/^\[/ { gsub(/[][]/, ""); print $0 "=on" }' "$REGISTRY" > "$CHOICES"
+        echo "an earlier Flipfull was installed: every feature stays on (change it in the Flipfull app)"
+    fi
+}
+
+cmd_setup() {
+    if [ "$1" = --from ]; then
+        [ -n "$2" ] || die "usage: flipfull setup [--from DIR]"
+        sync_from "$(cd "$2" && pwd)"
+        exec sh "$USERINIT/flipfull" setup
+    fi
+    [ -f "$REGISTRY" ] || die "$USERINIT isn't installed"
+    mkdir -p "$CONFIG" "$STATE"
+    [ -f "$USERINIT/removable-apps" ] && mv -f "$USERINIT/removable-apps" "$REMOVABLE"
+    [ -f "$USERINIT/.overlays-mounted" ] && mv -f "$USERINIT/.overlays-mounted" "$STATE/overlays-mounted"
+
+    chown -R root:root "$USERINIT"
+    find "$USERINIT" -type d -exec chmod 0711 {} \;
+    find "$USERINIT" -type f -exec chmod 0644 {} \;
+    find "$USERINIT" -type f \( -name '*.sh' -o -path '*/bin/*' -o -path '*/cgi-bin/*' -o -name flipfull \
+         -o -name stt-server -o -name callrecd \) -exec chmod 0755 {} \;
+    [ -f "$GOOGLE_CLIENT" ] && chmod 0600 "$GOOGLE_CLIENT"
+    for src in "$USERINIT"/overlays/*; do
+        dst=$(readlink -f "$VROOT/${src##*/}" 2>/dev/null)
+        [ -f "$src/application.zip" ] && [ -n "$dst" ] && [ -d "$dst" ] || continue
+        chmod 0755 "$src" && chmod 0644 "$src"/*
+        ctx=$(ls -Zd "$dst" 2>/dev/null | awk '{ print $1 }')
+        case $ctx in u:object_r:*) chcon -R "$ctx" "$src" ;; esac
+    done
+
+    sh "$USERINIT/tools/cleanup-old.sh" --userinit-only
+    publish || echo "error: couldn't write features.js in $(http_root)"
+
+    changed=$(cat "$STATE/changed" 2>/dev/null)
+    now=$(plan)
+    reconcile_services "$now" $(echo "$changed" | sed -n 's|^services/\([^/]*\)/.*|\1|p' | sort -u)
+    reconcile_apps "$now" $(echo "$changed" | sed -n 's|^[a-z]*/\([^/]*\)/application.zip$|\1|p')
+
+    hook_file >/dev/null ||
+        echo "WARNING: no boot hook runs $USERINIT/run.sh - nothing here starts at boot (src/boot-hook/README.md)"
+    version
+    cmd_state | awk -F '\t' '$1 == "reboot" && $2 == "yes" {
+        print "Some features apply at the next boot: reboot the phone" }'
+}
+
+cmd_uninstall() {
+    touch "$USERINIT/uninstall"
+    for s in "$USERINIT"/services/*/service.sh; do
+        case $s in */toolbox/*) continue ;; esac
+        sh "$s" stop
+    done
+    list=$(apps_cmd list)
+    for d in "$USERINIT"/apps/*/; do
+        name=$(basename "$d")
+        url=$(app_url "$name") || continue
+        [ "$name" = flipfull ] && continue
+        case $list in *"$url"*)
+            apps_ok "$(apps_cmd uninstall "$url")" && echo "uninstalled $name" || echo "error: $name didn't uninstall" ;;
+        esac
+    done
+    echo "Everything else is removed at the next boot (preloaded apps you made removable go back"
+    echo "to stock); the phone then boots stock. Changed your mind before rebooting? Install again."
+    url=$(app_url flipfull)
+    if [ "$1" = --reboot ]; then
+        setsid sh -c "sleep 1; echo '{\"cmd\":\"uninstall\",\"param\":\"$url\"}' | nc -U -W 60 $APPS_SOCK;
+                      sh $USERINIT/services/toolbox/service.sh stop; sync; reboot" </dev/null >/dev/null 2>&1 &
+    else
+        case $list in *"$url"*) apps_cmd uninstall "$url" >/dev/null && echo "uninstalled the Flipfull app" ;; esac
+        sh "$USERINIT/services/toolbox/service.sh" stop
+    fi
+}
+
+cmd_status() {
+    version
+    f=$(hook_file) && echo "boot hook: $f" ||
+        echo "boot hook: MISSING - nothing here runs at boot (src/boot-hook/README.md)"
+    [ -e "$USERINIT/uninstall" ] && echo "uninstall pending: the next boot removes everything"
+    echo
+    cmd_state | awk -F '\t' '
+        $1 == "reboot" && $2 == "yes" { waiting = 1 }
+        $1 == "removable" && $2 == "pending" { print "removable apps: changed, the next boot applies it" }
+        $1 == "google-client" { print "Google sign-in client: " ($2 == "-" ? "none" : $2) }
+        $1 == "feature" {
+            line = sprintf("  [%s] %s", $3 == "on" ? "x" : " ", $2)
+            if ($5 == "yes") line = line "  (after a reboot)"
+            if ($6 != "yes") line = line "  - " ($6 == "no" ? "unusable" : "partly") ": " $7
+            features = features line "\n"
+        }
+        END { printf "\nfeatures%s:\n%s", waiting ? " (some wait for a reboot)" : "", features }'
+    echo
+    echo "mounted:"
+    awk '$4 ~ /userinit\/(overlays|media|state|etc)/ { print "  " $5 "  <-  " $4 }' /proc/self/mountinfo
+    echo
+    echo "services:"
+    for s in "$USERINIT"/services/*/service.sh; do
+        sh "$s" status
+    done
+    echo
+    echo "updaters (stopped after boot while no-updates is on):"
+    for s in update_engine updater-daemon; do
+        echo "  $s: $(getprop init.svc.$s)"
+    done
+    echo
+    echo "last boot:"
+    tail -15 "$USERINIT/run.log" 2>/dev/null
+}
+
+cmd=$1
+[ $# -gt 0 ] && shift
+case $cmd in
+    features) cat "$REGISTRY" ;;
+    state) cmd_state ;;
+    set) cmd_set "$@" ;;
+    plan) plan ;;
+    publish)
+        if [ "$1" = --remove ]; then
+            rm -rf "$(http_root)/flipfull"
+        else
+            publish
+        fi ;;
+    removable) cmd_removable "$@" ;;
+    google-client) cmd_google_client "$@" ;;
+    status) cmd_status ;;
+    log) tail -n "${1:-200}" "$USERINIT/run.log" ;;
+    restart) sh "$USERINIT/tools/restart.sh" "$@" ;;
+    reboot)
+        echo "rebooting"
+        setsid sh -c 'sleep 1; sync; reboot' </dev/null >/dev/null 2>&1 & ;;
+    install-app)
+        [ -f "$1" ] || die "usage: flipfull install-app ZIP"
+        install_zip "$1" "$(basename "$1" .zip)" ;;
+    setup) cmd_setup "$@" ;;
+    uninstall) cmd_uninstall "$@" ;;
+    *) sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; exit 2 ;;
+esac
