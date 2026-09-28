@@ -2,7 +2,9 @@
 
     python flip4.py build [target ...]   rebuild overlays + apps into userinit/
     python flip4.py install [--reboot]   put userinit/ on the phone (builds first)
-    python flip4.py release [DIR]        a zip anyone with a rooted phone can install
+    python flip4.py release [DIR]        a zip anyone with a rooted phone can install,
+                                         and the smaller one the phone updates from;
+                                         without comments, app code minified
     python flip4.py features             the features, and which are on
     python flip4.py on ID... [--reboot]  turn features on (off: the same)
     python flip4.py status               what is installed, mounted and running
@@ -13,7 +15,6 @@
     python flip4.py install-app ZIP      install a local application.zip as an app
     python flip4.py backup [DIR]         copy contacts, messages, settings, app data to the PC
     python flip4.py restore DIR          put a backup back on the phone
-    python flip4.py cleanup [--yes]      delete files left by the old layouts
     python flip4.py uninstall [--reboot] remove everything; the phone boots stock
 """
 import argparse
@@ -37,6 +38,7 @@ BACKUP_PATHS = ["data/local/service/api-daemon", "data/local/webapps", "data/b2g
 BACKUP_EXCLUDES = ["*/startupCache", "*/shader-cache", "*/safebrowsing", "*/cache2",
                    "data/local/webapps/downloading"]
 MEDIA_PATHS = {"internal": "/data/media", "sdcard": "/mnt/sdcard"}
+NOT_IN_UPDATE = ("services/stt/models/",)
 TEXT_SUFFIXES = {".sh", ".js", ".md", ".conf", ".rc", ".ini", ".awk", ".hosts"}
 TEXT_NAMES = {"flipfull", "api"}
 
@@ -105,7 +107,7 @@ def check_line_endings(files):
 
 def version():
     try:
-        return subprocess.run(["git", "-C", str(ROOT), "describe", "--always", "--dirty"],
+        return subprocess.run(["git", "-C", str(ROOT), "describe", "--tags", "--always", "--dirty"],
                               capture_output=True, text=True).stdout.strip() or "unknown"
     except OSError:
         return "unknown"
@@ -176,22 +178,72 @@ def cmd_release(args):
     dest.mkdir(parents=True, exist_ok=True)
     out = dest / f"{name}.zip"
     release = ROOT / "src" / "release"
+    sys.path.insert(0, str(ROOT / "src"))
+    import minify
 
-    def add(z, path, arcname, mode=0o644):
+    shrunk = [0, 0]
+
+    def shrink(rel, data):
+        if args.no_minify:
+            return data
+        new = minify.release_file(rel, data)
+        if new != data:
+            shrunk[0] += 1
+            shrunk[1] += len(data) - len(new)
+        return new
+
+    def add(z, data, arcname, mode=0o644):
         zi = zipfile.ZipInfo(f"{name}/{arcname}", date_time=time.localtime()[:6])
         zi.external_attr = mode << 16
         zi.compress_type = zipfile.ZIP_DEFLATED
-        z.writestr(zi, path.read_bytes() if isinstance(path, Path) else path)
+        z.writestr(zi, data)
 
-    with zipfile.ZipFile(out, "w") as z:
-        for f in files:
-            add(z, LOCAL / f, f"flipfull/{f}")
-        add(z, files_list(files).encode(), "flipfull/.files")
-        add(z, release / "install.sh", "install.sh", 0o755)
-        add(z, release / "install.bat", "install.bat")
-        add(z, release / "README.txt", "README.txt")
+    update = dest / f"{name}-update.zip"
+    try:
+        with zipfile.ZipFile(out, "w") as z, zipfile.ZipFile(update, "w") as u:
+            for f in files:
+                data = shrink(f, (LOCAL / f).read_bytes())
+                add(z, data, f"flipfull/{f}")
+                if not f.startswith(NOT_IN_UPDATE):
+                    add(u, data, f"flipfull/{f}")
+            for zf in (z, u):
+                add(zf, files_list(files).encode(), "flipfull/.files")
+            add(z, shrink("install.sh", (release / "install.sh").read_bytes()), "install.sh", 0o755)
+            add(z, shrink("install.bat", (release / "install.bat").read_bytes()), "install.bat")
+            add(z, (release / "README.txt").read_bytes(), "README.txt")
+    except minify.MinifyError as e:
+        out.unlink(missing_ok=True)
+        update.unlink(missing_ok=True)
+        sys.exit(f"release: {e}")
+    if not args.no_minify:
+        print(f"release    {shrunk[0]} files without comments / minified, {shrunk[1] / 1e3:.0f} KB smaller")
     print(f"{out} ({out.stat().st_size / 1e6:.1f} MB): unzip it, then run install.bat (Windows) "
           "or install.sh with the phone connected")
+    print(f"{update} ({update.stat().st_size / 1e6:.1f} MB): what the phone downloads to update; "
+          "attach both to the GitHub release")
+
+
+def cmd_install_app(args):
+    require_flipfull()
+    zip_path = Path(args.application)
+    if not zip_path.is_file() or zip_path.suffix.lower() != ".zip":
+        sys.exit(f"not an application.zip: {zip_path}")
+    remote = f"/data/local/tmp/flip4-{zip_path.name}"
+    adb("push", str(zip_path), remote)
+    try:
+        rc = flipfull("install-app", f"'{remote}'", live=True)
+    finally:
+        sh(f"rm -f '{remote}'", check=False)
+    sys.exit(rc)
+
+
+def import_google_client(path):
+    remote = "/data/local/tmp/flip4-client_secret.json"
+    adb("push", str(path), remote)
+    try:
+        return flipfull("google-client", "import", remote, live=True)
+    finally:
+        sh(f"rm -f {remote}", check=False)
 
 
 def cmd_features(args):
@@ -232,29 +284,6 @@ def cmd_set(args):
     finish(args, "done", needs_reboot=waiting)
 
 
-def cmd_install_app(args):
-    require_flipfull()
-    zip_path = Path(args.application)
-    if not zip_path.is_file() or zip_path.suffix.lower() != ".zip":
-        sys.exit(f"not an application.zip: {zip_path}")
-    remote = f"/data/local/tmp/flip4-{zip_path.name}"
-    adb("push", str(zip_path), remote)
-    try:
-        rc = flipfull("install-app", f"'{remote}'", live=True)
-    finally:
-        sh(f"rm -f '{remote}'", check=False)
-    sys.exit(rc)
-
-
-def import_google_client(path):
-    remote = "/data/local/tmp/flip4-client_secret.json"
-    adb("push", str(path), remote)
-    try:
-        return flipfull("google-client", "import", remote, live=True)
-    finally:
-        sh(f"rm -f {remote}", check=False)
-
-
 def cmd_google_client(args):
     require_flipfull()
     if args.remove:
@@ -287,24 +316,6 @@ def cmd_mon(args):
         subprocess.run([ADB, "shell", f"sh {script} -i {args.interval} {names}"])
     except KeyboardInterrupt:
         print()
-
-
-def cmd_cleanup(args):
-    require_root()
-    script = f"{UI}/tools/cleanup-old.sh"
-    if not sh(f"ls {script} 2>/dev/null", check=False):
-        adb("push", str(LOCAL / "tools" / "cleanup-old.sh"), "/data/local/tmp/cleanup-old.sh")
-        script = "/data/local/tmp/cleanup-old.sh"
-    out = sh(f"sh {script} --dry-run", check=False)
-    print(out)
-    if "would remove" not in out:
-        return
-    if not args.yes and input("\nDelete these? [y/N] ").strip().lower() != "y":
-        print("nothing deleted")
-        return
-    print(sh(f"sh {script}", check=False))
-    if script.startswith("/data/local/tmp"):
-        sh(f"rm -f {script}", check=False)
 
 
 def cmd_uninstall(args):
@@ -530,6 +541,8 @@ def main():
     rl = sub.add_parser("release", help="build a zip with install.sh / install.bat (default dist/)")
     rl.add_argument("dir", nargs="?")
     rl.add_argument("--no-build", action="store_true", help="zip userinit/ as it is")
+    rl.add_argument("--no-minify", action="store_true",
+                    help="keep comments and readable app code (src/minify.py does both by default)")
     sub.add_parser("features", help="list the features and which are on")
     for name in ("on", "off"):
         s = sub.add_parser(name, help=f"turn features {name} (ids: `flip4.py features`)")
@@ -571,8 +584,6 @@ def main():
     rs.add_argument("--media", action="store_true", help="also copy the backed-up media back")
     rs.add_argument("--yes", action="store_true", help="don't ask")
     rs.add_argument("--force", action="store_true", help="even onto another software version")
-    c = sub.add_parser("cleanup", help="delete files left by the old layouts")
-    c.add_argument("--yes", action="store_true", help="don't ask")
     u = sub.add_parser("uninstall", help="remove everything (completes at the next boot)")
     u.add_argument("--reboot", action="store_true")
     args = p.parse_args()
@@ -583,7 +594,7 @@ def main():
      "on": cmd_set, "off": cmd_set, "install-app": cmd_install_app, "status": cmd_status,
      "restart": cmd_restart, "mon": cmd_mon, "removable": cmd_removable,
      "google-client": cmd_google_client, "backup": cmd_backup, "restore": cmd_restore,
-     "cleanup": cmd_cleanup, "uninstall": cmd_uninstall}[args.cmd](args)
+     "uninstall": cmd_uninstall}[args.cmd](args)
 
 
 if __name__ == "__main__":

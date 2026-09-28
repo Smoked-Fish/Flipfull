@@ -1,10 +1,10 @@
 #!/system/bin/sh
 
 . /data/local/userinit/lib/common.sh
-LOG_TAG=no-updates
+LOG_TAG=block-updates
 
-if ! planned feature no-updates on; then
-    log "no-updates is off - the updaters keep running"
+if ! planned feature block-updates on; then
+    log "block-updates is off - the updaters keep running"
     exit 0
 fi
 

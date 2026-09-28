@@ -1,9 +1,14 @@
 __pycache__/
+node_modules/
 *.tmp
 *.lf
 .installed-files.tmp
+.cache/
 userinit/overlays/
 userinit/apps/
+userinit/services/stt/models/
+userinit/media/
+src/overlays/system/resources/branding/initlogo_flipfull.png
 client_secret*.json
 backups/
 dist/

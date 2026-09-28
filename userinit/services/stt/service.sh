@@ -7,7 +7,9 @@ DIR=$USERINIT/services/stt
 BIN=$DIR/stt-server
 LOG=$DIR/server.log
 LOG_MAX=262144
-MODEL=$DIR/models/ggml-base.en-q5_1.bin
+MODELS=$DIR/models
+MODEL=parakeet-tdt_ctc-110m-Q4_K_M.gguf
+CHOICE=$USERINIT/config/stt-model
 THREADS=4
 IDLE=15
 PORT=8321
@@ -46,22 +48,23 @@ start() {
         log "binary $BIN not found - skipping"
         return 0
     fi
-    if [ ! -f "$MODEL" ]; then
-        log "model $MODEL not found - skipping"
+    if ! ls "$MODELS" 2>/dev/null | grep -qE '\.(gguf|bin)$'; then
+        log "no models in $MODELS - skipping"
         return 0
     fi
 
-    chmod 0711 "$USERINIT" "$USERINIT/services" "$DIR" "$(dirname "$MODEL")" 2>/dev/null
-    chmod 0644 "$MODEL" 2>/dev/null
+    chmod 0711 "$USERINIT" "$USERINIT/services" "$DIR" "$MODELS" 2>/dev/null
+    chmod 0644 "$MODELS"/* 2>/dev/null
     chmod 0755 "$BIN" 2>/dev/null
+    mkdir -p "$(dirname "$CHOICE")"
 
     if [ -f "$LOG" ] && [ "$(stat -c %s "$LOG" 2>/dev/null || echo 0)" -gt "$LOG_MAX" ]; then
         mv -f "$LOG" "$LOG.old"
     fi
 
     stop
-    setsid "$BIN" --model "$MODEL" --threads "$THREADS" --idle "$IDLE" --port "$PORT" \
-        --origin "$ORIGIN" --uid "$RUN_UID" </dev/null >>"$LOG" 2>&1 &
+    setsid "$BIN" --models "$MODELS" --model "$MODEL" --choice "$CHOICE" --threads "$THREADS" \
+        --idle "$IDLE" --port "$PORT" --origin "$ORIGIN" --uid "$RUN_UID" </dev/null >>"$LOG" 2>&1 &
     sleep 1
 
     P=$(pids_of stt-server)
@@ -71,7 +74,8 @@ start() {
         return 1
     fi
     detach_cgroup stt-server "$P"
-    log "running (pid $P) on 127.0.0.1:$PORT, model $(basename "$MODEL")"
+    picked=$([ -s "$CHOICE" ] && cat "$CHOICE")
+    log "running (pid $P) on 127.0.0.1:$PORT, model ${picked:-$MODEL}"
 }
 
 case "$1" in

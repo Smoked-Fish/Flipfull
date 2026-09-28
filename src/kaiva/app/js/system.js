@@ -190,16 +190,21 @@
     return activity('configure', { target: 'device', section });
   }
 
-  async function searchUrl(query) {
-    let base = 'https://www.google.com/search?q={searchTerms}';
-    try {
-      const cache = await getSetting('search.cache');
-      const engine = cache && cache.providers && cache.providers[cache.defaultEngine];
-      if (engine && /\{searchTerms\}/.test(engine.searchUrl || '')) {
-        base = engine.searchUrl;
-      }
-    } catch (e) {}
-    return base.replace('{searchTerms}', encodeURIComponent(query));
+  const ENGINES = {
+    qwant: { name: 'Qwant', url: 'https://www.qwant.com/?q={searchTerms}&client=kaios-only' },
+    google: { name: 'Google', url: 'https://www.google.com/search?q={searchTerms}&client=kaios-only' },
+  };
+
+  function engine(id) {
+    return ENGINES[id] || ENGINES.qwant;
+  }
+
+  function searchUrl(query, id) {
+    return engine(id).url.replace('{searchTerms}', encodeURIComponent(query));
+  }
+
+  function openBrowser(url) {
+    window.open(url, '_blank', 'noopener=yes');
   }
 
   class NeedsSettings extends Error {
@@ -294,7 +299,7 @@
 
   Object.assign(exports, {
     SELF, MANIFEST, session, getSetting, voiceDefaults, claimDefaults, setMicKey,
-    apps, launch, contacts, dial, sms, openUrl, configure, searchUrl, toggle,
+    apps, launch, contacts, dial, sms, openUrl, configure, engine, searchUrl, openBrowser, toggle,
     NeedsSettings, battery, hour12, addAlarm, alarms, deleteAlarm, deleteAllAlarms, clockTab,
   });
 })(window.KaiOS = {});

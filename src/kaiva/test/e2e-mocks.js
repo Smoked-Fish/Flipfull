@@ -5,10 +5,6 @@
     'voice-assistant.selected': 'http://dictate.localhost/manifest.webmanifest',
     'voice-assistant.enabled': false,
     'locale.hour12': true,
-    'search.cache': {
-      version: 4, defaultEngine: 'ddg',
-      providers: { ddg: { searchUrl: 'https://duckduckgo.com/?q={searchTerms}&kp=1' } },
-    },
   };
   window.__contacts = [
     { name: 'Mom', tel: [{ atype: 'mobile', value: '+15550001' }] },

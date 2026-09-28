@@ -37,6 +37,7 @@
         case 'hook': state.hook = f[1] === 'yes'; break;
         case 'removable': state.removablePending = f[1] === 'pending'; break;
         case 'google-client': state.googleClient = f[1] === '-' ? '' : f[1]; break;
+        case 'release-repo': state.releaseRepo = f[1]; break;
         case 'reboot': state.reboot = f[1] === 'yes'; break;
         case 'feature':
           state.features[f[1]] = {
@@ -108,7 +109,63 @@
     return '';
   }
 
-  exports.FlipfullModel = { parseIni, parseState, parseRemovable, parseSet, sections, statusText };
+  function installedVersion(version) {
+    const m = /^Flipfull (\S+) built /.exec(version || '');
+    return m ? m[1] : '';
+  }
+
+  function compareVersions(a, b) {
+    const parse = (v) => (/^v?\d+(\.\d+)*$/.test(v || '') ? v.replace(/^v/, '').split('.').map(Number) : null);
+    const x = parse(a);
+    const y = parse(b);
+    if (!x || !y) {
+      return null;
+    }
+    for (let i = 0; i < Math.max(x.length, y.length); i++) {
+      const d = (x[i] || 0) - (y[i] || 0);
+      if (d) {
+        return d < 0 ? -1 : 1;
+      }
+    }
+    return 0;
+  }
+
+  function pickUpdate(release) {
+    const asset = (release.assets || []).find((a) => /^flipfull-.+-update\.zip$/.test(a.name));
+    if (!asset) {
+      throw new Error(`Release ${release.tag_name} has no flipfull-…-update.zip. Update from a computer instead.`);
+    }
+    const sha = /^sha256:([0-9a-f]{64})$/.exec(asset.digest || '');
+    if (!sha) {
+      throw new Error(`GitHub lists no checksum for ${asset.name}. Update from a computer instead.`);
+    }
+    if (!/^[A-Za-z0-9._-]+$/.test(release.tag_name) || !/^[A-Za-z0-9._-]+$/.test(asset.name)) {
+      throw new Error(`Release ${release.tag_name} has a name the phone can't take.`);
+    }
+    return {
+      tag: release.tag_name,
+      notes: (release.body || '').trim(),
+      asset: { name: asset.name, size: asset.size || 0, sha256: sha[1] },
+    };
+  }
+
+  function parseUpdate(text) {
+    const out = { status: 'none', detail: '', bytes: 0, log: [] };
+    text.split('\n').forEach((line) => {
+      const f = line.replace(/\r$/, '').split('\t');
+      switch (f[0]) {
+        case 'update': out.status = f[1]; out.detail = f.slice(2).join('\t'); break;
+        case 'bytes': out.bytes = Number(f[1]) || 0; break;
+        case 'log': out.log.push(f.slice(1).join('\t')); break;
+      }
+    });
+    return out;
+  }
+
+  exports.FlipfullModel = {
+    parseIni, parseState, parseRemovable, parseSet, sections, statusText,
+    installedVersion, compareVersions, pickUpdate, parseUpdate,
+  };
   if (typeof module !== 'undefined') {
     module.exports = exports.FlipfullModel;
   }

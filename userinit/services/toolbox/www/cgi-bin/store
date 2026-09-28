@@ -1,6 +1,6 @@
 #!/system/bin/sh
 
-APP=http://flipfull.localhost
+APP=http://flipstore.localhost
 CR=$(printf '\r')
 
 reply() {
@@ -15,7 +15,7 @@ EOF
     exit 0
 }
 
-[ "$HTTP_ORIGIN" = "$APP" ] && [ "$HTTP_HOST" = 127.0.0.1:8323 ] || reply "403 Forbidden" "Only the Flipfull app"
+[ "$HTTP_ORIGIN" = "$APP" ] && [ "$HTTP_HOST" = 127.0.0.1:8323 ] || reply "403 Forbidden" "Only the Flipstore app"
 [ "$REQUEST_METHOD" = POST ] || reply "405 Method Not Allowed" "POST a command"
 case $CONTENT_LENGTH in
     ''|*[!0-9]*) reply "411 Length Required" "No command" ;;
@@ -25,16 +25,14 @@ esac
 set -f
 set -- $(head -c "$CONTENT_LENGTH")
 for w; do
-    case $w in
-        *[!A-Za-z0-9._-]*) reply "400 Bad Request" "Not a command: $w" ;;
-    esac
+    printf '%s\n' "$w" | grep -qE '^[A-Za-z0-9._~:/?#@!$&+,;=%-]+$' || reply "400 Bad Request" "Not a command: $w"
 done
 case $1 in
-    state|features|set|removable|google-client|log|restart|reboot|update|uninstall) ;;
+    info|get|stage|install|uninstall|installed) ;;
     *) reply "400 Bad Request" "Not a command: $1" ;;
 esac
 
-if out=$(sh /data/local/userinit/flipfull "$@" 2>&1); then
+if out=$(sh /data/local/userinit/flipfull store "$@" 2>&1); then
     reply "200 OK" "$out"
 fi
 reply "500 Internal Server Error" "$out"

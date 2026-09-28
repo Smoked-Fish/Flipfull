@@ -12,6 +12,7 @@ import json
 import re
 import shutil
 import sys
+import urllib.request
 import zipfile
 from pathlib import Path
 
@@ -22,7 +23,6 @@ USERINIT = ROOT / "userinit"
 
 # stock app md5 where base/ isn't a copy of it
 STOCK_MD5 = {
-    "launcher": "b9a1b93d1784faa661ad3b2db3f2d858",
     "shared": "8aba4d99da9c602cfe76eb22c041eafd",
     "wallpaper": "a0499ffb65d077bc3263f4b16b687692",
 }
@@ -37,6 +37,44 @@ FEATURES_SCRIPT = '    <script src="http://127.0.0.1/flipfull/features.js"></scr
 SYSTEM_SCRIPTS = ('    <script defer="" src="js/live_wallpaper.js"></script>\n'
                   '    <script defer="" src="js/flipfull_system.js"></script>\n')
 MAPS_SCRIPT = '    <script defer="" src="js/flipfull_maps.js"></script>\n'
+
+HARDWARE_BUTTONS = [
+    # track-skip
+    ("js/hardware_buttons.js",
+     '.prototype.repeat=function(){this.repeating=!0,this.repeatCount++,',
+     '.prototype.repeat=function(){if(!this.repeating&&window.FlipfullMedia&&'
+     'window.FlipfullMedia.hold(this.direction))return void(this.repeating=!0);'
+     'this.repeating=!0,this.repeatCount++,'),
+    # volume-keys
+    ("js/hardware_buttons.js",
+     'turnscreenOnHandle=function(e){this.browserKeyEventManager.screenOff()&&('
+     '"qd-call-button-press"!==this.browserKeyEventManager.getButtonEventType(e)&&(',
+     'turnscreenOnHandle=function(e){(this.flipfullScreenWasOff=this.browserKeyEventManager.screenOff())&&('
+     '"qd-call-button-press"!==this.browserKeyEventManager.getButtonEventType(e)&&'
+     '!(window.FlipfullMedia&&FlipfullMedia.passKey(e))&&('),
+    ("js/hardware_buttons.js",
+     'if(this.qdProcess(e,s),this.browserKeyEventManager.screenOff())return',
+     'if(this.qdProcess(e,s),this.browserKeyEventManager.screenOff()&&'
+     '!(window.FlipfullMedia&&FlipfullMedia.passKey(e)))return'),
+    # play-pause-button
+    ("js/hardware_buttons.js",
+     'if(clearTimeout(this.qdTimer),this.qdCount++,this.qdTimer=setTimeout(()=>{var e;',
+     'if(clearTimeout(this.qdTimer),this.qdCount++||window.FlipfullMedia&&'
+     'FlipfullMedia.quickPress(this.flipfullScreenWasOff,this._isCalling),'
+     'this.qdTimer=setTimeout(()=>{var e;window.FlipfullMedia&&FlipfullMedia.quickPresses(this.qdCount);'),
+]
+
+INITLOGO = SRC / "overlays" / "system" / "resources" / "branding" / "initlogo_flipfull.png"
+
+NO_SIDE_MENU_CLASS = "flipfull-no-side-menu"
+NO_SIDE_MENU = [
+    ("dist/app.bundle.js",
+     'c.default.createElement(I.default,{ref:function(t){e.panels.sidemenu=t}})',
+     on("no-side-menu") + '?null:c.default.createElement(I.default,{ref:function(t){e.panels.sidemenu=t}})'),
+    ("dist/app.bundle.js",
+     'case"ArrowLeft":"T435V"!==N.default.getBuildCodeName()&&',
+     'case"ArrowLeft":!' + on("no-side-menu") + '&&"T435V"!==N.default.getBuildCodeName()&&'),
+]
 
 FOLDERS = [
     ("dist/app.bundle.js",
@@ -151,7 +189,13 @@ OVERLAYS = {
              'if("TMO"===s.default.getBuildOperatorName()&&"kaios-voiceassistant"===e.name)return!0;',
              'if(!' + on("kaiva") + '&&"TMO"===s.default.getBuildOperatorName()&&'
              '"kaios-voiceassistant"===e.name)return!0;'),
-        ] + FOLDERS,
+        ] + NO_SIDE_MENU + FOLDERS,
+        "rewrites": [
+            ("dist/app.bundle.js", lambda text: f'document.documentElement.classList.toggle("{NO_SIDE_MENU_CLASS}",'
+             + on("no-side-menu") + ");" + text),
+            ("dist/app.style.css", lambda text: text + f"\n.{NO_SIDE_MENU_CLASS} .ClockComponent,"
+             f".{NO_SIDE_MENU_CLASS} #simcard-info{{margin-left:0}}\n"),
+        ],
     },
     "shared": {
         "patches": [
@@ -182,22 +226,18 @@ OVERLAYS = {
             ("index_remote.html",
              '    <script defer="" src="remote/dist/app.bundle.js"></script>\n',
              '    <script defer="" src="remote/dist/app.bundle.js"></script>\n' + SYSTEM_SCRIPTS),
+            ("js/account_manager/google_authenticator.js",
+             "    const codeChallenge = await getChallenge();\n",
+             "    await FlipfullGoogleClient.load();\n    const codeChallenge = await getChallenge();\n"),
+            ("dist/app.bundle.js", EVENT_LOGGER_START, on("block-telemetry") + "||" + EVENT_LOGGER_START),
+            ("js/fota/fotaJs_Loader.js", "\nfotaLoader.init();\n",
+             "\n" + on("block-updates") + "||fotaLoader.init();\n"),
+        ] + HARDWARE_BUTTONS + ([
             ("js/init_logo_handler.js",
              'CustomLogoPath.oslogo.image="tmo"===e?',
              'CustomLogoPath.oslogo.image=' + on("boot-animation") +
              '?`${SYSTEM_RESOURCE}branding/initlogo_flipfull.png`:"tmo"===e?'),
-            ("js/hardware_buttons.js",
-             '.prototype.repeat=function(){this.repeating=!0,this.repeatCount++,',
-             '.prototype.repeat=function(){if(!this.repeating&&window.FlipfullMedia&&'
-             'window.FlipfullMedia.hold(this.direction))return void(this.repeating=!0);'
-             'this.repeating=!0,this.repeatCount++,'),
-            ("dist/app.bundle.js", EVENT_LOGGER_START, on("no-telemetry") + "||" + EVENT_LOGGER_START),
-            ("js/fota/fotaJs_Loader.js", "\nfotaLoader.init();\n",
-             "\n" + on("no-updates") + "||fotaLoader.init();\n"),
-            ("js/account_manager/google_authenticator.js",
-             "    const codeChallenge = await getChallenge();\n",
-             "    await FlipfullGoogleClient.load();\n    const codeChallenge = await getChallenge();\n"),
-        ],
+        ] if INITLOGO.is_file() else []),
         "rewrites": [
             ("js/account_manager/oauth2_config.js", lambda text: text + GOOGLE_CLIENT),
         ],
@@ -207,6 +247,12 @@ OVERLAYS = {
             ("index.html",
              '    <script src="http://shared.localhost/js/utils/common/app_origin.js"></script>\n',
              FEATURES_SCRIPT + '    <script src="http://shared.localhost/js/utils/common/app_origin.js"></script>\n'),
+            ("index.html", DISPLAY_ITEM, DISPLAY_ITEM + HOME_SHORTCUTS_ITEM),
+            ("js/panels/root/panel.js",
+             "        RootManager.init();\n",
+             "        RootManager.init();\n"
+             "        panel.querySelector('#menuItem-homeShortcuts').parentNode.classList.toggle('hidden', !"
+             + on("home-shortcuts") + ");\n"),
             ("elements/call.html", ASSISTED_DIALING_ITEM, CALL_RECORDING_ITEM + ASSISTED_DIALING_ITEM),
             ("js/panels/call/panel.js",
              "      'menuItem-assisted-dialing': '#assisted_dialing',\n",
@@ -217,12 +263,6 @@ OVERLAYS = {
              "        panel.querySelector('#call-recording-item').classList.toggle('hidden', !"
              + on("call-recording") + ");\n"
              "        listElements = panel.querySelectorAll('li');\n"),
-            ("index.html", DISPLAY_ITEM, DISPLAY_ITEM + HOME_SHORTCUTS_ITEM),
-            ("js/panels/root/panel.js",
-             "        RootManager.init();\n",
-             "        RootManager.init();\n"
-             "        panel.querySelector('#menuItem-homeShortcuts').parentNode.classList.toggle('hidden', !"
-             + on("home-shortcuts") + ");\n"),
             ("js/panels/carrier_detail/panel.js", NETWORK_TYPE_HIDING,
              "        if (" + on("network-type") + ") {\n"
              "          elements.networkType.classList.remove('hidden');\n"
@@ -256,6 +296,21 @@ OVERLAYS = {
             ("style/main.css", lambda text: music_css(text)),
         ] + [(m, lambda text: no_ads_dependency(text)) for m in zip_names("music")
              if m.startswith("manifest") and m.endswith(".webmanifest")],
+        "patches": [
+            ("index.html", "    <!-- Shared code -->\n", FEATURES_SCRIPT + "    <!-- Shared code -->\n"),
+            ("index.html",
+             '    <script defer="" type="text/javascript" src="js/bind.js"></script>\n',
+             '    <script defer="" type="text/javascript" src="js/bind.js"></script>\n'
+             '    <script defer="" type="text/javascript" src="js/flipfull_now_playing.js"></script>\n'),
+            ("js/communications.js",
+             "MusicComm.prototype.notifyMetadataChanged = function (metadata) {\n",
+             "MusicComm.prototype.notifyMetadataChanged = function (metadata) {\n"
+             "    FlipfullNowPlaying.metadata(metadata);\n"),
+            ("js/communications.js",
+             "MusicComm.prototype.notifyStatusChanged = function (info) {\n",
+             "MusicComm.prototype.notifyStatusChanged = function (info) {\n"
+             "    FlipfullNowPlaying.status(info);\n"),
+        ],
     },
     "video": {
         "remove": ["js/ads/kaiads.v5.min.js", "js/ads/fullscreen.js", ".KaiAds.appinfo.json"],
@@ -423,7 +478,6 @@ def music_index(text):
 
 
 def music_css(text):
-    import re
     text, n = re.subn(r"[^{}]*banner-ad[^{}]*\{[^}]*\}", "", text)
     if n < 3:
         raise PatchError(f"expected the banner styles, found {n} rules")
@@ -575,6 +629,47 @@ def build_overlay(name):
           f"({(out / 'application.zip').stat().st_size} bytes)")
 
 
+STT_MODELS = {
+    "parakeet-tdt_ctc-110m-Q4_K_M.gguf": (
+        "https://huggingface.co/handy-computer/parakeet-tdt_ctc-110m-gguf/resolve/"
+        "766f172fe70eb66785e3371664f53762e0fbafaa/",
+        "486414fd90185a8c8a4ced7c123cfb133ff4f7958426c6b8bd9049946b56b448"),
+    "ggml-base-q5_1.bin": (
+        "https://huggingface.co/ggerganov/whisper.cpp/resolve/5359861c739e955e79d9a303bcbc70fb988958b1/",
+        "422f1ae452ade6f30a004d7e5c6a43195e4433bc370bf23fac9cc591f01a8898"),
+}
+
+
+def sha256_of(path):
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for block in iter(lambda: f.read(1 << 20), b""):
+            h.update(block)
+    return h.hexdigest()
+
+
+def fetch_stt_models():
+    out = USERINIT / "services" / "stt" / "models"
+    out.mkdir(parents=True, exist_ok=True)
+    for name, (base, sha) in STT_MODELS.items():
+        path = out / name
+        if path.is_file() and sha256_of(path) == sha:
+            continue
+        print(f"stt        downloading {name}")
+        part = out / f"{name}.part"
+        try:
+            with urllib.request.urlopen(base + name, timeout=60) as r, open(part, "wb") as f:
+                shutil.copyfileobj(r, f, 1 << 20)
+            if sha256_of(part) != sha:
+                fail(f"{name}: the download doesn't match its sha256")
+            part.replace(path)
+        except OSError as e:
+            fail(f"couldn't download {name}: {e}")
+        finally:
+            part.unlink(missing_ok=True)
+    print(f"stt        -> {out.relative_to(ROOT)} ({len(STT_MODELS)} models)")
+
+
 def build_app(name, app):
     out = USERINIT / "apps" / name
     out.mkdir(parents=True, exist_ok=True)
@@ -588,10 +683,13 @@ def build_app(name, app):
     print(f"{name:10} -> {(out / 'application.zip').relative_to(ROOT)}")
 
 
+APPS = {"kaiva": SRC / "kaiva" / "app",
+        "qrreader": SRC / "qrreader" / "app",
+        "flipfull": SRC / "toolbox" / "app"}
+
 TARGETS = {**{n: (lambda n=n: build_overlay(n)) for n in OVERLAYS},
-           "kaiva": lambda: build_app("kaiva", SRC / "kaiva" / "app"),
-           "qrreader": lambda: build_app("qrreader", SRC / "qrreader" / "app"),
-           "flipfull": lambda: build_app("flipfull", SRC / "toolbox" / "app")}
+           **{n: (lambda n=n: build_app(n, APPS[n])) for n in APPS},
+           "stt": fetch_stt_models}
 
 
 def check_features():
@@ -599,7 +697,7 @@ def check_features():
     ini.read(USERINIT / "features.ini", encoding="utf-8")
     exists = {
         "overlays": lambda n: n in OVERLAYS,
-        "apps": lambda n: n in TARGETS and n not in OVERLAYS,
+        "apps": lambda n: n in APPS,
         "services": lambda n: (USERINIT / "services" / n / "service.sh").is_file(),
         "hosts": lambda n: (USERINIT / "etc" / "hosts.d" / f"{n}.hosts").is_file(),
         "prefs": lambda n: (USERINIT / "etc" / "prefs.d" / f"{n}.js").is_file(),

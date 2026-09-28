@@ -1,5 +1,38 @@
 #!/system/bin/sh
 
+usage() {
+    cat <<'EOF'
+flipfull - turns Flipfull's features on and off, and installs, updates and
+removes Flipfull.
+
+  flipfull features               the feature list (features.ini)
+  flipfull state                  each feature: on / off, at the last boot, usable on this phone; what waits for a reboot
+  flipfull set ID on|off ...      turn features on / off
+  flipfull plan                   what the features that are on need
+  flipfull publish [--remove]     write (or delete) features.js for the overlays
+  flipfull removable [set NAME...]    preloaded apps that can be uninstalled
+  flipfull google-client [import [FILE] | remove]
+                                  your own Google sign-in client
+  flipfull status                 a summary to read (flip4.py status)
+  flipfull log [LINES]            the boot log
+  flipfull restart [APP...]       restart the UI, or only those apps
+  flipfull reboot
+  flipfull install-app ZIP        install an application.zip through api-daemon
+  flipfull setup [--from DIR]     install or update from DIR, a copy of
+                                  userinit/ with .files listing it
+  flipfull update start TAG ASSET SHA256
+                                  download that release asset from
+                                  RELEASE_REPO, check it and install it, in
+                                  the background
+  flipfull update [status]        how the last update went
+  flipfull store info | get URL | stage URL [SHA256] | install ORIGIN SOURCE
+               | uninstall NAME | installed
+                                  what the Flipstore app asks for (flipstore
+                                  feature)
+  flipfull uninstall [--reboot]   remove Flipfull; the next boot finishes it
+EOF
+}
+
 HERE=$(cd "$(dirname "$0")" && pwd)
 . "$HERE/lib/common.sh"
 
@@ -19,6 +52,13 @@ API_DAEMON_CONFIG=/data/local/service/api-daemon/config.toml
 GOOGLE_REDIRECT=http://localhost/redirect/loginpages/redirect.html
 DICTATE=http://dictate.localhost/manifest.webmanifest
 
+RELEASE_REPO=Smoked-Fish/Flipfull
+STORE_REPO=Smoked-Fish/Flipstore
+UPDATE_DIR=/data/local/tmp/flipfull-update
+STORE_ORIGIN=flipstore
+STORE_DIR=/data/local/tmp/flipstore
+STORE_MAX=52428800
+
 die() {
     echo "error: $*" >&2
     exit 1
@@ -36,7 +76,7 @@ http_root() {
 publish() {
     dir=$(http_root)/flipfull
     mkdir -p "$dir" || return 1
-    plan | awk -v src="$USERINIT/flipfull" '
+    { if [ -n "$1" ]; then echo "$1"; else plan; fi; } | awk -v src="$USERINIT/flipfull" '
         BEGIN {
             print "// Written by " src ": the Flipfull features that are on."
             printf "window.FlipfullFeatures = {"
@@ -79,19 +119,24 @@ availability() {
     done
 }
 
+cached_availability() {
+    key="# $(cat /proc/sys/kernel/random/boot_id) $(stat -c %Y "$MANIFEST" "$APPS_DB" "$APPS_DB-wal" 2>/dev/null | tr '\n' ' ')"
+    [ "$(head -1 "$STATE/avail" 2>/dev/null)" = "$key" ] && return 0
+    { echo "$key"; availability; } > "$STATE/avail.tmp" && mv -f "$STATE/avail.tmp" "$STATE/avail"
+}
+
 cmd_state() {
     mkdir -p "$STATE"
-    avail=$STATE/.avail.$$
-    availability > "$avail"
+    cached_availability
     pending=0
     removable_pending && pending=1
     printf 'version\t%s\n' "$(version)"
     printf 'hook\t%s\n' "$(hook_file >/dev/null && echo yes || echo no)"
     printf 'removable\t%s\n' "$([ $pending = 1 ] && echo pending || echo saved)"
     printf 'google-client\t%s\n' "$(google_client_id)"
+    printf 'release-repo\t%s\n' "$RELEASE_REPO"
     awk -f "$PLAN_AWK" -v mode=state -v choices="$CHOICES" -v boot="$BOOT_PLAN" \
-        -v avail="$avail" -v pending=$pending "$REGISTRY"
-    rm -f "$avail"
+        -v avail="$STATE/avail" -v pending=$pending "$REGISTRY"
 }
 
 cmd_set() {
@@ -108,10 +153,26 @@ cmd_set() {
     echo "$out" | awk '$1 == "choice" { print $2 "=" $3 }' > "$CHOICES.tmp" && mv -f "$CHOICES.tmp" "$CHOICES"
     echo "$out" | awk '$1 == "also" { print "also " $2 " " $3 }'
     after=$(plan)
-    publish || echo "error: couldn't write features.js in $(http_root)"
-    reconcile_services "$after"
-    reconcile_apps "$after"
+    publish "$after" || echo "error: couldn't write features.js in $(http_root)"
+    changed=$(printf '%s\n%s\n' "$before" "$after" | sort | uniq -u)
+    if echo "$changed" | grep -q '^service '; then
+        reconcile_services "$after"
+    fi
+    if apps_changed "$changed"; then
+        reconcile_apps "$after"
+    fi
+    if echo "$changed" | grep -q '^feature flipstore '; then
+        reconcile_store "$after"
+    fi
     restart_changed "$before" "$after"
+}
+
+apps_changed() {
+    echo "$1" | grep -q '^app ' && return 0
+    overlays=$(echo "$1" | awk '$1 == "overlay" { print $2 }')
+    [ -n "$overlays" ] || return 1
+    pre=$(preloaded_apps)
+    [ -z "$pre" ] || echo "$overlays" | grep -qvxF "$pre"
 }
 
 restart_changed() {
@@ -121,7 +182,9 @@ restart_changed() {
         $2 == "overlay" && ($3 == "launcher" || $3 == "settings") && index(ids, " " $1 " ") { print $3 }' | sort -u)
     for app in $apps; do
         same_dir "$USERINIT/overlays/$app" "$(readlink -f "$VROOT/$app")" || continue
-        sh "$USERINIT/tools/restart.sh" "$app" >/dev/null && echo "restarted $app"
+        if sh "$USERINIT/tools/restart.sh" "$app" >/dev/null; then
+            echo "restarted $app"
+        fi
     done
 }
 
@@ -259,14 +322,16 @@ preloaded() {
         'SELECT name, removable FROM apps WHERE preloaded = 1 ORDER BY name' 2>/dev/null
 }
 
-app_title() {
+app_manifest() {
     m=$VROOT/$1/manifest.webmanifest
     if [ -f "$m" ]; then
-        json_value name < "$m"
+        cat "$m"
     else
-        unzip -p "$VROOT/$1/application.zip" manifest.webmanifest 2>/dev/null | json_value name
+        unzip -p "$VROOT/$1/application.zip" manifest.webmanifest 2>/dev/null
     fi
 }
+
+app_title() { app_manifest "$1" | json_value name; }
 
 removable_wanted() {
     if [ -f "$REMOVABLE" ]; then
@@ -360,19 +425,19 @@ sync_from() {
     [ -f "$src/.files" ] || die "$src/.files is missing"
     mkdir -p "$STATE" "$CONFIG" || die "can't write $USERINIT"
     rm -f "$USERINIT/uninstall"
-    legacy=0
-    [ -f "$MANIFEST" ] && ! grep -qx features.ini "$MANIFEST" && [ ! -f "$CHOICES" ] && legacy=1
     : > "$STATE/changed"
     grep -v '^#' "$src/.files" > "$STATE/.files.new"
     [ -s "$STATE/.files.new" ] || die "$src/.files lists no files"
+    while read -r f; do
+        [ -z "$f" ] || [ -f "$src/$f" ] || [ -f "$USERINIT/$f" ] ||
+            die "$f is missing from $src; install this version from a computer (install.sh / install.bat)"
+    done < "$STATE/.files.new"
     while read -r f; do
         [ -n "$f" ] || continue
         if [ -f "$src/$f" ]; then
             cmp -s "$src/$f" "$USERINIT/$f" && continue
             mkdir -p "$(dirname "$USERINIT/$f")" && mv -f "$src/$f" "$USERINIT/$f" || die "couldn't update $f"
             echo "$f" >> "$STATE/changed"
-        elif [ ! -f "$USERINIT/$f" ]; then
-            die "$f is missing from $src"
         fi
     done < "$STATE/.files.new"
     grep -v '^#' "$MANIFEST" 2>/dev/null | grep -vxF -f "$STATE/.files.new" | while read -r f; do
@@ -383,10 +448,6 @@ sync_from() {
     rm -f "$STATE/.files.new"
     cp "$src/.files" "$MANIFEST"
     echo "$(wc -l < "$STATE/changed") of $(grep -vc '^#' "$src/.files") files changed"
-    if [ $legacy = 1 ]; then
-        awk '/^\[/ { gsub(/[][]/, ""); print $0 "=on" }' "$REGISTRY" > "$CHOICES"
-        echo "an earlier Flipfull was installed: every feature stays on (change it in the Flipfull app)"
-    fi
 }
 
 cmd_setup() {
@@ -397,8 +458,6 @@ cmd_setup() {
     fi
     [ -f "$REGISTRY" ] || die "$USERINIT isn't installed"
     mkdir -p "$CONFIG" "$STATE"
-    [ -f "$USERINIT/removable-apps" ] && mv -f "$USERINIT/removable-apps" "$REMOVABLE"
-    [ -f "$USERINIT/.overlays-mounted" ] && mv -f "$USERINIT/.overlays-mounted" "$STATE/overlays-mounted"
 
     chown -R root:root "$USERINIT"
     find "$USERINIT" -type d -exec chmod 0711 {} \;
@@ -414,13 +473,13 @@ cmd_setup() {
         case $ctx in u:object_r:*) chcon -R "$ctx" "$src" ;; esac
     done
 
-    sh "$USERINIT/tools/cleanup-old.sh" --userinit-only
     publish || echo "error: couldn't write features.js in $(http_root)"
 
     changed=$(cat "$STATE/changed" 2>/dev/null)
     now=$(plan)
     reconcile_services "$now" $(echo "$changed" | sed -n 's|^services/\([^/]*\)/.*|\1|p' | sort -u)
     reconcile_apps "$now" $(echo "$changed" | sed -n 's|^[a-z]*/\([^/]*\)/application.zip$|\1|p')
+    reconcile_store "$now"
 
     hook_file >/dev/null ||
         echo "WARNING: no boot hook runs $USERINIT/run.sh - nothing here starts at boot (src/boot-hook/README.md)"
@@ -444,6 +503,10 @@ cmd_uninstall() {
             apps_ok "$(apps_cmd uninstall "$url")" && echo "uninstalled $name" || echo "error: $name didn't uninstall" ;;
         esac
     done
+    url=http://$STORE_ORIGIN.localhost/manifest.webmanifest
+    case $list in *"$url"*)
+        apps_ok "$(apps_cmd uninstall "$url")" && echo "uninstalled Flipstore" || echo "error: Flipstore didn't uninstall" ;;
+    esac
     echo "Everything else is removed at the next boot (preloaded apps you made removable go back"
     echo "to stock); the phone then boots stock. Changed your mind before rebooting? Install again."
     url=$(app_url flipfull)
@@ -454,6 +517,217 @@ cmd_uninstall() {
         case $list in *"$url"*) apps_cmd uninstall "$url" >/dev/null && echo "uninstalled the Flipfull app" ;; esac
         sh "$USERINIT/services/toolbox/service.sh" stop
     fi
+}
+
+update_step() { echo "running $$ $*" > "$STATE/update"; }
+
+update_failed() {
+    echo "error: $*"
+    echo "failed $*" > "$STATE/update"
+    rm -rf "$UPDATE_DIR"
+    exit 1
+}
+
+cmd_update() {
+    case $1 in
+        ''|status)
+            read -r word rest 2>/dev/null < "$STATE/update" || word=none
+            if [ "$word" = running ] && ! kill -0 "${rest%% *}" 2>/dev/null; then
+                word=failed
+                rest="the update stopped before it finished (did the phone restart?)"
+            elif [ "$word" = running ]; then
+                rest=${rest#* }
+            fi
+            printf 'update\t%s\t%s\n' "$word" "$rest"
+            [ -f "$UPDATE_DIR/update.zip" ] && printf 'bytes\t%s\n' "$(stat -c %s "$UPDATE_DIR/update.zip")"
+            tail -n 12 "$STATE/update.log" 2>/dev/null | awk '{ print "log\t" $0 }' ;;
+        start)
+            [ $# -eq 4 ] || die "usage: flipfull update start TAG ASSET SHA256"
+            case $2 in ''|*[!A-Za-z0-9._-]*) die "not a release tag: $2" ;; esac
+            case $3 in flipfull-*-update.zip) ;; *) die "not a Flipfull update: $3" ;; esac
+            case $3 in *[!A-Za-z0-9._-]*) die "not a Flipfull update: $3" ;; esac
+            echo "$4" | grep -qx '[0-9a-f]\{64\}' || die "not a sha256: $4"
+            read -r word pid rest 2>/dev/null < "$STATE/update"
+            [ "$word" = running ] && kill -0 "$pid" 2>/dev/null && die "an update is already running"
+            mkdir -p "$STATE"
+            rm -f "$STATE/update"
+            : > "$STATE/update.log"
+            setsid sh "$USERINIT/flipfull" update-run "$2" "$3" "$4" </dev/null >>"$STATE/update.log" 2>&1 &
+            echo "started" ;;
+        *)
+            die "usage: flipfull update [status] | update start TAG ASSET SHA256" ;;
+    esac
+}
+
+update_run() {
+    update_step "Downloading"
+    url=https://github.com/$RELEASE_REPO/releases/download/$1/$2
+    echo "downloading $url"
+    rm -rf "$UPDATE_DIR" && mkdir -p "$UPDATE_DIR" || update_failed "can't write $UPDATE_DIR"
+    curl -fsSL --retry 2 --connect-timeout 20 -o "$UPDATE_DIR/update.zip" "$url" ||
+        update_failed "couldn't download $2"
+    [ "$(sha256sum "$UPDATE_DIR/update.zip" | cut -d' ' -f1)" = "$3" ] ||
+        update_failed "the download doesn't match its checksum"
+    update_step "Unpacking"
+    unzip -q "$UPDATE_DIR/update.zip" -d "$UPDATE_DIR/files" || update_failed "couldn't unpack $2"
+    rm -f "$UPDATE_DIR/update.zip"
+    src=$(ls -d "$UPDATE_DIR"/files/*/flipfull 2>/dev/null | head -1)
+    [ -f "$src/flipfull" ] && [ -f "$src/.files" ] || update_failed "$2 isn't a Flipfull update"
+    update_step "Installing"
+    sh "$src/flipfull" setup --from "$src" || update_failed "setup failed; see the log"
+    rm -rf "$UPDATE_DIR"
+    echo "done $(version)" > "$STATE/update"
+}
+
+STORE_RECORDS=$CONFIG/flipstore-apps
+
+store_url_ok() { echo "$1" | grep -qE '^https://[A-Za-z0-9._~:/?#@!$&+,;=%-]+$'; }
+
+store_official_url() {
+    case $1 in
+        "https://github.com/$STORE_REPO/releases/latest/download/flipstore.zip") return 0 ;;
+        "https://github.com/$STORE_REPO/releases/download/"*"/flipstore.zip")
+            tag=${1#"https://github.com/$STORE_REPO/releases/download/"}
+            tag=${tag%/flipstore.zip}
+            case $tag in ''|*[!A-Za-z0-9._-]*) return 1 ;; esac
+            return 0 ;;
+    esac
+    return 1
+}
+
+store_record() {
+    mkdir -p "$CONFIG"
+    { grep -v "^$1 " "$STORE_RECORDS" 2>/dev/null; [ -z "$2" ] || echo "$1 $2"; } > "$STORE_RECORDS.tmp" &&
+        mv -f "$STORE_RECORDS.tmp" "$STORE_RECORDS"
+}
+
+reconcile_store() {
+    url=http://$STORE_ORIGIN.localhost/manifest.webmanifest
+    list=$(apps_cmd list)
+    apps_ok "$list" || return 0
+    installed=0
+    case $list in *"$url"*) installed=1 ;; esac
+    if echo "$1" | grep -qx "feature flipstore on"; then
+        [ $installed = 1 ] && return 0
+        (store_stage "https://github.com/$STORE_REPO/releases/latest/download/flipstore.zip" >/dev/null) &&
+            install_zip "$STORE_DIR/app.zip" Flipstore && store_record "$STORE_ORIGIN" official
+        rm -rf "$STORE_DIR"
+    elif [ $installed = 1 ]; then
+        apps_ok "$(apps_cmd uninstall "$url")" && echo "uninstalled Flipstore" || echo "error: Flipstore didn't uninstall"
+    fi
+}
+
+store_fetch() {
+    code=$(curl -sL --connect-timeout 20 --max-time "$4" --max-filesize "$3" -o "$2" -w '%{http_code}' "$1")
+    rc=$?
+    [ $rc = 0 ] && [ "$code" = 200 ] && return 0
+    case $rc:$code in
+        63:*) echo "it's bigger than $(($3 / 1048576)) MB" ;;
+        *:000) echo "no connection" ;;
+        0:*) echo "HTTP $code" ;;
+        *) echo "curl error $rc" ;;
+    esac
+    return 1
+}
+
+store_stage() {
+    rm -rf "$STORE_DIR" && mkdir -p "$STORE_DIR" && chmod 0700 "$STORE_DIR" || die "can't write $STORE_DIR"
+    echo "$1" > "$STORE_DIR/url"
+    why=$(store_fetch "$1" "$STORE_DIR/app.zip" $STORE_MAX 300) || die "couldn't download $1: $why"
+    sum=$(sha256sum "$STORE_DIR/app.zip" | cut -d' ' -f1)
+    if [ -n "$2" ] && [ "$2" != "$sum" ]; then
+        rm -rf "$STORE_DIR"
+        die "the download doesn't match its checksum"
+    fi
+    unzip -p "$STORE_DIR/app.zip" manifest.webmanifest > "$STORE_DIR/manifest.webmanifest" 2>/dev/null
+    [ -s "$STORE_DIR/manifest.webmanifest" ] || die "not a KaiOS app: the zip has no manifest.webmanifest"
+    printf 'sha256\t%s\nsize\t%s\nmanifest\n' "$sum" "$(stat -c %s "$STORE_DIR/app.zip")"
+    cat "$STORE_DIR/manifest.webmanifest"
+}
+
+flipfull_apps() {
+    for m in "$USERINIT"/apps/*/manifest.webmanifest; do
+        json_value origin < "$m"
+    done
+    ls "$USERINIT/overlays" 2>/dev/null
+}
+
+store_protected() {
+    pre=$(preloaded_apps)
+    [ -n "$pre" ] || die "can't read the phone's app list"
+    echo "$pre"
+    flipfull_apps
+}
+
+store_name_ok() { case $1 in ''|-*|*[!a-z0-9.-]*) return 1 ;; esac; }
+
+cmd_store() {
+    plan | grep -qx "feature flipstore on" || die "turn on Flipstore app store in the Flipfull app first"
+    case $1 in
+        info)
+            printf 'store-repo\t%s\n' "$STORE_REPO" ;;
+        get)
+            store_url_ok "$2" || die "not an https URL: $2"
+            tmp=$STORE_DIR-get.$$
+            why=$(store_fetch "$2" "$tmp" 2097152 60) || {
+                rm -f "$tmp"
+                die "couldn't get $2: $why"
+            }
+            cat "$tmp"
+            rm -f "$tmp" ;;
+        stage)
+            store_url_ok "$2" || die "not an https URL: $2"
+            [ -z "$3" ] || echo "$3" | grep -qx '[0-9a-f]\{64\}' || die "not a sha256: $3"
+            store_stage "$2" "$3" ;;
+        install)
+            [ $# -eq 3 ] || die "usage: flipfull store install ORIGIN SOURCE"
+            [ -f "$STORE_DIR/app.zip" ] || die "nothing downloaded to install"
+            m=$STORE_DIR/manifest.webmanifest
+            grep -q '\\u' "$m" && die "the app's manifest has \\u escapes; Flipstore can't check which app it is"
+            [ "$(grep -o '"origin"' "$m" | wc -l)" -eq 1 ] || die "the app's manifest names more than one origin"
+            origin=$(json_value origin < "$m")
+            store_name_ok "$origin" || die "the app's manifest has no usable origin"
+            [ "$origin" = "$2" ] || die "the download is $origin, not $2"
+            protected=$(store_protected) || exit 1
+            echo "$protected" | grep -qx "$origin" &&
+                die "$origin is one of the phone's or Flipfull's own apps; Flipstore won't replace it"
+            source=$3
+            if [ "$origin" = "$STORE_ORIGIN" ]; then
+                store_official_url "$(cat "$STORE_DIR/url")" ||
+                    die "Flipstore only updates from github.com/$STORE_REPO"
+                source=official
+            else
+                store_url_ok "$source" || die "not a source: $source"
+            fi
+            install_zip "$STORE_DIR/app.zip" "$origin" || exit 1
+            store_record "$origin" "$source"
+            rm -rf "$STORE_DIR" ;;
+        uninstall)
+            store_name_ok "$2" || die "not an app name: $2"
+            [ "$2" = "$STORE_ORIGIN" ] && die "turn off Flipstore app store in the Flipfull app to remove Flipstore"
+            protected=$(store_protected) || exit 1
+            echo "$protected" | grep -qx "$2" && die "$2 is one of the phone's or Flipfull's own apps"
+            apps_ok "$(apps_cmd uninstall "http://$2.localhost/manifest.webmanifest")" || die "$2 didn't uninstall"
+            store_record "$2"
+            echo "uninstalled $2" ;;
+        installed)
+            ours=$(flipfull_apps)
+            "$SQLITE" -init /dev/null -separator ' ' "$APPS_DB" \
+                "SELECT name, preloaded, IFNULL(NULLIF(update_url, ''), '-') FROM apps
+                 WHERE preloaded = 0 OR IFNULL(update_url, '') != '' ORDER BY name" |
+            while read -r name preloaded update; do
+                source=$(awk -v n="$name" '$1 == n { print $2 }' "$STORE_RECORDS" 2>/dev/null)
+                mine=0
+                echo "$ours" | grep -qx "$name" && mine=1
+                [ -z "$source" ] && [ $mine = 1 ] && [ "$preloaded" = 0 ] && source=flipfull
+                manifest=$(app_manifest "$name")
+                printf 'app\t%s\t%s\t%s\t%s\t%s\t%s\n' "$name" "$(echo "$manifest" | json_value name)" \
+                    "$(echo "$manifest" | json_value version)" "$update" "${source:--}" \
+                    "$([ "$preloaded" = 1 ] || [ $mine = 1 ] && echo 1 || echo 0)"
+            done ;;
+        *)
+            die "usage: flipfull store info | get URL | stage URL [SHA256] | install ORIGIN SOURCE | uninstall NAME | installed" ;;
+    esac
 }
 
 cmd_status() {
@@ -482,7 +756,7 @@ cmd_status() {
         sh "$s" status
     done
     echo
-    echo "updaters (stopped after boot while no-updates is on):"
+    echo "updaters (stopped after boot while block-updates is on):"
     for s in update_engine updater-daemon; do
         echo "  $s: $(getprop init.svc.$s)"
     done
@@ -516,6 +790,9 @@ case $cmd in
         [ -f "$1" ] || die "usage: flipfull install-app ZIP"
         install_zip "$1" "$(basename "$1" .zip)" ;;
     setup) cmd_setup "$@" ;;
+    update) cmd_update "$@" ;;
+    update-run) update_run "$@" ;;
+    store) cmd_store "$@" ;;
     uninstall) cmd_uninstall "$@" ;;
-    *) sed -n '2,/^$/s/^# \{0,1\}//p' "$0"; exit 2 ;;
+    *) usage; exit 2 ;;
 esac

@@ -40,9 +40,9 @@ if planned feature boot-animation on; then
 else
     log "boot-animation is off - stock boot animation"
 fi
-if planned feature silent-boot on; then
+if planned feature boot-sound on; then
     mount_over poweron-sound.wav poweron-sound.wav poweron-sound_metro.wav poweron-sound_tcl.ogg
 else
-    log "silent-boot is off - stock boot sound"
+    log "boot-sound is off - stock boot sound"
 fi
 exit 0

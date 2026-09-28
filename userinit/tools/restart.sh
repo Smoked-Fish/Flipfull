@@ -8,22 +8,17 @@ if [ $# -eq 0 ]; then
 fi
 
 apps() {
-    for p in /proc/[0-9]*; do
-        case "$(tr '\0' ' ' 2>/dev/null < "$p/cmdline")" in
-            *b2g*" tab"*) cat "$p/comm" 2>/dev/null ;;
-        esac
-    done | sort -u | tr '\n' ' '
+    for f in $(grep -l 'true.ta[b]' /proc/[0-9]*/cmdline 2>/dev/null); do
+        cat "${f%/cmdline}/comm"
+    done 2>/dev/null | sort -u | tr '\n' ' '
 }
 
 rc=0
 for app in "$@"; do
-    killed=""
-    for p in /proc/[0-9]*; do
-        [ "$(cat "$p/comm" 2>/dev/null)" = "$app" ] || continue
-        kill "${p#/proc/}" 2>/dev/null && killed="$killed ${p#/proc/}"
-    done
-    if [ -n "$killed" ]; then
-        echo "$app: killed$killed"
+    pids=$(grep -lx "$app" /proc/[0-9]*/comm 2>/dev/null | cut -d/ -f3)
+    if [ -n "$pids" ]; then
+        kill $pids 2>/dev/null
+        echo "$app: killed" $pids
     else
         echo "$app: not running (running: $(apps))"
         rc=1

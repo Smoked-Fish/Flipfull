@@ -120,6 +120,8 @@ function print_state(    line, w, i, id, c, items, j, b, now, pend, bad, total, 
     }
     close(boot)
     while ((getline line < avail) > 0) {
+        if (line ~ /^#/)
+            continue
         split(line, w, " ")
         sp = index(line, w[2]) + length(w[2])
         usable[w[1] " " w[2]] = trim(substr(line, sp))

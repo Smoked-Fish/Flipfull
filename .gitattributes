@@ -12,6 +12,7 @@
 *.ini       text eol=lf
 *.awk       text eol=lf
 *.hosts     text eol=lf
+*.yml       text eol=lf
 *.bat       text eol=crlf
 userinit/run.sh    text eol=lf
 userinit/flipfull  text eol=lf
@@ -19,11 +20,12 @@ userinit/services/*/www/cgi-bin/* text eol=lf
 
 *.zip   binary
 *.bin   binary
+*.gguf  binary
 *.mp4   binary
 *.gif   binary
 *.png   binary
 *.wav   binary
 *.dex   binary
-userinit/bin/*                    binary
-userinit/services/stt/stt-server  binary
-userinit/services/tether-ttl/ttlfix binary
+userinit/bin/*                        binary
+userinit/services/stt/stt-server      binary
+userinit/services/callrec/callrecd    binary

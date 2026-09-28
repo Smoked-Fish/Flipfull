@@ -7,17 +7,21 @@
   const el = {
     body: document.body, titleText: $('title-text'), busy: $('busy'),
     offlineWhy: $('offline-why'), notice: $('notice'), features: $('features'),
+    sectionName: $('section-name'), sectionCount: $('section-count'),
     menuItems: $('menu-items'), removableItems: $('removable-items'),
     googleClient: $('google-client'), logText: $('log-text'),
     aboutVersion: $('about-version'), aboutHook: $('about-hook'),
+    updateText: $('update-text'), updateNotes: $('update-notes'), updateLog: $('update-log'),
     toast: $('toast'), dialog: $('dialog'), dialogText: $('dialog-text'),
     left: $('sk-left'), center: $('sk-center'), right: $('sk-right'),
   };
   const TITLES = {
     list: 'Flipfull', menu: 'Options', removable: 'Uninstallable apps',
     google: 'Google sign-in client', log: 'Boot log', about: 'About Flipfull',
+    update: 'Check for updates',
   };
   const SCROLL = 40;
+  const POLL = 2000;
 
   let registry = [];
   let state = { features: {} };
@@ -27,9 +31,15 @@
   let dialogKeys = null;
   let toastTimer = null;
   const focus = { list: 0, menu: 0, removable: 0 };
+  let groups = [];
+  let section = 0;
+  const sectionFocus = {};
   let listItems = [];
   let apps = [];
   let appsChanged = false;
+  let release = null;
+  let update = null;
+  let pollTimer = null;
 
   function run(...words) {
     return fetch(API, { method: 'POST', body: words.join(' '), cache: 'no-store' })
@@ -137,22 +147,27 @@
   }
 
   function moveFocus(name, step) {
-    const section = $(name);
-    const rows = Array.from(section.querySelectorAll('.row'));
+    const box = $(name);
+    const rows = Array.from(box.querySelectorAll('.row'));
     if (rows.length) {
-      focus[name] = Math.max(0, Math.min(rows.length - 1, focus[name] + step));
+      focus[name] = step ? (focus[name] + step + rows.length) % rows.length : Math.min(focus[name], rows.length - 1);
       rows.forEach((r, i) => r.classList.toggle('focus', i === focus[name]));
-      const current = rows[focus[name]];
-      const before = current.previousElementSibling;
-      if (before && before.tagName === 'H2') {
-        before.scrollIntoView({ block: 'nearest' });
-      }
-      current.scrollIntoView({ block: 'nearest' });
+      rows[focus[name]].scrollIntoView({ block: 'nearest' });
       if (focus[name] === 0) {
-        section.scrollTop = 0;
+        box.scrollTop = 0;
       }
     }
     updateKeys();
+  }
+
+  function switchSection(step) {
+    if (groups.length < 2) {
+      return;
+    }
+    sectionFocus[groups[section].name] = focus.list;
+    section = (section + step + groups.length) % groups.length;
+    focus.list = sectionFocus[groups[section].name] || 0;
+    renderList();
   }
 
   function show(name) {
@@ -169,6 +184,7 @@
       case 'removable': return renderRemovable();
       case 'google': return renderGoogle();
       case 'about': return renderAbout();
+      case 'update': return renderUpdate();
       default: return updateKeys();
     }
   }
@@ -182,19 +198,17 @@
       notes.push('Some changes wait for a reboot.');
     }
     el.notice.textContent = notes.join(' ');
+    groups = M.sections(registry, state);
+    section = Math.min(section, Math.max(0, groups.length - 1));
+    const group = groups[section];
+    el.sectionName.textContent = group ? group.name : '';
+    el.sectionCount.textContent = groups.length > 1 ? `${section + 1}/${groups.length}` : '';
+    listItems = group ? group.items : [];
     el.features.textContent = '';
-    listItems = [];
-    M.sections(registry, state).forEach((group) => {
-      const h = document.createElement('h2');
-      h.textContent = group.name;
-      el.features.appendChild(h);
-      group.items.forEach((item) => {
-        const r = row(item.title, item.on, M.statusText(item), item.about,
-          item.usable === 'no' ? 'unusable' : '');
-        r.querySelector('.status').classList.toggle('waiting', item.pending);
-        el.features.appendChild(r);
-        listItems.push(item);
-      });
+    listItems.forEach((item) => {
+      const r = row(item.title, item.on, M.statusText(item), item.about, item.usable === 'no' ? 'unusable' : '');
+      r.querySelector('.status').classList.toggle('waiting', item.pending);
+      el.features.appendChild(r);
     });
     moveFocus('list', 0);
   }
@@ -205,6 +219,7 @@
     ['Reboot', () => reboot()],
     ["Restart the phone's UI", () => restartUi()],
     ['Boot log', () => showLog()],
+    ['Check for updates', () => checkUpdates()],
     ['About Flipfull', () => show('about')],
     ['Remove Flipfull', () => removeFlipfull()],
   ];
@@ -238,6 +253,40 @@
     el.aboutVersion.textContent = state.version || '';
     el.aboutHook.textContent = state.hook ? 'Starts with the phone: yes.' :
       "Starts with the phone: no. The boot hook (src/boot-hook in the Flipfull repo) isn't on this phone.";
+    updateKeys();
+  }
+
+  function mb(bytes) {
+    return `${(bytes / 1e6).toFixed(1)} MB`;
+  }
+
+  function canUpdate() {
+    return update.status !== 'running' &&
+      [-1, null].includes(M.compareVersions(M.installedVersion(state.version), release.tag));
+  }
+
+  function renderUpdate() {
+    const installed = M.installedVersion(state.version) || 'unknown';
+    let status;
+    if (update.status === 'running') {
+      status = `${update.detail}…`;
+      if (update.detail === 'Downloading' && update.bytes) {
+        status += ` ${mb(update.bytes)} of ${mb(release.asset.size)}`;
+      }
+    } else {
+      status = {
+        '-1': 'An update is ready.',
+        0: 'Flipfull is up to date.',
+        1: 'This phone has a newer version than the latest release.',
+        null: "This is a development build. It can't be compared with the release.",
+      }[M.compareVersions(installed, release.tag)];
+      if (update.status === 'failed') {
+        status += `\nThe last update failed: ${update.detail}`;
+      }
+    }
+    el.updateText.textContent = `Installed: ${installed}\nLatest: ${release.tag} (${mb(release.asset.size)})\n\n${status}`;
+    el.updateNotes.textContent = release.notes.slice(0, 800);
+    el.updateLog.textContent = update.status === 'none' || update.status === 'done' ? '' : update.log.join('\n');
     updateKeys();
   }
 
@@ -280,6 +329,10 @@
         keys = { left: () => show('menu'), back: () => show('menu') };
         softkeys('Back', '', '');
         break;
+      case 'update':
+        keys = { left: () => show('menu'), right: canUpdate() && installUpdate, back: () => show('menu') };
+        softkeys('Back', '', canUpdate() ? 'Install' : '');
+        break;
       case 'offline':
         keys = { center: start, back: () => window.close() };
         softkeys('', 'Retry', '');
@@ -291,7 +344,7 @@
   }
 
   function itemOf(id) {
-    return listItems.find((i) => i.id === id) || { id, title: id };
+    return registry.find((f) => f.id === id) || { id, title: id };
   }
 
   function toggle(item) {
@@ -327,7 +380,9 @@
         }
         toast(text);
       });
-    }));
+    }, (e) => refresh().then(render, () => {}).then(() => {
+      throw e;
+    })));
   }
 
   function reboot() {
@@ -345,6 +400,76 @@
       show('log');
       $('log').scrollTop = $('log').scrollHeight;
     }));
+  }
+
+  function latestRelease() {
+    const repo = state.releaseRepo;
+    return fetch(`https://api.github.com/repos/${repo}/releases/latest`,
+      { headers: { Accept: 'application/vnd.github+json' }, cache: 'no-store' })
+      .catch(() => {
+        throw new Error("Couldn't reach GitHub. Is the phone online?");
+      })
+      .then((r) => {
+        if (r.status === 404) {
+          throw new Error(`github.com/${repo} has no releases.`);
+        }
+        if (!r.ok) {
+          throw new Error(`GitHub answered ${r.status}. Try again later.`);
+        }
+        return r.json();
+      })
+      .then(M.pickUpdate);
+  }
+
+  function checkUpdates() {
+    work('Checking…', () => Promise.all([latestRelease(), run('update', 'status')]).then(([rel, text]) => {
+      release = rel;
+      update = M.parseUpdate(text);
+      show('update');
+      if (update.status === 'running') {
+        pollUpdate();
+      }
+    }));
+  }
+
+  function installUpdate() {
+    ask(`Download ${mb(release.asset.size)} and install Flipfull ${release.tag}? If the update replaces this ` +
+      "app, it closes; open it again when it's done. Some changes wait for a reboot.", 'Install', () =>
+      work('Starting…', () => run('update', 'start', release.tag, release.asset.name, release.asset.sha256).then(() => {
+        update = { status: 'running', detail: 'Downloading', bytes: 0, log: [] };
+        renderUpdate();
+        pollUpdate();
+      })));
+  }
+
+  function pollUpdate() {
+    clearTimeout(pollTimer);
+    pollTimer = setTimeout(() => {
+      if (view !== 'update') {
+        return;
+      }
+      run('update', 'status').then((text) => {
+        const now = M.parseUpdate(text);
+        if (now.status === 'none') {
+          pollUpdate();
+          return null;
+        }
+        update = now;
+        if (update.status === 'running') {
+          renderUpdate();
+          pollUpdate();
+          return null;
+        }
+        return refresh().then(() => {
+          renderUpdate();
+          if (update.status === 'done') {
+            toast(`Flipfull is updated to ${M.installedVersion(state.version)}.${state.reboot ? ' Reboot to finish.' : ''}`);
+          } else {
+            message(`The update failed: ${update.detail}`);
+          }
+        });
+      }, pollUpdate);
+    }, POLL);
   }
 
   function removeFlipfull() {
@@ -414,6 +539,14 @@
         break;
       case 'Enter':
         if (k.center) k.center();
+        break;
+      case 'ArrowLeft':
+      case 'ArrowRight':
+        if (view === 'list' && !dialogKeys) {
+          switchSection(e.key === 'ArrowLeft' ? -1 : 1);
+        } else {
+          handled = false;
+        }
         break;
       case 'ArrowUp':
       case 'ArrowDown': {

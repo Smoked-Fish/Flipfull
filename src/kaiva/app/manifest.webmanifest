@@ -14,13 +14,14 @@
     { "src": "/img/kaivoice_assistant_224.png", "type": "image/png", "sizes": "224x224" }
   ],
   "b2g_features": {
-    "version": "3.1.0",
+    "version": "3.2.1",
     "origin": "kaios-voiceassistant",
+    "core": true,
     "focus_color": "#8000ff",
     "developer": { "name": "local" },
     "serviceworker": { "script_url": "sw.js" },
     "permissions": {
-      "audio-capture": { "description": "Hear what you say; it is turned into text on the phone" },
+      "audio-capture": { "description": "Hears what you say, it is turned into text on the phone" },
       "settings": { "access": "readwrite", "description": "Wi-Fi, mobile data, airplane mode and the voice app choice" },
       "contacts": { "access": "readonly", "description": "Call and text contacts by name" },
       "bluetooth": { "description": "Turn Bluetooth on and off" },

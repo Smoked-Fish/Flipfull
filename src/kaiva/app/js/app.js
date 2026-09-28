@@ -1,9 +1,10 @@
 'use strict';
 
 const MODE = location.hash === '#voice-input' ? 'input' : 'assistant';
-const KEEP_WARM_MS = 5000;
 const PREF_AUTO_INSERT = 'kaiva.auto-insert';
 const PREF_MIC_KEY_SET = 'kaiva.mic-key-set';
+const PREF_SEARCH = 'kaiva.search-engine';
+const PREF_SEARCH_AT_ONCE = 'kaiva.search-at-once';
 
 const SAYINGS = [
   'Open Camera',
@@ -47,7 +48,6 @@ const el = {
 let state = 'idle';
 let recorder = null;
 let request = null;
-let keepWarm = null;
 let listenFor = 'command';
 let resultText = '';
 let done = false;
@@ -122,14 +122,8 @@ function scroller(node) {
   };
 }
 
-function stopKeepWarm() {
-  clearInterval(keepWarm);
-  keepWarm = null;
-}
-
 function cancelWork() {
   turn++;
-  stopKeepWarm();
   if (recorder) {
     const r = recorder;
     recorder = null;
@@ -154,7 +148,7 @@ async function listen(kind = 'command') {
   softkeys('Cancel', '', '');
   on({ left: cancelListening, back: exit });
 
-  const serviceUp = STT.warmup();
+  const serviceUp = STT.open();
   const rec = new Mic.Recorder({
     onLevel: setLevel,
     onSpeech: () => {
@@ -182,7 +176,6 @@ async function listen(kind = 'command') {
   progress(kind === 'note' ? 'Listening… say your note' : 'Listening…', 'wait');
   softkeys('Cancel', 'Done', '');
   on({ center: () => rec.stop(true), left: cancelListening, back: exit });
-  keepWarm = setInterval(STT.warmup, KEEP_WARM_MS);
 
   if (!(await serviceUp) && recorder === rec && state === 'listening') {
     cancelWork();
@@ -195,7 +188,6 @@ async function onClip(rec, pcm) {
     return;
   }
   recorder = null;
-  stopKeepWarm();
   setLevel(0);
   if (!pcm) {
     showError("Didn't hear anything");
@@ -205,6 +197,9 @@ async function onClip(rec, pcm) {
   progress('Transcribing…', 'busy');
   softkeys('Cancel', '', '');
   on({ left: cancelListening, back: exit });
+  if (MODE === 'assistant' && listenFor === 'command' && source.from !== 'Internet') {
+    KaiOS.apps().catch(() => {});
+  }
 
   const ctrl = new AbortController();
   request = ctrl;
@@ -333,8 +328,9 @@ function help() {
   };
   add('caption', 'You can say…');
   SAYINGS.forEach((s) => add('say', s));
-  add('caption', 'Anything else is shown as text to copy or search. ' +
-    'Everything is understood on the phone; nothing is sent anywhere.');
+  add('caption', `Anything else is searched with ${KaiOS.engine(pref(PREF_SEARCH)).name}` +
+    `${pref(PREF_SEARCH_AT_ONCE) === '1' ? '' : ' when you press OK'}. ` +
+    'Your voice is understood on the phone and never sent anywhere.');
   setView('list');
   el.list.scrollTop = 0;
   softkeys('Back', 'mic', '');
@@ -409,31 +405,42 @@ function finish() {
   }
 }
 
-function launchApp(app) {
-  const name = app.displayName || app.name;
+function openOut(label, open, failed) {
   state = 'working';
-  progress(`Opening ${name}`, 'busy');
+  progress(label, 'busy');
   softkeys('Cancel', '', '');
   on({ left: standby, back: exit });
   launchedOut = true;
-  KaiOS.launch(app).catch((e) => {
-    launchedOut = false;
-    showError(e.message);
+  const mine = turn;
+  Promise.resolve().then(open).catch((e) => {
+    if (launchedOut && turn === mine) {
+      launchedOut = false;
+      showError(e.message);
+    }
   });
   setTimeout(() => {
-    if (launchedOut && !document.hidden) {
+    if (launchedOut && turn === mine && !document.hidden) {
       launchedOut = false;
-      showError(`Couldn't open ${name}`);
+      showError(failed);
     }
   }, 6000);
 }
 
+function launchApp(app) {
+  const name = app.displayName || app.name;
+  openOut(`Opening ${name}`, () => KaiOS.launch(app), `Couldn't open ${name}`);
+}
+
 function search(query) {
-  const mine = turn;
-  return go(`Searching for “${query}”`, async () => {
-    const url = await KaiOS.searchUrl(query);
-    return turn === mine ? KaiOS.openUrl(url) : undefined;
-  });
+  const url = KaiOS.searchUrl(query, pref(PREF_SEARCH));
+  openOut(`Searching for “${query}”`, () => KaiOS.openBrowser(url), "Couldn't open the browser");
+}
+
+function offerSearch(query) {
+  if (pref(PREF_SEARCH_AT_ONCE) === '1') {
+    return search(query);
+  }
+  return showText(query, `Search with ${KaiOS.engine(pref(PREF_SEARCH)).name}?`);
 }
 
 function contactName(c) {
@@ -713,14 +720,11 @@ async function run(intent, after) {
       return go(`Opening the ${intent.tab}`, () => KaiOS.clockTab(intent.tab));
 
     case 'search':
-      return search(intent.query);
+      return offerSearch(intent.query);
 
     default: {
-      if (source.from === 'Internet') {
-        return search(intent.text);
-      }
       const words = Commands.simplify(intent.text);
-      if (words && words.split(' ').length <= 2) {
+      if (source.from !== 'Internet' && words && words.split(' ').length <= 2) {
         const apps = await after(KaiOS.apps().catch(() => []));
         const app = apps.find((a) => a.type === 'app' &&
           [a.value, a.displayName].some((n) => Commands.simplify(n) === words));
@@ -728,22 +732,21 @@ async function run(intent, after) {
           return launchApp(app);
         }
       }
-      return showText(intent.text);
+      return offerSearch(intent.text.replace(/[.!]+$/, ''));
     }
   }
 }
 
-let settingsItems = [];
-let settingsFocus = 0;
+let menu = null;
 
-function renderSettings() {
-  if (el.body.dataset.view !== 'list' || el.title.textContent !== 'Settings') {
+function renderMenu() {
+  if (!menu || el.body.dataset.view !== 'list' || el.title.textContent !== menu.name) {
     return;
   }
   el.list.innerHTML = '';
-  settingsItems.forEach((item, i) => {
+  menu.items.forEach((item, i) => {
     const li = document.createElement('li');
-    li.className = i === settingsFocus ? 'item focused' : 'item';
+    li.className = i === menu.focus ? 'item focused' : 'item';
     const label = document.createElement('div');
     label.className = 'label';
     label.textContent = item.label;
@@ -753,19 +756,44 @@ function renderSettings() {
     li.append(label, value);
     el.list.appendChild(li);
   });
-  const focused = el.list.children[settingsFocus];
+  const focused = el.list.children[menu.focus];
   if (focused) {
     focused.scrollIntoView({ block: 'nearest' });
   }
-  softkeys('Back', settingsItems[settingsFocus].run ? 'Select' : '', '');
+  softkeys('Back', menu.items[menu.focus].run ? 'Select' : '', '');
 }
 
 function setItem(id, value) {
-  const item = settingsItems.find((i) => i.id === id);
+  const item = menu && menu.items.find((i) => i.id === id);
   if (item) {
     item.value = value;
-    renderSettings();
+    renderMenu();
   }
+}
+
+function showMenu(name, items, focusId, back) {
+  cancelWork();
+  title(name);
+  menu = { name, items, focus: Math.max(0, items.findIndex((i) => i.id === focusId)) };
+  setView('list');
+  el.list.scrollTop = 0;
+  renderMenu();
+  const move = (by) => () => {
+    menu.focus = (menu.focus + items.length + by) % items.length;
+    renderMenu();
+  };
+  on({
+    left: back,
+    back,
+    up: move(-1),
+    down: move(1),
+    center: () => {
+      const item = items[menu.focus];
+      if (item.run) {
+        item.run(item);
+      }
+    },
+  });
 }
 
 async function refreshDefaults() {
@@ -784,17 +812,34 @@ async function refreshService() {
   const h = await STT.health();
   if (!h) {
     setItem('service', 'Not running');
+    setItem('model', 'The speech service is not running');
     return;
   }
-  const model = String(h.model || '').split('/').pop().replace(/^ggml-|\.bin$/g, '');
-  setItem('service', `Running · ${model}${h.loaded ? ' · loaded' : ''}`);
+  setItem('service', `Running${h.loaded ? ' · model loaded' : ''}`);
+  setItem('model', h.name);
 }
 
-function settings() {
-  cancelWork();
-  title('Settings');
-  settingsFocus = 0;
-  settingsItems = [
+function modelSummary(m) {
+  return `${m.english ? 'English' : 'Many languages'} · ${m.mb} MB`;
+}
+
+async function modelPicker() {
+  const list = await STT.models();
+  if (!list) {
+    setItem('model', 'The speech service is not running');
+    return;
+  }
+  showMenu('Speech model', list.models.map((m) => ({
+    id: m.file,
+    label: m.name,
+    value: m.file === list.current ? `In use · ${modelSummary(m)}` : modelSummary(m),
+    run: () => STT.useModel(m.file).then(() => settings('model'),
+      (e) => setItem(m.file, `Couldn't switch: ${e.message}`)),
+  })), list.current, () => settings('model'));
+}
+
+function settings(focusId) {
+  showMenu('Settings', [
     {
       id: 'defaults',
       label: 'Voice input & assistant',
@@ -810,6 +855,26 @@ function settings() {
         () => setItem('mickey', "Couldn't change the setting")),
     },
     {
+      id: 'search',
+      label: 'Search engine',
+      value: KaiOS.engine(pref(PREF_SEARCH)).name,
+      run: () => {
+        const next = pref(PREF_SEARCH) === 'google' ? 'qwant' : 'google';
+        pref(PREF_SEARCH, next);
+        setItem('search', KaiOS.engine(next).name);
+      },
+    },
+    {
+      id: 'searchnow',
+      label: 'Search at once',
+      value: pref(PREF_SEARCH_AT_ONCE) === '1' ? 'On' : 'Off · OK searches',
+      run: () => {
+        const now = pref(PREF_SEARCH_AT_ONCE) !== '1';
+        pref(PREF_SEARCH_AT_ONCE, now ? '1' : '0');
+        setItem('searchnow', now ? 'On' : 'Off · OK searches');
+      },
+    },
+    {
       id: 'autoinsert',
       label: 'Insert dictation at once',
       value: pref(PREF_AUTO_INSERT) === '1' ? 'On' : 'Off',
@@ -818,34 +883,14 @@ function settings() {
         setItem('autoinsert', item.value === 'On' ? 'Off' : 'On');
       },
     },
+    { id: 'model', label: 'Speech model', value: 'Checking…', run: modelPicker },
     { id: 'service', label: 'Speech service', value: 'Checking…', run: refreshService },
-    { id: 'about', label: 'KaiVA', value: 'On-device speech. No ads, no tracking.', run: null },
-  ];
-  setView('list');
-  el.list.scrollTop = 0;
-  renderSettings();
-  on({
-    left: standby,
-    back: standby,
-    up: () => {
-      settingsFocus = (settingsFocus + settingsItems.length - 1) % settingsItems.length;
-      renderSettings();
-    },
-    down: () => {
-      settingsFocus = (settingsFocus + 1) % settingsItems.length;
-      renderSettings();
-    },
-    center: () => {
-      const item = settingsItems[settingsFocus];
-      if (item.run) {
-        item.run(item);
-      }
-    },
-  });
+    { id: 'about', label: 'KaiVA', value: 'On-device speech to text', run: null },
+  ], focusId, standby);
   refreshDefaults();
   refreshService();
   fetch('/manifest.webmanifest').then((r) => r.json()).then((m) => {
-    setItem('about', `Version ${m.b2g_features.version} · on-device speech, no ads, no tracking`);
+    setItem('about', `Version ${m.b2g_features.version} · on-device speech to text`);
   }).catch(() => {});
 }
 
@@ -863,11 +908,21 @@ async function adoptDefaults() {
   }
 }
 
+let lastCenter = { key: '', at: 0 };
+
 function onKey(e) {
   const k = e.key;
   let name = null;
   if (k === 'Enter' || k === 'MicrophoneToggle') {
     name = 'center';
+    const now = Date.now();
+    if (!e.repeat && k !== lastCenter.key && now - lastCenter.at < 300) {
+      e.preventDefault();
+      return;
+    }
+    if (!e.repeat) {
+      lastCenter = { key: k, at: now };
+    }
   } else if (k === 'SoftLeft') {
     name = 'left';
   } else if (k === 'SoftRight') {
@@ -895,6 +950,7 @@ window.addEventListener('keydown', onKey);
 
 window.addEventListener('pagehide', () => {
   cancelWork();
+  STT.close();
   if (MODE === 'input' && !done) {
     done = true;
     toWorker({ type: 'cancel' });
@@ -929,9 +985,14 @@ if (MODE === 'input') {
   }
   toWorker({ type: 'hello' });
   document.addEventListener('visibilitychange', () => {
-    if (!document.hidden || inClock) {
+    if (inClock) {
       return;
     }
+    if (!document.hidden) {
+      STT.open();
+      return;
+    }
+    STT.close();
     if (launchedOut) {
       cancelWork();
       window.close();
