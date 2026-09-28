@@ -6,6 +6,5 @@ ZIG="${ZIG:-zig}"
 CC=("$ZIG" cc -target arm-linux-musleabihf -static -Os -s)
 
 "${CC[@]}" "$HERE/kaicap.c"   -o "$UI/bin/kaicap"
-"${CC[@]}" "$HERE/drmprops.c" -o "$UI/bin/drmprops"
 "${CC[@]}" "$HERE/callrecd.c" -o "$UI/services/callrec/callrecd"
-ls -la "$UI/bin/kaicap" "$UI/bin/drmprops" "$UI/services/callrec/callrecd"
+ls -la "$UI/bin/kaicap" "$UI/services/callrec/callrecd"

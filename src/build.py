@@ -8,7 +8,6 @@
 
 import configparser
 import hashlib
-import json
 import re
 import shutil
 import sys
@@ -209,19 +208,6 @@ window.FlipfullGoogleClient = (function(google) {
 }(Oauth2Config.google));
 """
 
-RECORDER_KBPS = [8, 16, 32, 64, 96, 128]
-RECORDER_STOCK_CHOICES = (
-    'v.a.createElement("option",{"data-l10n-id":"settings-bitrate-8k",value:"8000"}),'
-    'v.a.createElement("option",{"data-l10n-id":"settings-bitrate-44k",value:"44000"})')
-RECORDER_L10N = {
-    "en-US": ("Recording Quality", ["Low", "Medium", "Good", "High", "Very high", "Best"],
-              "{name} ({kbps} kbps)"),
-    "es-US": ("Calidad de grabación", ["Baja", "Media", "Buena", "Alta", "Muy alta", "Máxima"],
-              "{name} ({kbps} kbps)"),
-    "ko-KR": ("녹음 품질", ["낮음", "보통", "좋음", "높음", "매우 높음", "최고"], "{name}({kbps}kbps)"),
-    "zh-CN": ("录音质量", ["低", "中", "良好", "高", "很高", "最佳"], "{name}（{kbps} kbps）"),
-}
-
 def zip_names(app):
     with zipfile.ZipFile(BASE / app / "application.zip") as z:
         return z.namelist()
@@ -393,18 +379,6 @@ OVERLAYS = {
             ("style/video.css", lambda text: video_css(text)),
         ] + [(m, lambda text: no_ads_dependency(text)) for m in zip_names("video")
              if m.startswith("manifest") and m.endswith(".webmanifest")],
-    },
-    "soundrecorder": {
-        "patches": [
-            ("dist/0.bundle.js", RECORDER_STOCK_CHOICES, ",".join(
-                f'v.a.createElement("option",{{"data-l10n-id":"settings-bitrate-{k}k",value:"{k * 1000}"}})'
-                for k in RECORDER_KBPS)),
-            ("dist/0.bundle.js", "this._rate=e?parseInt(e,10):8e3",
-             f"this._rate=[{','.join(str(k * 1000) for k in RECORDER_KBPS)}]"
-             f".find(function(r){{return r>=(parseInt(e,10)||8e3)}})||{RECORDER_KBPS[-1] * 1000}"),
-        ],
-        "rewrites": [(m, lambda text, m=m: recorder_locale(text, m)) for m in zip_names("soundrecorder")
-                     if m.startswith("locales-obj/")],
     },
     "keyboard": {
         "splices": [
@@ -614,22 +588,6 @@ def video_css(text):
     return check_no_ads(text)
 
 
-def recorder_locale(text, path):
-    locale = path.split("/")[-1].removesuffix(".json")
-    if locale not in RECORDER_L10N:
-        raise PatchError(f"no Recording Quality strings for {locale} in RECORDER_L10N")
-    title, names, choice = RECORDER_L10N[locale]
-    strings = {"recording-rate": title}
-    strings.update((f"settings-bitrate-{k}k", choice.format(name=name, kbps=k))
-                   for k, name in zip(RECORDER_KBPS, names, strict=True))
-    entries = json.loads(text)
-    for entry in entries:
-        if entry.get("$i") in strings:
-            entry["$v"] = strings.pop(entry["$i"])
-    entries += [{"$i": key, "$v": value} for key, value in strings.items()]
-    return json.dumps(entries, ensure_ascii=False, separators=(",", ":"))
-
-
 def patch_text(name, path, text, cfg):
     for p_path, rewrite in cfg.get("rewrites", []):
         if p_path == path:
@@ -752,7 +710,6 @@ def build_app(name, app):
 
 
 APPS = {"kaiva": SRC / "kaiva" / "app",
-        "qrreader": SRC / "qrreader" / "app",
         "flipfull": SRC / "toolbox" / "app"}
 
 TARGETS = {**{n: (lambda n=n: build_overlay(n)) for n in OVERLAYS},
