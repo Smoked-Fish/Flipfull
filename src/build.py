@@ -8,6 +8,7 @@
 
 import configparser
 import hashlib
+import json
 import re
 import shutil
 import sys
@@ -111,6 +112,18 @@ window.FlipfullGoogleClient = (function(google) {
 }(Oauth2Config.google));
 """
 
+RECORDER_KBPS = [8, 16, 32, 64, 96, 128]
+RECORDER_STOCK_CHOICES = (
+    'v.a.createElement("option",{"data-l10n-id":"settings-bitrate-8k",value:"8000"}),'
+    'v.a.createElement("option",{"data-l10n-id":"settings-bitrate-44k",value:"44000"})')
+RECORDER_L10N = {
+    "en-US": ("Recording Quality", ["Low", "Medium", "Good", "High", "Very high", "Best"],
+              "{name} ({kbps} kbps)"),
+    "es-US": ("Calidad de grabación", ["Baja", "Media", "Buena", "Alta", "Muy alta", "Máxima"],
+              "{name} ({kbps} kbps)"),
+    "ko-KR": ("녹음 품질", ["낮음", "보통", "좋음", "높음", "매우 높음", "최고"], "{name}({kbps}kbps)"),
+    "zh-CN": ("录音质量", ["低", "中", "良好", "高", "很高", "最佳"], "{name}（{kbps} kbps）"),
+}
 
 def zip_names(app):
     with zipfile.ZipFile(BASE / app / "application.zip") as z:
@@ -241,8 +254,34 @@ OVERLAYS = {
             ("js/music.js", lambda text: music_app(text)),
             ("index.html", lambda text: music_index(text)),
             ("style/main.css", lambda text: music_css(text)),
-        ] + [(m, lambda text: music_manifest(text)) for m in zip_names("music")
+        ] + [(m, lambda text: no_ads_dependency(text)) for m in zip_names("music")
              if m.startswith("manifest") and m.endswith(".webmanifest")],
+    },
+    "video": {
+        "remove": ["js/ads/kaiads.v5.min.js", "js/ads/fullscreen.js", ".KaiAds.appinfo.json"],
+        "patches": [
+            ("js/video_utils.js", 'supportKaiAds:"function"==typeof getKaiAd,', 'supportKaiAds:!0,'),
+        ],
+        "rewrites": [
+            ("index.html", lambda text: video_index(text)),
+            ("js/video.js", lambda text: video_app(text)),
+            ("js/navigation_map.js", lambda text: video_navigation(text)),
+            ("js/thumbnail_list.js", lambda text: video_thumbnails(text)),
+            ("style/video.css", lambda text: video_css(text)),
+        ] + [(m, lambda text: no_ads_dependency(text)) for m in zip_names("video")
+             if m.startswith("manifest") and m.endswith(".webmanifest")],
+    },
+    "soundrecorder": {
+        "patches": [
+            ("dist/0.bundle.js", RECORDER_STOCK_CHOICES, ",".join(
+                f'v.a.createElement("option",{{"data-l10n-id":"settings-bitrate-{k}k",value:"{k * 1000}"}})'
+                for k in RECORDER_KBPS)),
+            ("dist/0.bundle.js", "this._rate=e?parseInt(e,10):8e3",
+             f"this._rate=[{','.join(str(k * 1000) for k in RECORDER_KBPS)}]"
+             f".find(function(r){{return r>=(parseInt(e,10)||8e3)}})||{RECORDER_KBPS[-1] * 1000}"),
+        ],
+        "rewrites": [(m, lambda text, m=m: recorder_locale(text, m)) for m in zip_names("soundrecorder")
+                     if m.startswith("locales-obj/")],
     },
     "keyboard": {
         "splices": [
@@ -257,6 +296,10 @@ OVERLAYS = {
 
 def fail(msg):
     sys.exit(f"build failed: {msg}")
+
+
+class PatchError(Exception):
+    pass
 
 
 def js_group_end(text, i):
@@ -292,28 +335,29 @@ def js_group_end(text, i):
 
 def cut(text, start, what, then=""):
     if text.count(start) != 1 or start[-1] not in "({[":
-        fail(f"music: {what}: found {text.count(start)} times, expected 1")
+        raise PatchError(f"{what}: found {text.count(start)} times, expected 1")
     i = text.index(start)
     j = js_group_end(text, i + len(start) - 1)
     if then:
         if not text.startswith(then, j):
-            fail(f"music: {what}: expected {then!r} after it")
+            raise PatchError(f"{what}: expected {then!r} after it")
         j += len(then)
     return text[:i] + text[j:]
 
 
 def replace_exact(text, old, new, what, count=1):
     if text.count(old) != count:
-        fail(f"music: {what}: found {text.count(old)} times, expected {count}")
+        raise PatchError(f"{what}: found {text.count(old)} times, expected {count}")
     return text.replace(old, new)
 
 
-def check_no_ads(text, path):
+def check_no_ads(text):
     left = [w for w in ("getKaiAd", "BannerAd", "RadioAd", "banner-ad", "FullscreenAd", "kaiads",
-                        "BANNER_AD", "RADIO_AD", "musicBannerAd", "radioBannerAd", "ads-sdk")
+                        "BANNER_AD", "RADIO_AD", "musicBannerAd", "radioBannerAd", "ads-sdk",
+                        "bannerAd", "fullscreenAd", "ads-fullscreen")
             if w in text]
     if left:
-        fail(f"music: {path} still mentions {', '.join(left)}")
+        raise PatchError(f"still mentions {', '.join(left)}")
     return text
 
 
@@ -341,7 +385,7 @@ def music_bind(text):
     text = replace_exact(text, ",showFullscreenAd())", ")", "fullscreen ad at start")
     text = replace_exact(text, '"function"==typeof getKaiAd&&', "", "full version (list back key)")
     text = replace_exact(text, '"function"!=typeof getKaiAd||', "", "full version (start)")
-    return check_no_ads(text, "js/bind.js")
+    return check_no_ads(text)
 
 
 def music_app(text):
@@ -353,15 +397,15 @@ def music_app(text):
                          "e.key !== 'EndCall'", "full version (overlay back key)")
     start = "        if (typeof getKaiAd !== 'function' && document.hidden"
     if text.count(start) != 1:
-        fail("music: js/music.js: list-only version block changed")
+        raise PatchError("list-only version block changed")
     i = text.index(start)
     cond_end = js_group_end(text, text.index("(", i))
     block = text.index("{", cond_end)
     if text[cond_end:block].strip():
-        fail("music: js/music.js: list-only version block changed")
+        raise PatchError("list-only version block changed")
     end = js_group_end(text, block)
     text = text[:i] + text[end:].lstrip(" ").lstrip("\n")
-    return check_no_ads(text, "js/music.js")
+    return check_no_ads(text)
 
 
 def music_index(text):
@@ -373,28 +417,104 @@ def music_index(text):
         start = f'            <div id="{prefix}banner-ad-placeholder">'
         end = f'<div id="{prefix}banner-ad-container" tabindex="-1"></div>\n'
         if text.count(start) != 1 or text.count(end) != 1:
-            fail(f"music: {prefix}banner placeholder markup changed")
+            raise PatchError(f"{prefix}banner placeholder markup changed")
         text = text[:text.index(start)] + text[text.index(end) + len(end):]
-    return check_no_ads(text, "index.html")
+    return check_no_ads(text)
 
 
 def music_css(text):
     import re
     text, n = re.subn(r"[^{}]*banner-ad[^{}]*\{[^}]*\}", "", text)
     if n < 3:
-        fail(f"music: expected the banner styles in style/main.css, found {n} rules")
-    return check_no_ads(text, "style/main.css")
+        raise PatchError(f"expected the banner styles, found {n} rules")
+    return check_no_ads(text)
 
 
-def music_manifest(text):
+def no_ads_dependency(text):
     text = replace_exact(text, ',"dependencies":{"ads-sdk":"1.4.5"}', "", "ads-sdk dependency")
-    return check_no_ads(text, "manifest.webmanifest")
+    return check_no_ads(text)
+
+
+def video_index(text):
+    for f in ("js/ads/kaiads.v5.min.js", "js/ads/fullscreen.js"):
+        text = replace_exact(text, f'    <script defer="" src="{f}"></script>\n', "", f)
+    text = replace_exact(text, '          <div class="banner-ad-placeholder" id="banner-ad-placeholder"></div>\n',
+                         "", "banner placeholder")
+    return check_no_ads(text)
+
+
+def video_app(text):
+    text = replace_exact(text, "!document.hidden&&fullscreenAd.isEnabled&&fullscreenAd.show(),", "",
+                         "fullscreen ad on return")
+    text = replace_exact(text, "e!==LAYOUT_MODE.list||fullscreenAd.isDisplaying||(fullscreenAd.isEnabled=!0);",
+                         "", "fullscreen ad re-armed in the list")
+    text = replace_exact(text, "function thumbnailClickHandler(e){fullscreenAd.isDisplaying||(",
+                         "function thumbnailClickHandler(e){(", "no clicks under the fullscreen ad")
+    text = replace_exact(text, "fullscreenAd.isEnabled=!1,", "", "fullscreen ad off while playing")
+    return check_no_ads(text)
+
+
+def video_navigation(text):
+    text = replace_exact(text, "  var optClickBannerAd = {\n"
+                         "    name: 'Go',\n"
+                         "    l10nId: 'go',\n"
+                         "    priority: 2,\n"
+                         "    method: () => thumbnailList.bannerAd.call('click')\n"
+                         "  };\n\n", "", "banner Go key")
+    text = replace_exact(text, "  var actBannerAd = [optTakeVideo, optClickBannerAd];\n", "", "banner keys")
+    text = replace_exact(text, "    if (thumbnailList.fullscreenAd) {\n"
+                         "      return;\n"
+                         "    }\n", "", "keys ignored under the fullscreen ad")
+    text = replace_exact(text, "        setTimeout(() => thumbnailList.getBannerAd(), 0);\n", "", "banner load")
+    text = replace_exact(text, "          else if (thumbnailList.adContainer &&\n"
+                         "            thumbnailList.adContainer.classList.contains('focus') &&\n"
+                         "            thumbnailList.adReady === true) {\n"
+                         "            skbParams.items = actBannerAd;\n"
+                         "          }\n", "", "banner keys when focused")
+    text = replace_exact(text, "      if (!fullscreenAd.isDisplaying) {\n"
+                         "        exports.option.show();\n"
+                         "      }\n",
+                         "      exports.option.show();\n", "softkeys hidden under the fullscreen ad")
+    return check_no_ads(text)
+
+
+def video_thumbnails(text):
+    text = replace_exact(text, ",this.bannerAdPlaceholder=null,this.bannerAd=null,this.adContainer=null,"
+                         "this.adReady=!1,this.fullscreenAd=!1}", "}", "banner fields")
+    text = cut(text, ",ThumbnailList.prototype.getBannerAd=function(){", "getBannerAd")
+    return check_no_ads(text)
+
+
+def video_css(text):
+    text, n = re.subn(r"[^{}]*(banner-ad|ads-fullscreen)[^{}]*\{[^}]*\}", "", text)
+    if n != 7:
+        raise PatchError(f"expected the 7 ad styles, found {n}")
+    return check_no_ads(text)
+
+
+def recorder_locale(text, path):
+    locale = path.split("/")[-1].removesuffix(".json")
+    if locale not in RECORDER_L10N:
+        raise PatchError(f"no Recording Quality strings for {locale} in RECORDER_L10N")
+    title, names, choice = RECORDER_L10N[locale]
+    strings = {"recording-rate": title}
+    strings.update((f"settings-bitrate-{k}k", choice.format(name=name, kbps=k))
+                   for k, name in zip(RECORDER_KBPS, names, strict=True))
+    entries = json.loads(text)
+    for entry in entries:
+        if entry.get("$i") in strings:
+            entry["$v"] = strings.pop(entry["$i"])
+    entries += [{"$i": key, "$v": value} for key, value in strings.items()]
+    return json.dumps(entries, ensure_ascii=False, separators=(",", ":"))
 
 
 def patch_text(name, path, text, cfg):
     for p_path, rewrite in cfg.get("rewrites", []):
         if p_path == path:
-            text = rewrite(text)
+            try:
+                text = rewrite(text)
+            except PatchError as e:
+                fail(f"{name}/{path}: {e}")
     for p_path, old, new in cfg.get("patches", []):
         if p_path == path:
             if text.count(old) != 1:
