@@ -1,4 +1,11 @@
 #!/usr/bin/env bash
+#
+# running 32-bit KaiOS userspace on a 64-bit kernel, so a static aarch64 binary runs fine from /data.
+#
+# TRANSCRIBE: a transcribe.cpp runs the GGUF models, and its ggml is the one everything here links against.
+# WHISPER: a whisper.cpp v1.9.4 checkout: runs Whisper's .bin models. src/whisper.cpp is compiled, against transcribe.cpp's ggml.
+# OPUS: a libopus 1.5.x checkout (decodes the Ogg/Opus the Web Speech API sends to /speaktome).
+
 set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
