@@ -1,7 +1,6 @@
 """keys, volume, notifications, updates, sign-in, and the outer screen"""
 
 from ..edits import Overlay, Patch, append, insert_after, insert_before
-from ..paths import OVERLAY_SRC
 from ..snippets import APP_ORIGIN_SCRIPT, FEATURES_SCRIPT, is_feature_on, script
 
 BUNDLE = "dist/app.bundle.js"
@@ -9,9 +8,6 @@ REMOTE_BUNDLE = "remote/dist/app.bundle.js"
 BUTTONS_JS = "js/hardware_buttons.js"
 SOUND_JS = "js/sound_manager.js"
 DIALER_JS = "js/dialer_agent.js"
-
-# without it the start-up logo stays the carrier, work on later
-INITLOGO = OVERLAY_SRC / "system" / "resources" / "branding" / "initlogo_flipfull.png"
 
 SYSTEM_SCRIPTS = script("js/live_wallpaper.js") + script("js/flipfull_system.js")
 MAPS_SCRIPT = script("js/flipfull_maps.js")  # WIP (doesn't work right rn)
@@ -162,12 +158,25 @@ VOLUME_SLIDERS = [
     Patch(BUNDLE, 'key:e.name,className:n,tabIndex:"-1"', 'key:e.name+e.title,className:n,tabIndex:"-1"'),
 ]
 
+BOOT_LOGO_FILES = '["file:///data/media/boot/initlogo.png","file:///data/local/userinit/media/initlogo.png"]'
 BOOT_LOGO = [
     Patch("js/init_logo_handler.js",
-          'CustomLogoPath.oslogo.image="tmo"===e?',
-          'CustomLogoPath.oslogo.image=' + is_feature_on("boot-logo")
-          + '?"file:///system/media/initlogo.png":"tmo"===e?'),
-] if INITLOGO.is_file() else []
+          'InitLogoHandler.init(new LogoLoader(CustomLogoPath.poweron))',
+          '(function t(f,d){if(!f.length||!' + is_feature_on("boot-logo") + ')return d();'
+          'let i=new Image;i.onload=()=>{CustomLogoPath.oslogo.image=i.src;d()};'
+          'i.onerror=()=>t(f.slice(1),d);i.src=f[0]})(' + BOOT_LOGO_FILES
+          + ',()=>InitLogoHandler.init(new LogoLoader(CustomLogoPath.poweron)))'),
+]
+
+POWER_OFF_FILES = '["file:///data/media/boot/carrier_power_off.mp4","file:///data/local/userinit/media/carrier_power_off.mp4"]'
+POWER_OFF_ANIMATION = [
+    insert_after("js/init_logo_handler.js",
+                 'CustomLogoPath.init(function(){',
+                 '(function t(f){if(!f.length||!' + is_feature_on("power-off-animation") + ')return;'
+                 'let v=document.createElement("video");v.preload="metadata";'
+                 'v.onloadedmetadata=()=>{CustomLogoPath.poweroff.video=f[0];v.removeAttribute("src");v.load()};'
+                 'v.onerror=()=>t(f.slice(1));v.src=f[0]})(' + POWER_OFF_FILES + ');'),
+]
 
 OVERLAY = Overlay(edits=[
     *SCRIPTS,
@@ -180,4 +189,5 @@ OVERLAY = Overlay(edits=[
     *ALERT_VOLUME,
     *VOLUME_SLIDERS,
     *BOOT_LOGO,
+    *POWER_OFF_ANIMATION,
 ])

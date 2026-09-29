@@ -56,13 +56,8 @@ else
     log "boot-animation is off - stock boot animation"
 fi
 if planned feature boot-sound on; then
-    mount_over poweron-sound.wav poweron-sound.wav poweron-sound_metro.wav poweron-sound_tcl.ogg
+    mount_over "$(pick poweron-sound.wav)" poweron-sound.wav poweron-sound_metro.wav poweron-sound_tcl.ogg
 else
     log "boot-sound is off - stock boot sound"
-fi
-if planned feature boot-logo on; then
-    mount_over "$BOOT_DIR/initlogo.png" initlogo.png
-else
-    log "boot-logo is off - stock start-up logo"
 fi
 exit 0
