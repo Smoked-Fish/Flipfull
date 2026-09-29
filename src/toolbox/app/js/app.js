@@ -239,12 +239,12 @@
   }
 
   const MENU = [
+    ['Check for updates', () => checkUpdates()],
     ['Preinstalled apps', () => showRemovable()],
     ['Google sign-in client', () => show('google')],
     ['Reboot', () => reboot()],
     ["Restart the phone's UI", () => restartUi()],
     ['Boot log', () => showLog()],
-    ['Check for updates', () => checkUpdates()],
     ['About Flipfull', () => show('about')],
     ['Remove Flipfull', () => removeFlipfull()],
   ];
