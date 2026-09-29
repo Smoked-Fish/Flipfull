@@ -4,7 +4,7 @@
     python flip4.py install [--reboot]   put userinit/ on the phone (builds first)
     python flip4.py release [DIR]        a zip anyone with a rooted phone can install,
                                          and the smaller one the phone updates from;
-                                         without comments, app code minified
+                                         without comments or dev features, app code minified
     python flip4.py features             the features, and which are on
     python flip4.py on ID... [--reboot]  turn features on (off: the same)
     python flip4.py status               what is installed, mounted and running
@@ -39,7 +39,7 @@ BACKUP_EXCLUDES = ["*/startupCache", "*/shader-cache", "*/safebrowsing", "*/cach
                    "data/local/webapps/downloading"]
 MEDIA_PATHS = {"internal": "/data/media", "sdcard": "/mnt/sdcard"}
 NOT_IN_UPDATE = ("services/stt/models/",)
-TEXT_SUFFIXES = {".sh", ".js", ".md", ".conf", ".rc", ".ini", ".awk", ".hosts"}
+TEXT_SUFFIXES = {".sh", ".js", ".md", ".conf", ".rc", ".ini", ".awk", ".hosts", ".xml"}
 TEXT_NAMES = {"flipfull", "api"}
 
 
@@ -179,6 +179,7 @@ def cmd_release(args):
     out = dest / f"{name}.zip"
     release = ROOT / "src" / "release"
     sys.path.insert(0, str(ROOT / "src"))
+    import build
     import minify
 
     shrunk = [0, 0]
@@ -202,7 +203,10 @@ def cmd_release(args):
     try:
         with zipfile.ZipFile(out, "w") as z, zipfile.ZipFile(update, "w") as u:
             for f in files:
-                data = shrink(f, (LOCAL / f).read_bytes())
+                data = (LOCAL / f).read_bytes()
+                if f == "features.ini":
+                    data = build.release_features(data.decode("utf-8")).encode("utf-8")
+                data = shrink(f, data)
                 add(z, data, f"flipfull/{f}")
                 if not f.startswith(NOT_IN_UPDATE):
                     add(u, data, f"flipfull/{f}")

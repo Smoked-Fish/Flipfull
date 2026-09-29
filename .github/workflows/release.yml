@@ -22,7 +22,7 @@ jobs:
           path: |
             userinit/services/stt/models
             .cache
-          key: models-${{ hashFiles('src/build.py', 'src/minify.py') }}
+          key: models-${{ hashFiles('src/build/stt.py', 'src/minify.py') }}
 
       - run: python flip4.py release dist
 

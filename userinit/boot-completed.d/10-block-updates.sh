@@ -8,7 +8,8 @@ if ! planned feature block-updates on; then
     exit 0
 fi
 
-for svc in update_engine updater-daemon; do
+# updater-daemon required for dependency checks
+for svc in update_engine; do
     state=$(getprop "init.svc.$svc")
     case "$state" in
         '') log "$svc: no such service" ;;

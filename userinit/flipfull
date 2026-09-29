@@ -697,6 +697,21 @@ store_protected() {
 
 store_name_ok() { case $1 in ''|-*|*[!a-z0-9.-]*) return 1 ;; esac; }
 
+store_unnamed() {
+    names=$(tr -d '\n' < "$1" | grep -o '"name" *: *"[^"]*"' | sed 's/^.*: *"//; s/"$//')
+    [ -n "$names" ] || die "the app's manifest has neither an origin nor a name"
+    # a backslash could hide a quote, and Unicode letters can lowercase to ASCII ones
+    case $names in *\\*) die "the app's manifest has no origin, and its name has characters Flipfull can't check" ;; esac
+    printf '%s\n' "$names" | LC_ALL=C grep -q '[^ -~]' &&
+        die "the app's manifest has no origin, and its name has characters Flipfull can't check"
+    names=$(printf '%s\n' "$names" | tr A-Z a-z | tr -cd 'a-z0-9\n')
+    for n in $names; do
+        echo "$3" | grep -qx "$n" && die "the app would take the name $n, one of the phone's or Flipfull's own apps"
+    done
+    printf '%s\n' "$names" | grep -qxF "$2" || die "the app's name doesn't make $2"
+    echo "$2"
+}
+
 cmd_store() {
     plan | grep -qx "feature flipstore on" || die "turn on Flipstore app store in the Flipfull app first"
     case $1 in
@@ -720,11 +735,14 @@ cmd_store() {
             [ -f "$STORE_DIR/app.zip" ] || die "nothing downloaded to install"
             m=$STORE_DIR/manifest.webmanifest
             grep -q '\\u' "$m" && die "the app's manifest has \\u escapes; Flipstore can't check which app it is"
-            [ "$(grep -o '"origin"' "$m" | wc -l)" -eq 1 ] || die "the app's manifest names more than one origin"
-            origin=$(json_value origin < "$m")
+            protected=$(store_protected) || exit 1
+            case $(grep -o '"origin"' "$m" | wc -l) in
+                0) origin=$(store_unnamed "$m" "$2" "$protected") || exit 1 ;;
+                1) origin=$(json_value origin < "$m" | tr A-Z a-z) ;;
+                *) die "the app's manifest names more than one origin" ;;
+            esac
             store_name_ok "$origin" || die "the app's manifest has no usable origin"
             [ "$origin" = "$2" ] || die "the download is $origin, not $2"
-            protected=$(store_protected) || exit 1
             echo "$protected" | grep -qx "$origin" &&
                 die "$origin is one of the phone's or Flipfull's own apps; Flipstore won't replace it"
             source=$3
@@ -736,6 +754,10 @@ cmd_store() {
                 store_url_ok "$source" || die "not a source: $source"
             fi
             install_zip "$STORE_DIR/app.zip" "$origin" || exit 1
+            case $(apps_cmd list) in
+                *"http://$origin.localhost/manifest.webmanifest"*) ;;
+                *) die "the phone installed it under another name than $origin" ;;
+            esac
             store_record "$origin" "$source"
             rm -rf "$STORE_DIR" ;;
         uninstall)
@@ -792,7 +814,7 @@ cmd_status() {
         sh "$s" status
     done
     echo
-    echo "updaters (stopped after boot while block-updates is on):"
+    echo "updaters (block-updates stops update_engine after boot.):"
     for s in update_engine updater-daemon; do
         echo "  $s: $(getprop init.svc.$s)"
     done
