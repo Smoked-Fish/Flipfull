@@ -1,0 +1,1172 @@
+html.ff {
+  --ff-bg: #fff;
+  --ff-fg: #151515;
+  --ff-dim: #595959;
+  --ff-faint: #767676;
+  --ff-line: #e3e3e6;
+  --ff-surface: #f1f2f4;
+  --ff-in-bg: #e9ebef;
+  --ff-in-fg: #151515;
+  --ff-accent: #00753f;
+  --ff-accent-fg: #fff;
+  --ff-soft: #d9efe3;
+  --ff-out-bg: var(--ff-accent);
+  --ff-out-fg: var(--ff-accent-fg);
+  --ff-link: #0a58b8;
+  --ff-danger: #c4102d;
+}
+
+html.ff[data-accent="blue"] {
+  --ff-accent: #0b5bd3;
+  --ff-soft: #dae6fb;
+}
+
+html.ff[data-accent="purple"] {
+  --ff-accent: #7526c9;
+  --ff-soft: #eadcfa;
+}
+
+html.ff[data-accent="orange"] {
+  --ff-accent: #b5470a;
+  --ff-soft: #fbe3d2;
+}
+
+html.ff[data-accent="pink"] {
+  --ff-accent: #b8155a;
+  --ff-soft: #f8d9e6;
+}
+
+html.ff[data-theme="dark"] {
+  --ff-bg: #101214;
+  --ff-fg: #ececec;
+  --ff-dim: #a3a8ae;
+  --ff-faint: #8b9198;
+  --ff-line: #26292d;
+  --ff-surface: #191c1f;
+  --ff-in-bg: #24282c;
+  --ff-in-fg: #ececec;
+  --ff-accent: #3fcf85;
+  --ff-accent-fg: #06110b;
+  --ff-soft: #163a29;
+  --ff-out-bg: #14573a;
+  --ff-out-fg: #f4fff9;
+  --ff-link: #7db4ff;
+  --ff-danger: #ff6b81;
+
+  /* shared */
+  --color-gs00: #101214;
+  --color-gs10: #191c1f;
+  --color-gs20: #33373b;
+  --color-gs30: #7d828a;
+  --color-gs40: #a3a8ae;
+  --color-gs45: #8b9198;
+  --color-gs60: #a3a8ae;
+  --color-gs70: #a3a8ae;
+  --color-gs80: #d5d8dc;
+  --color-gs90: #e2e4e7;
+  --color-gs100: #f4f4f4;
+  --color-theta: #26292d;
+  --color-lime: #3fcf85;
+  --highlight-color: #3fcf85;
+  --header-background: #101214;
+  color-scheme: dark;
+}
+
+html.ff[data-theme="dark"][data-accent="blue"] {
+  --ff-accent: #6aa8ff;
+  --ff-soft: #182a4a;
+  --ff-out-bg: #1d4a99;
+  --color-lime: #6aa8ff;
+  --highlight-color: #6aa8ff;
+}
+
+html.ff[data-theme="dark"][data-accent="purple"] {
+  --ff-accent: #b98cff;
+  --ff-soft: #2b1c48;
+  --ff-out-bg: #5a2a9c;
+  --color-lime: #b98cff;
+  --highlight-color: #b98cff;
+}
+
+html.ff[data-theme="dark"][data-accent="orange"] {
+  --ff-accent: #ffa25a;
+  --ff-soft: #43260f;
+  --ff-out-bg: #8f4a12;
+  --color-lime: #ffa25a;
+  --highlight-color: #ffa25a;
+}
+
+html.ff[data-theme="dark"][data-accent="pink"] {
+  --ff-accent: #ff7fb0;
+  --ff-soft: #45182f;
+  --ff-out-bg: #9c2d62;
+  --color-lime: #ff7fb0;
+  --highlight-color: #ff7fb0;
+}
+
+html.ff[data-theme="light"] {
+  --color-lime: var(--ff-accent);
+  --highlight-color: var(--ff-accent);
+}
+
+html.ff {
+  --ff-fs: 13px;
+  --ff-lh: 1.3;
+  --ff-pad-y: 4px;
+  --ff-gap: 3px;
+  --ff-head: 2.2rem;
+  --header-height: 2.2rem;
+}
+
+html.ff[data-size="s"] {
+  --ff-fs: 11px;
+}
+
+html.ff[data-size="l"] {
+  --ff-fs: 15px;
+}
+
+html.ff[data-size="xl"] {
+  --ff-fs: 17px;
+}
+
+html.ff[data-density="compact"] {
+  --ff-pad-y: 2px;
+  --ff-gap: 1px;
+  --ff-lh: 1.2;
+}
+
+html.ff[data-density="roomy"] {
+  --ff-pad-y: 7px;
+  --ff-gap: 5px;
+  --ff-lh: 1.4;
+}
+
+html.ff[data-font="narrow"] .bubble .message-content-body {
+  padding: 3px 8px !important;
+}
+
+html.ff[data-font="narrow"] * {
+  font-family: "Droid Sans", sans-serif !important;
+}
+
+html.ff,
+html.ff body {
+  background: var(--ff-bg);
+  color: var(--ff-fg);
+}
+
+html.ff body {
+  font-size: var(--ff-fs);
+}
+
+html.ff .statusbar-placeholder {
+  background: var(--ff-bg);
+}
+
+html.ff #main-wrapper,
+html.ff .panel,
+html.ff #threads-container,
+html.ff #thread-messages,
+html.ff #messaging-settings,
+html.ff #searchMessage,
+html.ff #attachmentMessage {
+  background: var(--ff-bg);
+}
+
+html.ff .message-listContent {
+  margin: 0;
+}
+
+html.ff #sticky {
+  width: 100%;
+  height: 2rem;
+  margin: 0;
+  padding: 0;
+  background-color: var(--ff-surface);
+  box-sizing: border-box;
+}
+
+/* headers */
+
+html.ff header.view-header {
+  height: var(--ff-head);
+  background: var(--ff-bg);
+  border-bottom: 1px solid var(--ff-line);
+  box-sizing: border-box;
+}
+
+html.ff header.view-header h1 {
+  color: var(--ff-fg);
+  font-size: calc(var(--ff-fs) + 1px);
+  font-weight: 700;
+  line-height: calc(var(--ff-head) - 1px);
+}
+
+html.ff header.view-header span[data-icon="back"]:before,
+html.ff header.view-header span[data-icon="forward"]:before {
+  font-size: 2rem;
+  line-height: calc(var(--ff-head) - 1px);
+  color: var(--ff-faint);
+}
+
+html.ff #messages-header-text {
+  height: calc(var(--ff-head) - 1px);
+  margin-top: 0;
+}
+
+html.ff .new header.view-header h1 {
+  margin-left: 8px;
+}
+
+/* conversation list  */
+
+html.ff #threads-container[data-type="list"] header,
+html.ff #threads-container div header.h3 {
+  height: 2rem;
+  margin: 0;
+  padding: 0 8px;
+  box-sizing: border-box;
+  line-height: 1.9rem;
+  font-size: 1.05rem;
+  font-weight: 600;
+  letter-spacing: .02em;
+  text-transform: uppercase;
+  color: var(--ff-dim);
+  background: var(--ff-surface);
+  border-bottom: 1px solid var(--ff-line);
+}
+
+html.ff .time-header-flag {
+  display: none;
+}
+
+html.ff #threads-container[data-type="list"] ul,
+html.ff #threads-container>div,
+html.ff #threads-container[data-type="list"] {
+  background: var(--ff-bg);
+}
+
+html.ff [data-type="list"] li.threadlist-item {
+  height: auto;
+  border-bottom: 1px solid var(--ff-line);
+  background: var(--ff-bg);
+  color: var(--ff-fg);
+}
+
+html.ff [data-type="list"] .threadlist-item a,
+html.ff [data-type="list"] .threadlist-item>a {
+  display: block;
+  height: auto;
+  padding: var(--ff-pad-y) 8px var(--ff-pad-y) 10px;
+  color: var(--ff-fg);
+}
+
+html.ff [data-type="list"] .threadlist-item a:after {
+  display: none;
+}
+
+html.ff .message-listContent {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  column-gap: 8px;
+  align-items: baseline;
+}
+
+html.ff [data-type="list"] li p.threadlist-item-title {
+  grid-column: 1;
+  grid-row: 1;
+  width: auto !important;
+  height: auto;
+  font-size: calc(var(--ff-fs) + 1px);
+  line-height: var(--ff-lh);
+  font-weight: 600;
+  color: var(--ff-fg);
+}
+
+html.ff [data-type="list"] li p.summary {
+  display: block;
+  width: auto !important;
+  height: auto !important;
+  font-size: var(--ff-fs);
+  line-height: var(--ff-lh);
+  color: var(--ff-dim);
+}
+
+html.ff [data-type="list"] li p.summary:nth-of-type(2) {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  white-space: normal;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 1;
+  overflow: hidden;
+  word-break: break-word;
+}
+
+html.ff[data-preview="2"] [data-type="list"] li p.summary:nth-of-type(2) {
+  -webkit-line-clamp: 2;
+}
+
+html.ff[data-preview="0"] [data-type="list"] li p.summary:nth-of-type(2) {
+  display: none;
+}
+
+html.ff [data-type="list"] li p.summary:nth-of-type(3) {
+  grid-column: 2;
+  grid-row: 1;
+  font-size: max(10px, calc(var(--ff-fs) - 2px));
+  white-space: nowrap;
+  text-align: right;
+}
+
+html.ff [data-type="list"] li p.summary time {
+  font-size: inherit;
+  text-transform: none;
+  margin: 0;
+}
+
+html.ff .group-icon {
+  display: none;
+}
+
+html.ff li.threadlist-item .mms-icon {
+  font-size: inherit;
+  color: var(--ff-accent);
+}
+
+html.ff li.threadlist-item.list-subject .mms-icon {
+  color: var(--ff-dim);
+}
+
+html.ff [data-type="list"] li>a>aside.icon {
+  display: none;
+}
+
+html.ff [data-type="list"] .unread>a>aside.icon-unread {
+  display: block;
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  height: auto;
+  margin: 0;
+  border-radius: 0;
+  background: var(--ff-accent);
+}
+
+html.ff [data-type="list"] .unread p.threadlist-item-title {
+  font-weight: 800;
+}
+
+html.ff [data-type="list"] .unread p.summary:nth-of-type(2) {
+  color: var(--ff-fg);
+  font-weight: 600;
+}
+
+html.ff [data-type="list"] .unread p.summary:nth-of-type(3) {
+  color: var(--ff-accent);
+  font-weight: 700;
+}
+
+html.ff [data-type="list"] .unread p.summary:nth-of-type(3) time {
+  font-weight: inherit;
+}
+
+/* drafts */
+html.ff [data-type="list"] .draft>a>aside.icon-draft {
+  display: block;
+  position: absolute;
+  left: 2px;
+  top: calc(var(--ff-pad-y) + 2px);
+  width: 8px;
+  height: 8px;
+  margin: 0;
+  background: url("/resource/images/ic_draft.png") no-repeat 0 0 / 8px;
+}
+
+html.ff [data-type="list"] .draft .icon-draft:not(aside) {
+  display: none;
+}
+
+html.ff[data-theme="dark"] [data-type="list"] .draft>a>aside.icon-draft {
+  filter: invert(1);
+}
+
+html.ff [data-type="list"] .is-draft .threadlist-item-title {
+  color: var(--ff-dim);
+  font-style: italic;
+}
+
+/* focus */
+html.ff #threads-container[data-type="list"] ul li.focus,
+html.ff [data-type="list"] li.threadlist-item.focus {
+  background: var(--ff-accent) !important;
+  color: var(--ff-accent-fg);
+}
+
+html.ff [data-type="list"] li.focus p,
+html.ff [data-type="list"] li.focus p time,
+html.ff [data-type="list"] li.focus * .summary,
+html.ff [data-type="list"] li.focus * .threadlist-item-title,
+html.ff [data-type="list"] li.focus .mms-icon,
+html.ff [data-type="list"] li.focus a {
+  color: var(--ff-accent-fg) !important;
+}
+
+html.ff [data-type="list"] .unread.focus>a>aside.icon-unread {
+  background: var(--ff-accent-fg);
+}
+
+html.ff[data-theme="dark"] [data-type="list"] .draft.focus>a>aside.icon-draft {
+  filter: none;
+  background-position: 0 0;
+}
+
+html.ff[data-theme="light"] [data-type="list"] .draft.focus>a>aside.icon-draft {
+  background-position: 0 -8px;
+}
+
+/* empty */
+html.ff #no-result-message,
+html.ff .use-group-message {
+  color: var(--ff-dim);
+}
+
+html.ff #no-result-message>h2 {
+  color: var(--ff-fg);
+  font-size: calc(var(--ff-fs) + 3px);
+}
+
+html.ff[data-theme="dark"] #no-result-message>div {
+  filter: invert(.85);
+}
+
+/* selecting conversations */
+html.ff .edit .message-listContent {
+  margin-left: 3rem;
+}
+
+html.ff .edit [data-type="list"] li>a,
+html.ff .edit [data-type="list"] li>a>aside.icon-unread {
+  transform: none;
+}
+
+html.ff .edit [data-type="list"] li>label {
+  height: 100%;
+}
+
+/* conversation */
+html.ff #messages-container {
+  background: var(--ff-bg);
+  padding-bottom: 2px;
+}
+
+html.ff .article-list[data-type="list"] .message {
+  background: var(--ff-bg);
+}
+
+/* day separators */
+html.ff #messages-container .messages-date-group-header {
+  display: block;
+  position: static;
+  height: auto;
+  margin: 0;
+  padding: 1px 8px;
+  font-size: max(10px, calc(var(--ff-fs) - 2px));
+  line-height: 1.5;
+  font-weight: 600;
+  text-align: center;
+  text-transform: none;
+  color: var(--ff-dim);
+  background: var(--ff-surface);
+  border-bottom: 1px solid var(--ff-line);
+}
+
+html.ff[data-days="off"] #messages-container .messages-date-group-header {
+  display: none;
+}
+
+html.ff #messages-container .messages-date-group-header.hidden {
+  display: none;
+}
+
+html.ff li.message.incoming {
+  padding-inline-start: 6px;
+  padding-inline-end: 22px;
+}
+
+html.ff li.message.outgoing {
+  padding-inline-start: 22px;
+  padding-inline-end: 6px;
+}
+
+html.ff #main-wrapper.edit li.message.incoming {
+  padding-inline-end: 5rem;
+}
+
+html.ff li.message .bubble {
+  padding: var(--ff-gap) 0 0;
+}
+
+html.ff li.message.ff-cont .bubble {
+  padding-top: 1px;
+}
+
+html.ff li.message .message-content-body-container {
+  max-width: 100%;
+}
+
+html.ff .bubble .message-content-body {
+  padding: 2.5px 8px 3.5px !important;
+  border-radius: 10px;
+  min-width: 0;
+  max-width: 100%;
+  font-size: var(--ff-fs) !important;
+  line-height: var(--ff-lh) !important;
+}
+
+html.ff .message p.message-content-body {
+  font-size: var(--ff-fs) !important;
+}
+
+html.ff .message.outgoing p:first-of-type:last-of-type,
+html.ff .message.incoming p:first-of-type:last-of-type {
+  line-height: var(--ff-lh) !important;
+}
+
+html.ff .incoming .bubble .message-content-body,
+html.ff .incoming.CE7E7EC .bubble .message-content-body,
+html.ff .incoming.CFBC6C2 .bubble .message-content-body,
+html.ff .incoming.CC8CFF5 .bubble .message-content-body,
+html.ff .incoming.CC9E6CA .bubble .message-content-body,
+html.ff .incoming.CCFD8DC .bubble .message-content-body {
+  background-color: var(--ff-in-bg);
+  color: var(--ff-in-fg);
+}
+
+html.ff .outgoing .bubble .message-content-body {
+  background-color: var(--ff-out-bg);
+  color: var(--ff-out-fg);
+}
+
+html.ff .message.incoming p:first-of-type {
+  color: var(--ff-in-fg);
+}
+
+html.ff .message.outgoing .bubble,
+html.ff .message.incoming .bubble {
+  color: inherit;
+}
+
+html.ff .message.sending .bubble,
+html.ff .message.sending p:first-of-type {
+  opacity: .6;
+  color: inherit;
+}
+
+html.ff .message-content a,
+html.ff .incoming .message-content a {
+  color: var(--ff-link);
+  font-weight: 600;
+  text-decoration: underline;
+}
+
+html.ff .outgoing .message-content a {
+  color: var(--ff-out-fg);
+}
+
+html.ff .incoming.focus .message-content a,
+html.ff .incoming.bubble-link-focus .message-content a,
+html.ff .outgoing.focus .message-content a,
+html.ff .outgoing.bubble-link-focus .message-content a {
+  color: inherit;
+}
+
+html.ff .message-content a.focus {
+  color: var(--ff-accent-fg) !important;
+  background: var(--ff-accent);
+  text-decoration: none;
+}
+
+/* the message that has focus */
+html.ff .incoming.focus .bubble .message-content-body,
+html.ff .outgoing.focus .bubble .message-content-body,
+html.ff li.message.current-focus .bubble .message-content-body {
+  background-color: revert;
+}
+
+html.ff .incoming.focus .bubble .message-content-body,
+html.ff li.message.incoming.current-focus .bubble .message-content-body {
+  background-color: var(--ff-in-bg) !important;
+  color: var(--ff-in-fg) !important;
+}
+
+html.ff .outgoing.focus .bubble .message-content-body,
+html.ff li.message.outgoing.current-focus .bubble .message-content-body {
+  background-color: var(--ff-out-bg) !important;
+  color: var(--ff-out-fg) !important;
+}
+
+html.ff .message-list li.message.focus,
+html.ff .message-list li[class~="focus"],
+html.ff .message-list li[class~="hasfocused"] {
+  background: var(--ff-soft) !important;
+  box-shadow: inset 3px 0 0 var(--ff-accent);
+}
+
+html.ff .message-list li.message.current-focus.bubble-link-focus {
+  background: var(--ff-soft) !important;
+}
+
+/* sender in group conversations */
+html.ff .message .message-sender {
+  margin: 0 0 1px;
+  font-size: max(10px, calc(var(--ff-fs) - 2px));
+  line-height: 1.2;
+  font-weight: 700;
+}
+
+html.ff .incoming.isGroup .message-sender {
+  color: var(--ff-dim);
+}
+
+html.ff li.message.ff-cont .message-sender {
+  display: none;
+}
+
+html.ff .message .message-subject {
+  margin-bottom: 2px;
+  font-size: calc(var(--ff-fs) - 1px);
+  line-height: 1.2;
+}
+
+html.ff .message.has-subject .message-subject {
+  color: var(--ff-dim);
+}
+
+/* time under the message */
+html.ff .message-details {
+  display: block;
+  padding: 1px 3px 0;
+  font-size: max(9px, calc(var(--ff-fs) - 3px));
+  line-height: 1.2;
+  color: var(--ff-faint);
+}
+
+html.ff .message-details>span,
+html.ff .message-details>time {
+  float: none;
+  display: inline;
+  margin: 0;
+}
+
+html.ff .message.incoming .message-details {
+  text-align: start;
+}
+
+html.ff .message.outgoing .message-details {
+  text-align: end;
+}
+
+html.ff .message-details time {
+  font-size: inherit;
+  text-transform: none;
+}
+
+html.ff .message-sim-information {
+  font-size: inherit;
+}
+
+html.ff[data-ts="group"] li.message:not(.ff-end):not(.focus) .message-details,
+html.ff[data-ts="focus"] li.message:not(.focus) .message-details,
+html.ff[data-ts="off"] li.message:not(.focus) .message-details {
+  display: none;
+}
+
+html.ff .message .message-status {
+  height: auto;
+  min-width: 0;
+}
+
+html.ff .message.error .message-status {
+  top: 2px;
+}
+
+html.ff .message.delivered .message-status {
+  font-size: 1rem;
+  color: var(--ff-dim);
+}
+
+html.ff .message .download {
+  color: var(--ff-fg);
+  border-bottom-color: var(--ff-fg);
+  margin-top: -1rem;
+  font-size: var(--ff-fs);
+}
+
+/* plain style: no bubbles */
+html.ff[data-style="plain"] li.message.incoming,
+html.ff[data-style="plain"] li.message.outgoing {
+  padding-inline-start: 6px;
+  padding-inline-end: 6px;
+}
+
+html.ff[data-style="plain"] li.message .message-content-body-container {
+  max-width: 100%;
+}
+
+html.ff[data-style="plain"] .message-content {
+  align-items: stretch !important;
+}
+
+html.ff[data-style="plain"] .bubble .message-content-body {
+  padding: 0 0 0 6px !important;
+  border-radius: 0;
+  border-inline-start: 3px solid var(--ff-line);
+  background: none !important;
+  color: var(--ff-fg) !important;
+}
+
+html.ff[data-style="plain"] li.message .bubble .message-content-body {
+  background: none !important;
+  color: var(--ff-fg) !important;
+}
+
+html.ff[data-style="plain"] .outgoing .bubble .message-content-body {
+  border-inline-start-color: var(--ff-accent);
+}
+
+html.ff[data-style="plain"] .incoming .bubble .message-content-body {
+  border-inline-start-color: var(--ff-faint);
+}
+
+html.ff[data-style="plain"] .outgoing .bubble .message-content-body {
+  color: var(--ff-fg) !important;
+}
+
+html.ff[data-style="plain"] .outgoing .message-content a {
+  color: var(--ff-link);
+}
+
+html.ff[data-style="plain"] .message.incoming .message-details,
+html.ff[data-style="plain"] .message.outgoing .message-details {
+  text-align: start;
+  padding-inline-start: 9px;
+}
+
+html.ff[data-style="plain"] li.message .bubble {
+  padding-top: calc(var(--ff-gap) + 1px);
+}
+
+html.ff[data-style="plain"] li.message.ff-cont .bubble {
+  padding-top: 2px;
+}
+
+/* writing */
+html.ff #messages-compose-form {
+  min-height: 0;
+  padding: 0 0 3px;
+  background: var(--ff-bg);
+  border-top: 1px solid var(--ff-line);
+}
+
+html.ff #messages-compose-form.item-focus {
+  background: var(--ff-bg);
+}
+
+html.ff .message-type-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding-top: 2px;
+  color: var(--ff-dim);
+}
+
+html.ff .sms-label {
+  display: none !important;
+}
+
+html.ff .mms-label,
+html.ff .sms-label {
+  width: auto;
+  margin-left: 8px;
+  font-size: max(10px, calc(var(--ff-fs) - 3px)) !important;
+  line-height: 1.2;
+}
+
+html.ff .letter-counter {
+  width: auto;
+  margin-right: 8px;
+  font-size: max(10px, calc(var(--ff-fs) - 3px));
+  line-height: 1.2;
+}
+
+html.ff .item-focus .letter-counter,
+html.ff .item-focus .sms-label,
+html.ff .item-focus .mms-label {
+  color: var(--ff-dim);
+}
+
+html.ff .composer-message-input-container {
+  padding: 2px 0;
+  min-height: 0;
+}
+
+html.ff #messages-input {
+  margin: 0 6px;
+  padding: 3px 7px;
+  min-height: 0;
+  max-height: 30vh;
+  font-size: var(--ff-fs);
+  line-height: var(--ff-lh);
+  color: var(--ff-fg);
+  background: var(--ff-surface) !important;
+  border: 1px solid var(--ff-line);
+  border-radius: 9px;
+}
+
+html.ff #messages-input.focus {
+  color: var(--ff-fg);
+  background: var(--ff-bg) !important;
+  border-color: var(--ff-accent);
+  box-shadow: 0 0 0 1px var(--ff-accent);
+}
+
+html.ff #messages-input:after {
+  top: 3px;
+  left: 7px;
+  color: var(--ff-dim);
+  opacity: .8;
+}
+
+html.ff #messages-input.focus:after {
+  color: var(--ff-dim);
+}
+
+html.ff .attachment-composer {
+  height: auto;
+  color: var(--ff-fg);
+}
+
+html.ff .attachment-composer-title {
+  line-height: 2.2rem;
+  font-size: var(--ff-fs);
+}
+
+html.ff .attachment-composer.focus,
+html.ff #messages-compose-form .mms-label-line .attachment-composer:focus {
+  color: var(--ff-accent-fg);
+  background: var(--ff-accent);
+}
+
+html.ff .mms-label-line,
+html.ff .subject-composer {
+  background: var(--ff-bg);
+}
+
+html.ff #messages-compose-form.subject-focus .mms-label-line .subject-composer {
+  background: var(--ff-soft);
+}
+
+html.ff input.subject-composer-input {
+  height: 2.2rem;
+  font-size: var(--ff-fs);
+  color: var(--ff-fg);
+  background: transparent;
+  border-bottom-color: var(--ff-line);
+}
+
+html.ff input.subject-composer-input.focus {
+  color: var(--ff-fg);
+  border-bottom-color: var(--ff-accent);
+}
+
+html.ff input.subject-composer-input::-moz-placeholder {
+  color: var(--ff-dim);
+  font-size: var(--ff-fs);
+}
+
+html.ff .subject-composer-title {
+  line-height: 2.2rem;
+}
+
+/* new message: the To field */
+html.ff #messages-to-field {
+  min-height: 0;
+  background: var(--ff-bg);
+  color: var(--ff-fg);
+  border-bottom: 1px solid var(--ff-line);
+  font-size: var(--ff-fs);
+}
+
+html.ff #to-label {
+  height: 3rem;
+  line-height: 3rem;
+  padding: 0 6px 0 8px;
+  font-size: max(10px, calc(var(--ff-fs) - 2px));
+  color: var(--ff-dim);
+}
+
+html.ff #messages-recipients-list-container,
+html.ff #messages-recipients-list {
+  min-height: 3rem;
+}
+
+html.ff .recipient[contenteditable] {
+  background: var(--ff-in-bg);
+  color: var(--ff-fg);
+  border-radius: 8px;
+  margin: 2px 4px 2px 0;
+}
+
+html.ff #messages-recipients-list>.recipient[contenteditable=true] {
+  height: 2.4rem;
+  line-height: 2.4rem;
+  background: none;
+  color: var(--ff-fg);
+}
+
+html.ff #messages-recipients-list>.recipient.focus {
+  color: var(--ff-accent-fg);
+  background: var(--ff-accent);
+}
+
+html.ff .recipient-suggestions-list {
+  border-bottom-color: var(--ff-line);
+}
+
+html.ff .contact-list li,
+html.ff #messages-recipient-suggestions li {
+  background: var(--ff-bg);
+  border-bottom: 1px solid var(--ff-line);
+}
+
+html.ff #messages-recipient-suggestions li {
+  padding: 0 8px;
+}
+
+html.ff .contact-list .suggestion>.name {
+  line-height: 1.3;
+  padding-top: 4px;
+  font-size: calc(var(--ff-fs) + 1px);
+  color: var(--ff-fg);
+}
+
+html.ff .contact-list .suggestion>.number {
+  font-size: var(--ff-fs);
+  color: var(--ff-dim);
+}
+
+html.ff .contact-list li {
+  height: auto;
+}
+
+html.ff #messages-recipient-suggestions li.selected,
+html.ff .contact-list li.selected {
+  background: var(--ff-accent) !important;
+}
+
+html.ff .contact-list li.selected a.suggestion p,
+html.ff .contact-list li.selected * {
+  color: var(--ff-accent-fg) !important;
+}
+
+/* settings, search, details */
+html.ff #messaging-settings-container {
+  background: var(--ff-bg);
+}
+
+html.ff #messaging-settings-container header,
+html.ff #messaging-settings-container .container-header {
+  padding: 1px 8px;
+  line-height: 1.6;
+  font-size: max(10px, calc(var(--ff-fs) - 2px));
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--ff-dim);
+  background: var(--ff-surface);
+  height: auto;
+}
+
+html.ff #messaging-settings-container li {
+  min-height: 0;
+  height: auto;
+  background: var(--ff-bg);
+  border-bottom: 1px solid var(--ff-line);
+}
+
+html.ff #messaging-settings-container li>a {
+  display: flex;
+  flex-direction: column;
+  padding: 4px 8px;
+  color: var(--ff-fg);
+  font-size: var(--ff-fs);
+  line-height: 1.25;
+}
+
+html.ff #messaging-settings-container li>a>small {
+  height: auto;
+  margin: 0;
+  padding: 0;
+  font-size: max(10px, calc(var(--ff-fs) - 2px));
+  color: var(--ff-dim);
+}
+
+html.ff #messaging-settings-container li.focus {
+  background: var(--ff-accent);
+}
+
+html.ff #messaging-settings-container li.focus>a,
+html.ff #messaging-settings-container li.focus>a>small,
+html.ff #messaging-settings-container li.focus>a>select {
+  color: var(--ff-accent-fg);
+}
+
+html.ff .settings-select {
+  color: var(--ff-dim);
+  font-size: max(10px, calc(var(--ff-fs) - 1px));
+  margin-left: 0;
+}
+
+html.ff #messaging-settings-container li.focus .settings-select {
+  color: var(--ff-accent-fg);
+}
+
+html.ff .settings-select option {
+  color: #000;
+  background: #fff;
+}
+
+html.ff #messaging-settings-container li>a.menu-item>* {
+  padding-right: 0;
+}
+
+html.ff #search-input {
+  background: var(--ff-surface) !important;
+  color: var(--ff-fg);
+  font-size: var(--ff-fs);
+}
+
+html.ff #search-thread-list li {
+  border-bottom-color: var(--ff-line);
+}
+
+html.ff #search-thread-list li a {
+  color: var(--ff-fg);
+}
+
+html.ff #search-thread-list li p.summary {
+  font-size: var(--ff-fs);
+  line-height: 1.3;
+}
+
+html.ff .search-focus {
+  background: var(--ff-accent) !important;
+}
+
+html.ff .search-focus * {
+  color: var(--ff-accent-fg) !important;
+}
+
+html.ff .report-view,
+html.ff .description {
+  background: var(--ff-bg);
+  color: var(--ff-fg);
+}
+
+html.ff .description p {
+  font-size: var(--ff-fs);
+  line-height: 1.3;
+}
+
+html.ff .description .detail {
+  color: var(--ff-dim);
+}
+
+html.ff .p-dialog {
+  background: var(--ff-bg) !important;
+  color: var(--ff-fg);
+}
+
+html.ff .div-dialog {
+  background: var(--ff-accent);
+}
+
+html.ff .span-dialog {
+  color: var(--ff-accent-fg);
+}
+
+html.ff .input-dialog {
+  color: var(--ff-fg);
+}
+
+html.ff ul li {
+  color: var(--ff-fg);
+}
+
+/* Flipfull's own settings, todo shared */
+html.ff #messaging-settings-container .ff-settings li>a {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  padding-top: 5px;
+  padding-bottom: 5px;
+  text-align: start;
+}
+
+html.ff #messaging-settings-container .ff-settings li>a>span {
+  flex: 0 0 auto;
+  margin-right: 8px;
+  width: auto;
+}
+
+html.ff #messaging-settings-container .ff-settings .settings-select {
+  flex: 0 1 auto;
+  min-width: 0;
+  padding: 0;
+  margin: 0;
+  text-align: right;
+  text-align-last: right;
+  font-size: var(--ff-fs);
+  font-weight: 600;
+  color: var(--ff-accent);
+}
+
+html.ff[data-theme="light"] #messaging-settings-container .ff-settings .settings-select {
+  color: var(--ff-link);
+}
+
+html.ff #messaging-settings-container .ff-settings li.focus .settings-select {
+  color: var(--ff-accent-fg);
+}
+
+html.ff [role="dialog"][data-type="action"]>menu>button {
+  height: auto;
+  min-height: 3rem;
+  padding: 5px 10px;
+  font-size: calc(var(--ff-fs) + 1px);
+  line-height: 1.25;
+  white-space: normal;
+}
+
+html.ff [role="dialog"][data-type="action"]>h1,
+html.ff [role="dialog"][data-type="action"]>header h1 {
+  font-size: calc(var(--ff-fs) + 1px);
+  color: #fff;
+}
+
+html.ff [role="dialog"][data-type="action"].softkey>menu>button.focus {
+  background: var(--ff-accent);
+  color: var(--ff-accent-fg);
+}
+
+html.ff #messages-recipients-list>.recipient[contenteditable=true].focus,
+html.ff #messages-recipients-list>.recipient[contenteditable=true]:focus {
+  min-width: 3rem;
+  border-radius: 0;
+  color: var(--ff-fg);
+  background: none;
+  box-shadow: inset 0 -2px 0 var(--ff-accent);
+}

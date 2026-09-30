@@ -1,0 +1,100 @@
+html.ff {
+  --header-height: 2.4rem;
+  --ff-item: calc(3.8rem + var(--ff-pad));
+  --ff-group: 2rem;
+  background-color: var(--ff-bg);
+}
+
+html.ff[data-times="hide"] {
+  --ff-item: calc(max(var(--ff-icon), 2.4rem) + var(--ff-pad));
+}
+
+html.ff[data-days="hide"] {
+  --ff-group: 0px;
+}
+
+html.ff body,
+html.ff #root,
+html.ff #app {
+  background: var(--ff-bg);
+  --header-background: var(--ff-bg);
+  --highlight-color: var(--ff-accent);
+  --color-lime: var(--ff-accent);
+}
+
+html.ff .statusbar-placeholder {
+  background: var(--ff-bg);
+}
+
+html.ff .header {
+  color: var(--ff-fg);
+  font-weight: 700;
+  border-bottom: 1px solid var(--ff-line);
+}
+
+/* list */
+html.ff .list .group-header {
+  height: var(--ff-group);
+  line-height: var(--ff-group);
+  font-size: 1.2rem;
+  color: var(--ff-dim);
+  background: var(--ff-surface);
+}
+
+html.ff[data-days="hide"] .list .group-header,
+html.ff[data-days="hide"] #calllog-view .body .sticky {
+  display: none;
+}
+
+html.ff #calllog-view .body .sticky {
+  height: var(--ff-group);
+}
+
+html.ff .list .list-item {
+  height: var(--ff-item);
+  padding-top: 0;
+  padding-bottom: 0;
+  align-items: center;
+  box-sizing: border-box;
+}
+
+html.ff .list .list-item .icon {
+  width: var(--ff-icon);
+  height: var(--ff-icon);
+  font-size: var(--ff-icon);
+}
+
+html.ff .list .list-item .primary-info {
+  margin-top: 0;
+  line-height: 1.3;
+}
+
+html.ff .list .list-item .additional-info,
+html.ff .list .list-item .secondary-info {
+  font-size: 1.2rem;
+  line-height: 1.4rem;
+}
+
+html.ff .list-item .content>*:not(:empty):not(:first-child) {
+  margin-top: .2rem;
+}
+
+html.ff[data-times="hide"] .list .list-item .secondary-info,
+html.ff[data-picture="hide"] .list .list-item .icon.thumb {
+  display: none;
+}
+
+html.ff .list .list-item:focus {
+  background-color: var(--ff-accent);
+}
+
+html.ff .list .list-item:focus .content *,
+html.ff .list .list-item:focus [data-icon*="call-"],
+html.ff .list .list-item:focus [data-icon^="check-"] {
+  color: var(--ff-accent-fg);
+}
+
+html.ff .list .list-item:focus [data-icon="contacts"] {
+  background-color: var(--ff-accent-fg);
+  color: var(--ff-accent);
+}

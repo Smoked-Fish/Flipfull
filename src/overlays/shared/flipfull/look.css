@@ -1,0 +1,201 @@
+html.ff {
+  --ff-bg: #fff;
+  --ff-fg: #151515;
+  --ff-dim: #595959;
+  --ff-faint: #767676;
+  --ff-line: #e3e3e6;
+  --ff-surface: #f1f2f4;
+  --ff-accent: #00753f;
+  --ff-accent-fg: #fff;
+  --ff-soft: #d9efe3;
+  --ff-danger: #c4102d;
+}
+
+html.ff[data-accent="blue"] {
+  --ff-accent: #0b5bd3;
+  --ff-soft: #dae6fb;
+}
+
+html.ff[data-accent="purple"] {
+  --ff-accent: #7526c9;
+  --ff-soft: #eadcfa;
+}
+
+html.ff[data-accent="orange"] {
+  --ff-accent: #b5470a;
+  --ff-soft: #fbe3d2;
+}
+
+html.ff[data-accent="pink"] {
+  --ff-accent: #b8155a;
+  --ff-soft: #f8d9e6;
+}
+
+html.ff[data-theme="dark"] {
+  --ff-bg: #101214;
+  --ff-fg: #ececec;
+  --ff-dim: #a3a8ae;
+  --ff-faint: #8b9198;
+  --ff-line: #26292d;
+  --ff-surface: #191c1f;
+  --ff-accent: #3fcf85;
+  --ff-accent-fg: #06110b;
+  --ff-soft: #163a29;
+  --ff-danger: #ff6b81;
+
+  /* the theme every app shares */
+  --color-gs00: #101214;
+  --color-gs10: #191c1f;
+  --color-gs20: #33373b;
+  --color-gs30: #7d828a;
+  --color-gs40: #a3a8ae;
+  --color-gs45: #8b9198;
+  --color-gs60: #a3a8ae;
+  --color-gs70: #a3a8ae;
+  --color-gs80: #d5d8dc;
+  --color-gs90: #e2e4e7;
+  --color-gs100: #f4f4f4;
+  --color-theta: #26292d;
+  --color-red: #ff6b81;
+  color-scheme: dark;
+}
+
+html.ff[data-theme="dark"][data-accent="blue"] {
+  --ff-accent: #6aa8ff;
+  --ff-soft: #182a4a;
+}
+
+html.ff[data-theme="dark"][data-accent="purple"] {
+  --ff-accent: #b98cff;
+  --ff-soft: #2b1c48;
+}
+
+html.ff[data-theme="dark"][data-accent="orange"] {
+  --ff-accent: #ffa25a;
+  --ff-soft: #43260f;
+}
+
+html.ff[data-theme="dark"][data-accent="pink"] {
+  --ff-accent: #ff7fb0;
+  --ff-soft: #45182f;
+}
+
+html.ff {
+  font-size: 7.7px;
+}
+
+html.ff[data-size="s"] {
+  font-size: 6.5px;
+}
+
+html.ff[data-size="l"] {
+  font-size: 8.8px;
+}
+
+html.ff[data-size="xl"] {
+  font-size: 10px;
+}
+
+html.ff {
+  --statusbar-height: 26px;
+  --statusbar-softkeybar-height: calc(26px + var(--softkeybar-height));
+  --ff-pad: .8rem;
+  --ff-icon: 2.6rem;
+}
+
+html.ff[data-density="compact"] {
+  --ff-pad: .4rem;
+  --ff-icon: 2.2rem;
+}
+
+html.ff[data-density="roomy"] {
+  --ff-pad: 1.4rem;
+  --ff-icon: 3.2rem;
+}
+
+html.ff[data-font="narrow"] * {
+  font-family: "Droid Sans", sans-serif !important;
+}
+
+/* Appearance */
+html.ff .ff-look {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 2147483000;
+  display: flex;
+  flex-direction: column;
+  padding-top: var(--statusbar-height);
+  box-sizing: border-box;
+  background: var(--ff-bg);
+  color: var(--ff-fg);
+  font-size: 1.7rem;
+}
+
+html.ff .ff-look-title {
+  padding: .2rem 1rem;
+  font-size: 1.8rem;
+  font-weight: 700;
+  line-height: 2.4rem;
+  border-bottom: 1px solid var(--ff-line);
+}
+
+html.ff .ff-look-list {
+  flex: 1;
+  overflow-y: auto;
+}
+
+html.ff .ff-look-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  padding: .7rem 1rem;
+  border-bottom: 1px solid var(--ff-line);
+}
+
+html.ff .ff-look-name {
+  margin-right: 1rem;
+}
+
+html.ff .ff-look-value {
+  font-weight: 600;
+  color: var(--ff-accent);
+  text-align: end;
+}
+
+html.ff .ff-look-row.ff-focus {
+  background: var(--ff-accent);
+  color: var(--ff-accent-fg);
+}
+
+html.ff .ff-look-row.ff-focus .ff-look-value {
+  color: var(--ff-accent-fg);
+}
+
+html.ff .ff-look-keys {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  height: var(--softkeybar-height);
+  line-height: var(--softkeybar-height);
+  background: var(--ff-surface);
+  border-top: 1px solid var(--ff-line);
+  font-size: 1.4rem;
+  font-weight: 600;
+  color: var(--ff-fg);
+}
+
+html.ff .ff-look-key {
+  padding: 0 .5rem;
+}
+
+html.ff .ff-look-key:last-child {
+  text-align: end;
+}
+
+html.ff .ff-look-center {
+  font-size: 1.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}

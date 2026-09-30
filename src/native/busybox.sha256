@@ -1,4 +1,4 @@
-busybox 1.37.0 (git 371fe9f) — static armeabi-v7a
+busybox 1.37.0 (git 371fe9f) - static armeabi-v7a
 built with arm-linux-gnueabihf-gcc 13, CONFIG_STATIC=y
 sha256:
 02d3e9d77b6e3a36cc89bee003e8fceb4f817a984c8ef715d8c05ba0f4bd44ea

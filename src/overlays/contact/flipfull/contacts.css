@@ -1,0 +1,86 @@
+html.ff body,
+html.ff #root,
+html.ff #app,
+html.ff #ssr {
+  --highlight-color: var(--ff-accent);
+}
+
+html.ff .app-content .x-window>div,
+html.ff #contact-view {
+  background-color: var(--ff-bg);
+}
+
+/* list */
+html.ff {
+  --ff-row: calc(var(--ff-icon) + 2 * var(--ff-pad));
+}
+
+html.ff .list-item {
+  min-height: var(--ff-row);
+  padding-top: var(--ff-pad);
+  padding-bottom: var(--ff-pad);
+}
+
+html.ff .list-item:focus {
+  background-color: var(--ff-accent);
+  color: var(--ff-accent-fg);
+}
+
+html.ff .list-item:focus a,
+html.ff .list-item:focus .primary,
+html.ff .list-item:focus .secondary {
+  color: var(--ff-accent-fg);
+}
+
+html.ff .list-item [data-icon],
+html.ff .list-item .icon {
+  font-size: var(--ff-icon);
+  width: var(--ff-icon);
+  min-width: var(--ff-icon);
+  height: var(--ff-icon);
+}
+
+html.ff .list-item .content>*:not(:empty):not(:first-child) {
+  margin-top: calc(var(--ff-pad) / 2);
+}
+
+html.ff[data-picture="hide"] .contact-list-item>.icon {
+  display: none;
+}
+
+html.ff[data-picture="hide"] .contact-list .list-item {
+  min-height: 0;
+}
+
+html.ff[data-labels="hide"] .contact-detail label.secondary {
+  display: none;
+}
+
+/* the menu that comes up over the list is dark in both themes */
+html.ff .option-menu-container .option-menu .header {
+  color: #fff;
+}
+
+html.ff .option-menu-container .option-menu .content .menu-item:focus {
+  background-color: var(--ff-accent);
+}
+
+html.ff .option-menu-container .option-menu .content .menu-item:focus .content {
+  color: var(--ff-accent-fg);
+}
+
+/* writing */
+html.ff input {
+  background-color: var(--ff-surface);
+  color: var(--ff-fg);
+}
+
+html.ff input::placeholder {
+  color: var(--ff-dim);
+}
+
+html.ff .list-item.focus input::placeholder,
+html.ff .list-item:focus-within input::placeholder {
+  color: var(--ff-accent-fg);
+  opacity: .7;
+}

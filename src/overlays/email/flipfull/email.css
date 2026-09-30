@@ -1,0 +1,232 @@
+html.ff body {
+  --highlight-color: var(--ff-accent);
+  --highlight-text-color: var(--ff-accent-fg);
+  --header-background: var(--ff-bg);
+  --header-color: var(--ff-fg);
+  --color-orange: var(--ff-accent);
+  --color-orange-pressed: var(--ff-accent);
+  background-color: var(--ff-bg);
+}
+
+html.ff {
+  --ff-row: calc(5.4rem + var(--ff-pad));
+  --ff-avatar: calc(var(--ff-row) - 1rem);
+}
+
+html.ff[data-snippet="hide"] {
+  --ff-row: calc(3.6rem + var(--ff-pad));
+}
+
+/* surfaces */
+html.ff .card,
+html.ff .menu,
+html.ff body.content-visible,
+html.ff .msg-messages-container,
+html.ff .cmp-envelope-line.cmp-subject,
+html.ff .cmp-attachment-total,
+html.ff .cmp-loading-attachments,
+html.ff .signature-box,
+html.ff .sup-oauth2-browser {
+  background-color: var(--ff-bg);
+}
+
+html.ff .msg-messages-sync-container>.msg-messages-syncing,
+html.ff .msg-messages-sync-container>.msg-messages-sync-more,
+html.ff .tng-header-item {
+  background-color: var(--ff-surface);
+  color: var(--ff-dim);
+}
+
+html.ff .highlight {
+  background-color: var(--ff-soft);
+}
+
+html.ff .statusbar-placeholder {
+  background-color: var(--ff-bg);
+}
+
+html.ff section[role="region"]>header:first-child {
+  border-bottom: 1px solid var(--ff-line);
+}
+
+/* writing */
+html.ff input[type="text"],
+html.ff input[type="password"],
+html.ff input[type="email"],
+html.ff input[type="tel"],
+html.ff input[type="search"],
+html.ff input[type="url"],
+html.ff input[type="number"],
+html.ff textarea {
+  color: var(--ff-fg) !important;
+  background: var(--ff-surface);
+  border-color: var(--ff-line);
+}
+
+html.ff input::-moz-placeholder,
+html.ff textarea::-moz-placeholder {
+  color: var(--ff-dim);
+}
+
+html.ff .center .focus input[type="email"],
+html.ff .center .focus input[type="password"],
+html.ff .center .focus input[type="search"],
+html.ff .center .focus input[type="text"],
+html.ff .cmp-subject.hasfocused .cmp-subject-text,
+html.ff input.cmp-edit-text {
+  background-color: var(--ff-bg);
+}
+
+html.ff .cmp-subject input,
+html.ff .cmp-body-text,
+html.ff .cmp-body-text *,
+html.ff .signature-box *,
+html.ff .cmp-body-text {
+  color: var(--ff-fg) !important;
+}
+
+html.ff .cmp-body-text {
+  background: var(--ff-bg);
+}
+
+/* message list */
+html.ff .msg-header-item {
+  height: var(--ff-row);
+}
+
+html.ff .msg-header-details-section {
+  padding-top: calc(var(--ff-pad) / 2);
+  padding-bottom: calc(var(--ff-pad) / 2);
+}
+
+html.ff .msg-header-author {
+  font-size: 1.5rem;
+  line-height: 1.9rem;
+}
+
+html.ff .msg-header-subject {
+  font-size: 1.3rem;
+  line-height: 1.7rem;
+}
+
+html.ff .msg-header-snippet {
+  font-size: 1.2rem;
+  line-height: 1.6rem;
+  height: auto;
+}
+
+html.ff .msg-header-date {
+  font-size: 1.2rem;
+  line-height: 1.6rem;
+  height: auto;
+}
+
+html.ff[data-snippet="hide"] .msg-header-snippet {
+  display: none;
+}
+
+html.ff[data-snippet="hide"] .msg-header-date {
+  order: 1;
+}
+
+html.ff .msg-header-flags-section,
+html.ff .msg-header-icons-section {
+  padding-top: calc(var(--ff-pad) / 2 + .2rem);
+}
+
+html.ff .msg-header-avatar-section {
+  width: var(--ff-avatar);
+  height: var(--ff-avatar);
+  top: calc((var(--ff-row) - var(--ff-avatar)) / 2);
+}
+
+html.ff[data-avatar="hide"] .msg-header-avatar-section {
+  display: none !important;
+}
+
+html.ff .msg-header-item.unread .msg-header-date {
+  color: var(--ff-accent);
+}
+
+html.ff .msg-header-item.focus .msg-header-date,
+html.ff .msg-header-item.focus .msg-header-author,
+html.ff .msg-header-item.focus .msg-header-subject,
+html.ff .msg-header-item.focus .msg-header-snippet {
+  color: var(--ff-accent-fg);
+}
+
+html.ff .msg-list-empty-message-text {
+  color: var(--ff-fg);
+}
+
+/* reading */
+html.ff .msg-envelope-bar,
+html.ff .msg-envelope-date {
+  color: var(--ff-dim);
+}
+
+html.ff .center .msg-body-container *,
+html.ff .msg-body-content {
+  color: var(--ff-fg);
+}
+
+html.ff .msg-body-container.focus,
+html.ff .msg-body-container .focus,
+html.ff .msg-body-container.hasfocused {
+  background-color: var(--ff-bg) !important;
+}
+
+html.ff .moz-external-link,
+html.ff .msg-body-container .moz-external-link {
+  color: var(--ff-accent);
+}
+
+/* dialogs and menus */
+html.ff form[role="dialog"][data-type="confirm"] {
+  background: var(--ff-bg);
+}
+
+html.ff form[role="dialog"][data-type="confirm"] h1 {
+  color: var(--ff-fg);
+  background-color: var(--ff-surface);
+}
+
+html.ff form[role="dialog"][data-type="confirm"] p {
+  color: var(--ff-fg);
+}
+
+html.ff [role="dialog"][data-type="value-selector"] {
+  background: var(--ff-bg);
+}
+
+html.ff [role="dialog"][data-type="value-selector"] [role="listbox"] li.focus {
+  background-color: var(--ff-accent);
+  color: var(--ff-accent-fg);
+}
+
+html.ff [role="dialog"][data-type="value-selector"] h1 {
+  color: var(--ff-fg);
+  background: var(--ff-bg);
+}
+
+html.ff [role="dialog"][data-type="action"].softkey h1 {
+  color: #fff;
+}
+
+html.ff ul li.suggestion-item,
+html.ff li.suggestion-item>a,
+html.ff li.suggestion-item p:first-of-type {
+  color: var(--ff-fg);
+}
+
+html.ff li.suggestion-item p {
+  color: var(--ff-dim);
+}
+
+html.ff .msg-header-item.unread .msg-header-unread-section {
+  background: radial-gradient(circle, var(--ff-accent) .5rem, transparent .55rem) no-repeat center / 1.6rem 1.6rem;
+}
+
+html.ff .msg-header-item.unread.focus .msg-header-unread-section {
+  background: radial-gradient(circle, var(--ff-accent-fg) .5rem, transparent .55rem) no-repeat center / 1.6rem 1.6rem;
+}
