@@ -24,15 +24,18 @@ esac
 
 set -f
 set -- $(head -c "$CONTENT_LENGTH")
+BAD='*[!A-Za-z0-9._~:/?#@!$&+,;=%-]*'
 for w; do
-    printf '%s\n' "$w" | grep -qE '^[A-Za-z0-9._~:/?#@!$&+,;=%-]+$' || reply "400 Bad Request" "Not a command: $w"
+    case $w in
+        $BAD) reply "400 Bad Request" "Not a command: $w" ;;
+    esac
 done
 case $1 in
     info|get|stage|install|uninstall|installed) ;;
     *) reply "400 Bad Request" "Not a command: $1" ;;
 esac
 
-if out=$(sh /data/local/userinit/flipfull store "$@" 2>&1); then
+if out=$(sh /data/local/userinit/store.sh "$@" 2>&1); then
     reply "200 OK" "$out"
 fi
 reply "500 Internal Server Error" "$out"
