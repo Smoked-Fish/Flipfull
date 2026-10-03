@@ -1,6 +1,6 @@
 'use strict';
 
-(function(exports) {
+(function (exports) {
   const INFO_EVENT = 'flipfull-outer-info';
   const MUSIC_EVENT = 'flipfull-now-playing';
   const TIMEOUT_SETTING = 'flipfull.subscreen.timeout';
@@ -12,7 +12,7 @@
   function log(msg) {
     try {
       window.DumpOn ? window.DumpOn(`[Flipfull] ${msg}`) : dump(`[Flipfull] ${msg}\n`);
-    } catch (e) {}
+    } catch (e) { }
   }
 
   function manifestURL(name) {
@@ -114,35 +114,6 @@
     }
   };
 
-  function startOuterFeed() {
-    const calls = manifestURL('communications');
-    const messages = manifestURL('sms');
-    let last = '';
-
-    function update() {
-      let list = [];
-      try {
-        list = (window.Service && window.Service.query('NotificationStore.getAll')) || [];
-      } catch (e) {
-        return;
-      }
-      const detail = {
-        calls: list.filter(n => n.manifestURL === calls).length,
-        messages: list.filter(n => n.manifestURL === messages).length
-      };
-      const json = JSON.stringify(detail);
-      if (json !== last && window.ExternalScreenManager) {
-        last = json;
-        window.ExternalScreenManager.send(new CustomEvent(INFO_EVENT, { detail }));
-      }
-    }
-
-    ['notification-store-ready', 'notification-update-launcher',
-     'statusbar-update-launcher', 'flipchange', 'screenchange'
-    ].forEach(type => window.addEventListener(type, () => setTimeout(update)));
-    update();
-  }
-
   function nowPlayingFeed() {
     let controller = null;
     let listening = null;
@@ -187,10 +158,7 @@
     if (featureOn('outer-screen-music')) {
       watchMediaApp(nowPlayingFeed());
     } else if (featureOn('play-pause-button')) {
-      watchMediaApp(() => {});
-    }
-    if (featureOn('outer-screen-info')) {
-      startOuterFeed();
+      watchMediaApp(() => { });
     }
   }
 
@@ -240,60 +208,49 @@
   }
 
   function startInfoRow() {
-    const info = { alarm: null, calls: 0, messages: 0 };
+    const info = { alarm: null };
     const row = document.createElement('div');
     row.id = 'flipfull-outer-info';
-    const items = {};
-    [['alarm', 'http://clock.localhost/style/icons/clock_56.png'],
-     ['calls', 'http://communications.localhost/resources/call_log_56.png'],
-     ['messages', 'http://sms.localhost/resource/icons/sms_56.png']
-    ].forEach(([name, icon]) => {
-      const span = document.createElement('span');
-      const img = document.createElement('img');
-      img.src = icon;
-      img.alt = '';
-      span.appendChild(img);
-      span.appendChild(document.createTextNode(''));
-      row.appendChild(span);
-      items[name] = span;
-    });
+
+    const span = document.createElement('span');
+    const img = document.createElement('img');
+    img.src = 'http://clock.localhost/style/icons/clock_56.png';
+    img.alt = '';
+    span.appendChild(img);
+    span.appendChild(document.createTextNode(''));
+    row.appendChild(span);
 
     function alarmText(time) {
       const date = new Date(time);
       if (isNaN(date) || date.getTime() < Date.now()) {
         return '';
       }
-      const hm = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-      return date.getTime() - Date.now() > 20 * 3600 * 1000 ?
-        `${date.toLocaleDateString([], { weekday: 'short' })} ${hm}` : hm;
+
+      const hm = date.toLocaleTimeString([], {
+        hour: 'numeric',
+        minute: '2-digit'
+      });
+
+      return date.getTime() - Date.now() > 20 * 3600 * 1000
+        ? `${date.toLocaleDateString([], { weekday: 'short' })} ${hm}`
+        : hm;
     }
 
     function render() {
-      const texts = {
-        alarm: info.alarm ? alarmText(info.alarm) : '',
-        calls: info.calls ? String(info.calls) : '',
-        messages: info.messages ? String(info.messages) : ''
-      };
-      let any = false;
-      Object.keys(items).forEach(name => {
-        items[name].lastChild.textContent = texts[name];
-        items[name].classList.toggle('hidden', !texts[name]);
-        any = any || !!texts[name];
-      });
-      row.classList.toggle('hidden', !any);
+      const text = info.alarm ? alarmText(info.alarm) : '';
+
+      span.lastChild.textContent = text;
+      span.classList.toggle('hidden', !text);
+      row.classList.toggle('hidden', !text);
     }
 
     keepInDefaultScreen(host => row.parentNode === host || host.appendChild(row));
+
     SettingsObserver.observe('next.alarm.info', '', value => {
       info.alarm = value && value.time ? value.time : null;
       render();
     });
-    window.addEventListener(INFO_EVENT, evt => {
-      const detail = evt.detail || {};
-      info.calls = detail.calls || 0;
-      info.messages = detail.messages || 0;
-      render();
-    });
+
     setInterval(render, 10 * 60 * 1000);
     render();
   }
