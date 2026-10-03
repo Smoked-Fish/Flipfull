@@ -130,7 +130,7 @@ def cmd_build(args):
     import build
     build.build(args.targets)
 
-
+# lot of pointless hashing
 def cmd_install(args):
     require_root()
     if not args.no_build:
