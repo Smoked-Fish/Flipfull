@@ -1,0 +1,1 @@
+user_pref("browser.tabs.remote.useCrossOriginOpenerPolicy", false);
