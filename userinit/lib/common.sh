@@ -93,3 +93,5 @@ stock_matches() {
         mkdir -p "$USERINIT/state" && echo "$2 $id $sum" >> "$USERINIT/state/stock-md5"
         STOCK_MD5_MAP="$STOCK_MD5_MAP
 $key	$sum"
+    fi
+}
