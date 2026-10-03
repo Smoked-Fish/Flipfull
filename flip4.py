@@ -147,7 +147,7 @@ def cmd_install(args):
             on_phone[parts[1]] = parts[0]
     changed = [f for f in files
                if on_phone.get(f) != hashlib.md5((LOCAL / f).read_bytes()).hexdigest()
-               or f in ("flipfull", "lib/common.sh", "lib/plan.awk")]
+               or f == "flipfull" or f.startswith("lib/")]
     sh(f"rm -rf {STAGING} && mkdir -p {STAGING}")
     for f in changed:
         adb("push", str(LOCAL / f), f"{STAGING}/{f}")
