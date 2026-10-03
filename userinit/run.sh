@@ -11,6 +11,14 @@ log() { echo "$*" >> "$LOG"; }
 
 uptime_s() { cut -d' ' -f1 /proc/uptime; }
 
+log_duration() {
+    # $1 = script name, $2 = start uptime seconds
+    _start=$2
+    _end=$(uptime_s)
+    _dur=$(awk -v a="$_start" -v b="$_end" 'BEGIN { printf "%.2f", b - a }')
+    log "-- $1 took ${_dur}s"
+}
+
 if [ -f "$LOG" ]; then
     SIZE=$(stat -c %s "$LOG" 2>/dev/null)
     case "$SIZE" in
@@ -75,7 +83,8 @@ fi
 
 for f in "$DIR"/*.sh; do
     [ -e "$f" ] || continue
-    log "-- $(date +%T) ($(uptime_s)) running $f"
+    _t0=$(uptime_s)
+    log "-- $(date +%T) ($_t0) running $f"
 
     if [ "$HAVE_TIMEOUT" = 1 ]; then
         timeout "$SCRIPT_TIMEOUT" sh "$f" < /dev/null >> "$LOG" 2>&1
@@ -89,6 +98,8 @@ for f in "$DIR"/*.sh; do
     else
         log "-- $f exited $RC"
     fi
+
+    log_duration "$f" "$_t0"
 done
 
 log "-- $(date +%T) ($(uptime_s)) stage=$STAGE done"
