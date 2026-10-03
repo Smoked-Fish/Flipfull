@@ -21,7 +21,7 @@ fi
     for g in $LISTS; do
         cat "$USERINIT/etc/hosts.d/$g.hosts" || log "etc/hosts.d/$g.hosts missing" >&2
     done
-} > "$SRC"
+} | awk 'NF && $1 !~ /^#/ { print }' | sort -u > "$SRC"
 
 chmod 0644 "$SRC" 2>/dev/null
 chown root:root "$SRC" 2>/dev/null

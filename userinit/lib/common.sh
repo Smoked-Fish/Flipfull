@@ -68,22 +68,28 @@ preloaded_apps() {
 
 same_dir() { [ "$(stat -c %d:%i "$1" 2>/dev/null)" = "$(stat -c %d:%i "$2" 2>/dev/null)" ]; }
 
+# build lookup table
 stock_matches() {
     [ -f "$1/stock.md5" ] || return 0
     id=$(stat -c '%d:%i:%s:%Y' "$2" 2>/dev/null) || return 1
+    key="$2 $id"
+
+    if [ -z "${STOCK_MD5_MAP_BUILT:-}" ]; then
+
+        STOCK_MD5_MAP_BUILT=1
+        STOCK_MD5_MAP=""
+        if [ -f "$USERINIT/state/stock-md5" ]; then
+            STOCK_MD5_MAP=$(awk '{ print $1" "$2"\t"$3 }' "$USERINIT/state/stock-md5" 2>/dev/null)
+        fi
+    fi
+
     sum=
-    if [ -f "$USERINIT/state/stock-md5" ]; then
-        while read -r f fid fsum; do
-            [ "$f" = "$2" ] && [ "$fid" = "$id" ] && sum=$fsum
-        done < "$USERINIT/state/stock-md5"
+    if [ -n "$STOCK_MD5_MAP" ]; then
+        sum=$(printf '%s\n' "$STOCK_MD5_MAP" | awk -F'\t' -v k="$key" '$1 == k { print $2; exit }')
     fi
     if [ -z "$sum" ]; then
         sum=$(md5sum "$2" 2>/dev/null | cut -d' ' -f1)
         [ -n "$sum" ] || return 1
         mkdir -p "$USERINIT/state" && echo "$2 $id $sum" >> "$USERINIT/state/stock-md5"
-    fi
-    while read -r want; do
-        [ "$want" = "$sum" ] && return 0
-    done < "$1/stock.md5"
-    return 1
-}
+        STOCK_MD5_MAP="$STOCK_MD5_MAP
+$key	$sum"
