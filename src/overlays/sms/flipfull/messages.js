@@ -27,10 +27,10 @@
       var ok = s[2].some(function (o) { return o[0] === saved[s[0]]; });
       if (ok) { values[s[0]] = saved[s[0]]; }
     });
-  } catch (e) {}
+  } catch (e) { }
 
   function save() {
-    try { localStorage.setItem(KEY, JSON.stringify(values)); } catch (e) {}
+    try { localStorage.setItem(KEY, JSON.stringify(values)); } catch (e) { }
   }
 
   function isNight() {
@@ -72,11 +72,20 @@
 
   apply();
 
-  // check theme
-  setInterval(function () { if (values.theme === 'auto') { apply(); } }, 60000);
+  //  pause the auto-theme when hidden
+  var themeTimer = null;
+  function startThemeTimer() {
+    if (themeTimer) { return; }
+    themeTimer = setInterval(function () { if (values.theme === 'auto') { apply(); } }, 60000);
+  }
+  function stopThemeTimer() {
+    if (themeTimer) { clearInterval(themeTimer); themeTimer = null; }
+  }
   document.addEventListener('visibilitychange', function () {
-    if (!document.hidden && values.theme === 'auto') { apply(); }
+    if (document.hidden) { stopThemeTimer(); }
+    else { if (values.theme === 'auto') { apply(); } startThemeTimer(); }
   });
+  startThemeTimer();
 
   // message grouping
   var pending = false;
@@ -98,8 +107,8 @@
       var cont = false;
       if (prev && prev.parentNode === li.parentNode) {
         cont = prev.classList.contains('incoming') === li.classList.contains('incoming') &&
-               Math.abs(li.dataset.timestamp - prev.dataset.timestamp) <= CLUSTER_MS &&
-               senderOf(prev) === senderOf(li);
+          Math.abs(li.dataset.timestamp - prev.dataset.timestamp) <= CLUSTER_MS &&
+          senderOf(prev) === senderOf(li);
       }
       li.classList.toggle('ff-cont', cont);
       if (prev) { prev.classList.toggle('ff-end', !cont); }
@@ -108,16 +117,20 @@
     if (prev) { prev.classList.add('ff-end'); }
   }
 
-  // try to load about a screens worth of messages above
   function fill() {
     var box = document.getElementById('messages-container');
     var ui = window.ThreadUI;
     if (!box || !ui || !ui.showChunkOfMessages) { return; }
-    for (var i = 0; i < 20 && box.querySelector('.hidden') &&
-         box.scrollHeight - box.clientHeight < box.clientHeight; i++) {
+    var CHUNK = 20;
+    var attempts = 0;
+    while (box.querySelector('.hidden') &&
+      box.scrollHeight - box.clientHeight < box.clientHeight &&
+      attempts < 3) {
       var below = box.scrollHeight - box.scrollTop;
-      ui.showChunkOfMessages(5);
+      ui.showChunkOfMessages(CHUNK);
+      // single measurement
       box.scrollTop = box.scrollHeight - below;
+      attempts++;
     }
   }
 
@@ -226,7 +239,9 @@
   window.addEventListener('DOMContentLoaded', function () {
     var box = document.getElementById('messages-container');
     if (box) {
-      new MutationObserver(schedule).observe(box, { childList: true, subtree: true });
+      // dont rescan whole list
+      new MutationObserver(function (records) { schedule(records); })
+        .observe(box, { childList: true, subtree: true });
       schedule();
     }
 
