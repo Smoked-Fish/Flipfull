@@ -1,5 +1,4 @@
 #!/system/bin/sh
-
 . /data/local/userinit/lib/common.sh
 LOG_TAG=api-daemon
 
@@ -27,8 +26,23 @@ mount_changed() {
     fi
 }
 
+CONFIG_SED=""
 if planned feature block-telemetry on; then
-    mount_changed "$DIR/config.toml" '/^\[telemetry\]/,/^\[/s/^enabled *= *true/enabled = false/'
+    CONFIG_SED="${CONFIG_SED}/^\\[telemetry\\]/,/^\\[/s/^enabled *= *true/enabled = false/;"
+fi
+if planned feature wasm-unsafe-eval on; then
+    CONFIG_SED="${CONFIG_SED}/csp *= *\"/{ /wasm-unsafe-eval/!s/script-src /script-src 'wasm-unsafe-eval' /; };"
+fi
+if planned feature wasm-unsafe-eval on; then
+    CONFIG_SED="${CONFIG_SED}/csp *= *\"/{ /worker-src [^;]*blob:/!s/worker-src /worker-src blob: /; };"
+fi
+if planned feature wasm-unsafe-eval on; then
+    CONFIG_SED="${CONFIG_SED}/csp *= *\"/{ /script-src [^;]*blob:/!s/script-src /script-src blob: /; };"
+fi
+
+CONFIG_SED="${CONFIG_SED%;}"
+if [ -n "$CONFIG_SED" ]; then
+    mount_changed "$DIR/config.toml" "$CONFIG_SED"
 fi
 
 if planned feature block-app-updates on; then
