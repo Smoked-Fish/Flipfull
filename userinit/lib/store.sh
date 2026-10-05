@@ -156,8 +156,10 @@ store_installed() {
     printf '%s\n' "$rows" | while read -r name p u; do
         [ -f "$VROOT/$name/manifest.webmanifest" ] || app_manifest "$name" > "$tmp/$name" 2>/dev/null
     done
+    oursfile=$tmp/ours
+    printf '%s\n' "$ours" > "$oursfile"
     printf '%s\n' "$rows" | awk -v vroot="$VROOT" -v records="$STORE_RECORDS" \
-        -v ours="$ours" -v tmp="$tmp" '
+        -v oursfile="$oursfile" -v tmp="$tmp" '
     function jval(m, key,    s, pair, a) {
         s = m
         while (match(s, /"[^"]*" *: *"[^"]*"/)) {
@@ -174,8 +176,8 @@ store_installed() {
             if (i) src[substr(line, 1, i - 1)] = substr(line, i + 1)
         }
         close(records)
-        n = split(ours, o, "\n")
-        for (i = 1; i <= n; i++) mine[o[i]] = 1
+        while ((getline line < oursfile) > 0) mine[line] = 1
+        close(oursfile)
     }
     {
         name = $1; preloaded = $2; update = $3
@@ -191,8 +193,9 @@ store_installed() {
         source = (name in src) ? src[name] : ""
         is_mine = (name in mine)
         if (source == "" && is_mine && preloaded == 0) source = "flipfull"
-        printf "app\t%s\t%s\t%s\t%s\t%s\t%s\n", name, jval(m, "name"), jval(m, "version"), \
-            update, source == "" ? "-" : source, (preloaded == 1 || is_mine) ? 1 : 0
+        src_out = source == "" ? "-" : source
+        is_pre = (preloaded == 1 || is_mine) ? 1 : 0
+        printf "app\t%s\t%s\t%s\t%s\t%s\t%d\n", name, jval(m, "name"), jval(m, "version"), update, src_out, is_pre
     }'
     rc=$?
     rm -rf "$tmp"
