@@ -9,13 +9,19 @@ END="// <<< userinit"
 
 if [ "$1" != remove ]; then
     for g in $(awk '$1 == "prefs" { print $2 }' "$BOOT_PLAN" 2>/dev/null); do
-        cat "$USERINIT/etc/prefs.d/$g.js" || log "etc/prefs.d/$g.js missing" >&2
+        if [ -f "$USERINIT/etc/prefs.d/$g.js" ]; then
+            awk 1 "$USERINIT/etc/prefs.d/$g.js"
+        else
+            log "etc/prefs.d/$g.js missing" >&2
+        fi
     done > "$PREFS"
 fi
 
 pref_names() {
-    sed -n 's/^[[:space:]]*user_pref([[:space:]]*"\([^"]*\)".*/\1/p'
+    grep -o 'user_pref([[:space:]]*"[^"]*"' | sed 's/^user_pref([[:space:]]*"//; s/"$//'
 }
+
+BLOCK='/^\/\/ >>> userinit/,/\/\/ <<< userinit$/'
 
 found=0
 for profile in /data/b2g/mozilla/*.default; do
@@ -24,8 +30,8 @@ for profile in /data/b2g/mozilla/*.default; do
     f="$profile/user.js"
     old=""
     if [ -f "$f" ]; then
-        old=$(sed -n '/^\/\/ >>> userinit/,/^\/\/ <<< userinit/p' "$f" | pref_names)
-        sed -i '/^\/\/ >>> userinit/,/^\/\/ <<< userinit/d' "$f"
+        old=$(sed -n "${BLOCK}p" "$f" | pref_names)
+        sed -i "${BLOCK}d" "$f"
     fi
     new=""
     [ "$1" != remove ] && [ -s "$PREFS" ] && new=$(pref_names < "$PREFS")
