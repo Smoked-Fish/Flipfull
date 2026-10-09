@@ -33,10 +33,7 @@ else
     done
 fi
 
-export PATH="$BBX:$PATH"
-
-PROFILE="$BASE/busybox-path.sh"
-echo "export PATH=$BBX:\$PATH" > "$PROFILE" 2>/dev/null
+rm -f "$BASE/busybox-path.sh"
 
 log "done - tools in $BBX (e.g. $BBX/timeout)"
 exit 0

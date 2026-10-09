@@ -13,6 +13,12 @@ APPS_SOCK=/data/local/tmp/apps-uds.sock
 APPS_DB=/data/local/webapps/db/apps.sqlite
 SQLITE=$USERINIT/bin/sqlite3
 
+# Append
+case ":$PATH:" in
+    *":$USERINIT/bin/bbx:"*) ;;
+    *) PATH=$PATH:$USERINIT/bin/bbx; export PATH ;;
+esac
+
 die() {
     echo "error: $*" >&2
     exit 1
