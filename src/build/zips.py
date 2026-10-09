@@ -29,7 +29,7 @@ def build_overlay(name, overlay):
     if (base / "manifest.webmanifest").exists():
         shutil.copyfile(base / "manifest.webmanifest", out / "manifest.webmanifest")
     stock = overlay.stock_md5 or hashlib.md5((base / "application.zip").read_bytes()).hexdigest()
-    (out / "stock.md5").write_text(stock + "\n", newline="\n")
+    (out / "stock.md5").write_text(stock + "\n", encoding="utf-8", newline="\n")
     print(f"{name:10} -> {zip_out.relative_to(ROOT)} ({zip_out.stat().st_size} bytes)")
 
 

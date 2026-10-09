@@ -26,7 +26,7 @@ PANELS = {
 
 
 def adb(*args, **kw):
-    return subprocess.run(["adb", *args], capture_output=True, text=True, **kw )
+    return subprocess.run(["adb", *args], capture_output=True, text=True, encoding="utf-8", errors="replace", **kw)
 
 
 def main():

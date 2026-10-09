@@ -59,7 +59,7 @@ ADB = None
 
 
 def adb(*args, check=True):
-    r = subprocess.run([ADB, *args], capture_output=True, text=True)
+    r = subprocess.run([ADB, *args], capture_output=True, text=True, encoding="utf-8", errors="replace")
     if check and r.returncode != 0:
         sys.exit(f"adb {' '.join(args)} failed:\n{r.stdout}{r.stderr}")
     return r.stdout.strip()
@@ -88,7 +88,7 @@ def flipfull(*words, live=False):
     cmd = f"sh {FLIPFULL} " + " ".join(words)
     if live:
         return sh_live(cmd)
-    return subprocess.run([ADB, "shell", cmd], capture_output=True, text=True).stdout
+    return subprocess.run([ADB, "shell", cmd], capture_output=True, text=True, encoding="utf-8", errors="replace").stdout
 
 
 def local_files():
@@ -108,7 +108,7 @@ def check_line_endings(files):
 def version():
     try:
         return subprocess.run(["git", "-C", str(ROOT), "describe", "--tags", "--always", "--dirty"],
-                              capture_output=True, text=True).stdout.strip() or "unknown"
+                              capture_output=True, text=True, encoding="utf-8", errors="replace").stdout.strip() or "unknown"
     except OSError:
         return "unknown"
 
@@ -152,7 +152,7 @@ def cmd_install(args):
     for f in changed:
         adb("push", str(LOCAL / f), f"{STAGING}/{f}")
     tmp = ROOT / ".files.tmp"
-    tmp.write_text(files_list(files), newline="\n")
+    tmp.write_text(files_list(files), encoding="utf-8", newline="\n")
     try:
         adb("push", str(tmp), f"{STAGING}/.files")
     finally:
@@ -449,7 +449,7 @@ def cmd_backup(args):
     else:
         print("copying with the phone's UI stopped for a consistent copy; it restarts in a moment...")
         tar = stop_ui_command(tar)
-    r = subprocess.run([ADB, "shell", tar], capture_output=True, text=True)
+    r = subprocess.run([ADB, "shell", tar], capture_output=True, text=True, encoding="utf-8", errors="replace")
     if r.returncode != 0 or not sh(f"[ -s {tmp} ] && echo y", check=False):
         sh(f"rm -f {tmp}", check=False)
         sys.exit(f"backup failed on the phone:\n{r.stdout}{r.stderr}")
@@ -465,7 +465,7 @@ def cmd_backup(args):
             (dest / "media").mkdir(exist_ok=True)
             adb("pull", sh(f"readlink -f {path}") + "/", str(dest / "media" / name))
             info["media"].append(name)
-    (dest / "backup.json").write_text(json.dumps(info, indent=2) + "\n")
+    (dest / "backup.json").write_text(json.dumps(info, indent=2) + "\n", encoding="utf-8")
     size = sum(f.stat().st_size for f in dest.rglob("*") if f.is_file())
     print(f"backup in {dest} ({size / 1e6:.1f} MB)")
 
@@ -474,7 +474,7 @@ def cmd_restore(args):
     require_root()
     src = Path(args.dir)
     try:
-        info = json.loads((src / "backup.json").read_text())
+        info = json.loads((src / "backup.json").read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
         sys.exit(f"{src}: not a flip4.py backup ({e})")
     tarball = src / "data.tar.gz"
@@ -516,7 +516,7 @@ def cmd_restore(args):
               f"for d; do rm -rf $d.flipfull-old; done; echo {done}; "
               "else for d; do rm -rf $d; [ -e $d.flipfull-old ] && mv $d.flipfull-old $d; done; fi; "
               f"rm -f {tmp}")
-    r = subprocess.run([ADB, "shell", script], capture_output=True, text=True)
+    r = subprocess.run([ADB, "shell", script], capture_output=True, text=True, encoding="utf-8", errors="replace")
     if done not in r.stdout:
         print(f"restore failed; the phone's data is as it was:\n{r.stdout}{r.stderr}\n"
               "starting the UI again...")
