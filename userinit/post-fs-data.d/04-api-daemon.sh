@@ -32,11 +32,7 @@ if planned feature block-telemetry on; then
 fi
 if planned feature wasm-unsafe-eval on; then
     CONFIG_SED="${CONFIG_SED}/csp *= *\"/{ /wasm-unsafe-eval/!s/script-src /script-src 'wasm-unsafe-eval' /; };"
-fi
-if planned feature wasm-unsafe-eval on; then
     CONFIG_SED="${CONFIG_SED}/csp *= *\"/{ /worker-src [^;]*blob:/!s/worker-src /worker-src blob: /; };"
-fi
-if planned feature wasm-unsafe-eval on; then
     CONFIG_SED="${CONFIG_SED}/csp *= *\"/{ /script-src [^;]*blob:/!s/script-src /script-src blob: /; };"
 fi
 
