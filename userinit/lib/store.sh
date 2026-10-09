@@ -42,9 +42,6 @@ flipfull_apps() {
     ls "$USERINIT/overlays" 2>/dev/null
 }
 
-# the phone's own apps and Flipfull's, which Flipstore may never replace.
-# Cached: api-daemon's database and Flipfull's file list say when it changes,
-# and the store commands ask for this on every install and uninstall.
 store_protected() {
     mkdir -p "$STATE"
     key="# $(stat -c %Y "$APPS_DB" "$APPS_DB-wal" "$MANIFEST" 2>/dev/null | tr '\n' ' ')"
@@ -140,10 +137,6 @@ store_unnamed() {
     echo "$2"
 }
 
-# `flipfull store installed`: every app, its version and where it came from.
-# One sqlite query and one awk pass; the old loop ran about ten processes per
-# app (an awk, a grep and two json_value pipelines of four each), which is the
-# slowest thing the Flipstore app asks for - it runs at every start.
 store_installed() {
     rows=$("$SQLITE" -init /dev/null -separator ' ' "$APPS_DB" \
         "SELECT name, preloaded, IFNULL(NULLIF(update_url, ''), '-') FROM apps
