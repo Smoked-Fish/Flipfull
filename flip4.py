@@ -38,7 +38,6 @@ BACKUP_PATHS = ["data/local/service/api-daemon", "data/local/webapps", "data/b2g
 BACKUP_EXCLUDES = ["*/startupCache", "*/shader-cache", "*/safebrowsing", "*/cache2",
                    "data/local/webapps/downloading"]
 MEDIA_PATHS = {"internal": "/data/media", "sdcard": "/mnt/sdcard"}
-NOT_IN_UPDATE = ("remote/FlipfullSpeech/models/",)
 TEXT_SUFFIXES = {".sh", ".js", ".md", ".conf", ".rc", ".ini", ".awk", ".hosts", ".xml"}
 TEXT_NAMES = {"flipfull"}
 
@@ -208,8 +207,7 @@ def cmd_release(args):
                     data = build.release_features(data.decode("utf-8")).encode("utf-8")
                 data = shrink(f, data)
                 add(z, data, f"flipfull/{f}")
-                if not f.startswith(NOT_IN_UPDATE):
-                    add(u, data, f"flipfull/{f}")
+                add(u, data, f"flipfull/{f}")
             for zf in (z, u):
                 add(zf, files_list(files).encode(), "flipfull/.files")
             add(z, shrink("install.sh", (release / "install.sh").read_bytes()), "install.sh", 0o755)

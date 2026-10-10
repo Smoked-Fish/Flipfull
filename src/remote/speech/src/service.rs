@@ -22,7 +22,7 @@ pub struct Speech {
 }
 
 fn answer(result: Result<Value, String>) -> Result<JsonValue, Failure> {
-    result.map(JsonValue::from).map_err(|message| Failure { message, offline: false })
+    result.map(JsonValue::from).map_err(|message| Failure { offline: message == recognizer::NO_MODEL, message })
 }
 
 impl SpeechMethods for Speech {
@@ -41,21 +41,29 @@ impl SpeechMethods for Speech {
     }
 
     fn health(&mut self, responder: SpeechHealthResponder) {
-        match answer(recognizer::health()) {
-            Ok(v) => responder.resolve(v),
-            Err(f) => responder.reject(f),
-        }
+        responder.resolve(JsonValue::from(recognizer::health()));
     }
 
     fn models(&mut self, responder: SpeechModelsResponder) {
-        match answer(recognizer::models()) {
-            Ok(v) => responder.resolve(v),
-            Err(f) => responder.reject(f),
-        }
+        responder.resolve(JsonValue::from(recognizer::models()));
     }
 
     fn use_model(&mut self, responder: SpeechUseModelResponder, file: String) {
         match answer(recognizer::use_model(&file)) {
+            Ok(v) => responder.resolve(v),
+            Err(f) => responder.reject(f),
+        }
+    }
+
+    fn download(&mut self, responder: SpeechDownloadResponder, file: String, offset: i64, piece: Vec<u8>) {
+        match answer(recognizer::download(&file, offset.max(0) as u64, &piece)) {
+            Ok(v) => responder.resolve(v),
+            Err(f) => responder.reject(f),
+        }
+    }
+
+    fn delete_model(&mut self, responder: SpeechDeleteModelResponder, file: String) {
+        match answer(recognizer::delete_model(&file)) {
             Ok(v) => responder.resolve(v),
             Err(f) => responder.reject(f),
         }
@@ -115,9 +123,8 @@ impl Service<Speech> for Speech {
             }
         };
         if !feature_on(feature) {
-            return Err("KaiVA is off in Flipfull".into());
+            return Err(format!("{} is off in Flipfull", feature));
         }
-        recognizer::models()?;
         Ok(Speech { session: false, clip: Vec::new() })
     }
 

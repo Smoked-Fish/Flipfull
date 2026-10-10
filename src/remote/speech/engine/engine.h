@@ -13,9 +13,7 @@ typedef int (*stt_abort)(void * data);
 
 void stt_set_log(void (*log)(const char * line));
 
-int stt_model_info(const char * path, char * name, size_t name_size, int * english);
-
-struct stt_model * stt_load(const char * path, int threads);
+struct stt_model * stt_load(const char * path, int threads, int english);
 void stt_free(struct stt_model * m);
 
 int stt_transcribe(struct stt_model * m, const uint8_t * audio, size_t len, const char * lang, stt_abort abort,

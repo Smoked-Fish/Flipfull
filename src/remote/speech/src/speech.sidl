@@ -9,11 +9,15 @@ interface Speech {
 
   fn close()
 
-  fn health() -> json, Failure
+  fn health() -> json
 
-  fn models() -> json, Failure
+  fn models() -> json
 
   fn use_model(file: str) -> json, Failure
+
+  fn download(file: str, offset: int, piece: binary) -> json, Failure
+
+  fn delete_model(file: str) -> json, Failure
 
   fn begin()
 

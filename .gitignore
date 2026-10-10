@@ -6,7 +6,6 @@ node_modules/
 .cache/
 userinit/overlays/
 userinit/apps/
-userinit/remote/FlipfullSpeech/models/
 userinit/media/
 client_secret*.json
 backups/

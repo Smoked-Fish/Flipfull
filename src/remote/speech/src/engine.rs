@@ -8,8 +8,7 @@ struct RawModel {
 
 extern "C" {
     fn stt_set_log(log: extern "C" fn(*const c_char));
-    fn stt_model_info(path: *const c_char, name: *mut c_char, name_size: usize, english: *mut c_int) -> c_int;
-    fn stt_load(path: *const c_char, threads: c_int) -> *mut RawModel;
+    fn stt_load(path: *const c_char, threads: c_int, english: c_int) -> *mut RawModel;
     fn stt_free(m: *mut RawModel);
     fn stt_transcribe(
         m: *mut RawModel,
@@ -35,25 +34,14 @@ pub fn init() {
     unsafe { stt_set_log(log_line) };
 }
 
-pub fn info(path: &str) -> Option<(String, bool)> {
-    let path = CString::new(path).ok()?;
-    let mut name = [0 as c_char; 256];
-    let mut english: c_int = 0;
-    if unsafe { stt_model_info(path.as_ptr(), name.as_mut_ptr(), name.len(), &mut english) } == 0 {
-        return None;
-    }
-    let name = unsafe { CStr::from_ptr(name.as_ptr()) }.to_string_lossy().into_owned();
-    Some((name, english != 0))
-}
-
 pub struct Model(*mut RawModel);
 
 unsafe impl Send for Model {}
 
 impl Model {
-    pub fn load(path: &str, threads: usize) -> Option<Model> {
+    pub fn load(path: &str, threads: usize, english: bool) -> Option<Model> {
         let path = CString::new(path).ok()?;
-        let raw = unsafe { stt_load(path.as_ptr(), threads as c_int) };
+        let raw = unsafe { stt_load(path.as_ptr(), threads as c_int, english as c_int) };
         if raw.is_null() {
             None
         } else {

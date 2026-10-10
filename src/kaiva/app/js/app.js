@@ -5,6 +5,7 @@ const PREF_AUTO_INSERT = 'kaiva.auto-insert';
 const PREF_MIC_KEY_SET = 'kaiva.mic-key-set';
 const PREF_SEARCH = 'kaiva.search-engine';
 const PREF_SEARCH_AT_ONCE = 'kaiva.search-at-once';
+const PREF_ONLINE = 'kaiva.online';
 
 const SAYINGS = [
   'Open Camera',
@@ -48,6 +49,7 @@ const el = {
 let state = 'idle';
 let recorder = null;
 let request = null;
+let serviceUp = Promise.resolve(false);
 let listenFor = 'command';
 let resultText = '';
 let done = false;
@@ -65,6 +67,10 @@ function pref(name, value) {
     localStorage.setItem(name, value);
   } catch (e) {}
   return null;
+}
+
+function onlineOk() {
+  return pref(PREF_ONLINE) !== '0';
 }
 
 function wait(ms) {
@@ -148,7 +154,7 @@ async function listen(kind = 'command') {
   softkeys('Cancel', '', '');
   on({ left: cancelListening, back: exit });
 
-  const serviceUp = STT.open();
+  serviceUp = STT.open();
   const rec = new Mic.Recorder({
     onLevel: setLevel,
     onSpeech: () => {
@@ -177,7 +183,7 @@ async function listen(kind = 'command') {
   softkeys('Cancel', 'Done', '');
   on({ center: () => rec.stop(true), left: cancelListening, back: exit });
 
-  if (!(await serviceUp) && recorder === rec && state === 'listening') {
+  if (!(await serviceUp) && !onlineOk() && recorder === rec && state === 'listening') {
     cancelWork();
     showError('Speech service is not running', 'service');
   }
@@ -203,15 +209,30 @@ async function onClip(rec, pcm) {
 
   const ctrl = new AbortController();
   request = ctrl;
+  let online = !(await serviceUp);
+  if (request !== ctrl) {
+    return;
+  }
+  if (online && !onlineOk()) {
+    request = null;
+    showError('Speech service is not running', 'service');
+    return;
+  }
   let text;
   try {
-    text = await STT.transcribe(pcm, ctrl);
+    text = await (online ? STT.transcribeOnline(pcm, ctrl) : STT.transcribe(pcm, ctrl).catch((e) => {
+      if (!e.offline || !onlineOk()) {
+        throw e;
+      }
+      online = true;
+      return STT.transcribeOnline(pcm, ctrl);
+    }));
   } catch (e) {
     if (request === ctrl) {
       request = null;
       console.error('KaiVA: transcription failed', e);
       if (e.offline) {
-        showError('Speech service is not running', 'service');
+        showError(online ? 'No internet connection' : 'Speech service is not running', online ? 'internet' : 'service');
       } else {
         showError(`Couldn't transcribe: ${e.message}`);
       }
@@ -265,9 +286,10 @@ function showError(message, kind) {
     text: message,
     quote: false,
     error: true,
-    detail: kind === 'service' ?
-      'It starts with KaiVA on in the Flipfull app, after a reboot' :
-      'Try “Open Camera” or “What time is it?”',
+    detail: {
+      service: 'Download a speech model in Settings, or turn on Online speech',
+      internet: "Without the phone's speech service, KaiVA uses KaiOS's online speech recognition",
+    }[kind] || 'Try “Open Camera” or “What time is it?”',
   });
   softkeys('Help', 'mic', 'Settings');
   on({ left: help, center: () => listen(), right: settings, back: exit });
@@ -330,7 +352,8 @@ function help() {
   SAYINGS.forEach((s) => add('say', s));
   add('caption', `Anything else is searched with ${KaiOS.engine(pref(PREF_SEARCH)).name}` +
     `${pref(PREF_SEARCH_AT_ONCE) === '1' ? '' : ' when you press OK'}. ` +
-    'Your voice is understood on the phone and never sent anywhere.');
+    (onlineOk() ? "With the phone's speech service your voice is understood on the phone; without it, " +
+      "it goes to KaiOS's online speech recognition." : 'Your voice is understood on the phone and never sent anywhere.'));
   setView('list');
   el.list.scrollTop = 0;
   softkeys('Back', 'mic', '');
@@ -760,7 +783,8 @@ function renderMenu() {
   if (focused) {
     focused.scrollIntoView({ block: 'nearest' });
   }
-  softkeys('Back', menu.items[menu.focus].run ? 'Select' : '', '');
+  const item = menu.items[menu.focus];
+  softkeys('Back', item.run ? 'Select' : '', item.del ? 'Delete' : '');
 }
 
 function setItem(id, value) {
@@ -793,6 +817,12 @@ function showMenu(name, items, focusId, back) {
         item.run(item);
       }
     },
+    right: () => {
+      const item = items[menu.focus];
+      if (item.del) {
+        item.del();
+      }
+    },
   });
 }
 
@@ -807,35 +837,73 @@ async function refreshDefaults() {
   }
 }
 
+function noService() {
+  setItem('service', onlineOk() ? 'Not running · KaiOS online is used' : 'Not running');
+  setItem('model', onlineOk() ? 'KaiOS online' : 'The speech service is not running');
+}
+
+function onlineText() {
+  return onlineOk() ? "On when the phone's speech service isn't running" : 'Off';
+}
+
 async function refreshService() {
   setItem('service', 'Checking…');
   const h = await STT.health();
   if (!h) {
-    setItem('service', 'Not running');
-    setItem('model', 'The speech service is not running');
+    noService();
     return;
   }
   setItem('service', `Running${h.loaded ? ' · model loaded' : ''}`);
-  setItem('model', h.name);
+  setItem('model', h.name || 'None · select to download one');
 }
 
-function modelSummary(m) {
-  return `${m.english ? 'English' : 'Many languages'} · ${m.mb} MB`;
+let downloading = null;
+
+function modelSummary(m, current) {
+  const about = `${m.english ? 'English' : 'Many languages'} · ${m.mb} MB`;
+  if (m.file === downloading) {
+    return `Downloading · ${Math.floor(m.bytes / 1e6)} of ${m.mb} MB`;
+  }
+  if (!m.ready) {
+    return m.bytes ? `${about} · select to finish the download` : `${about} · select to download`;
+  }
+  return m.file === current ? `In use · ${about}` : about;
 }
 
-async function modelPicker() {
+async function download(m) {
+  if (downloading) {
+    return;
+  }
+  downloading = m.file;
+  setItem(m.file, modelSummary(m));
+  try {
+    await STT.download(m, (bytes) => setItem(m.file, modelSummary(Object.assign({}, m, { bytes }))));
+    downloading = null;
+  } catch (e) {
+    downloading = null;
+    setItem(m.file, `Download stopped: ${e.message} · select to go on`);
+    return;
+  }
+  if (menu && menu.name === 'Speech model') {
+    modelPicker(m.file);
+  }
+}
+
+async function modelPicker(focusId) {
   const list = await STT.models();
   if (!list) {
-    setItem('model', 'The speech service is not running');
+    noService();
     return;
   }
   showMenu('Speech model', list.models.map((m) => ({
     id: m.file,
     label: m.name,
-    value: m.file === list.current ? `In use · ${modelSummary(m)}` : modelSummary(m),
-    run: () => STT.useModel(m.file).then(() => settings('model'),
-      (e) => setItem(m.file, `Couldn't switch: ${e.message}`)),
-  })), list.current, () => settings('model'));
+    value: modelSummary(m, list.current),
+    run: () => (m.ready ? STT.useModel(m.file).then(() => settings('model'),
+      (e) => setItem(m.file, `Couldn't switch: ${e.message}`)) : download(m)),
+    del: m.ready && (() => STT.deleteModel(m.file).then(() => modelPicker(m.file),
+      (e) => setItem(m.file, `Couldn't delete: ${e.message}`))),
+  })), focusId || list.current, () => settings('model'));
 }
 
 function settings(focusId) {
@@ -883,14 +951,24 @@ function settings(focusId) {
         setItem('autoinsert', item.value === 'On' ? 'Off' : 'On');
       },
     },
-    { id: 'model', label: 'Speech model', value: 'Checking…', run: modelPicker },
+    { id: 'model', label: 'Speech model', value: 'Checking…', run: () => modelPicker() },
     { id: 'service', label: 'Speech service', value: 'Checking…', run: refreshService },
-    { id: 'about', label: 'KaiVA', value: 'On-device speech to text', run: null },
+    {
+      id: 'online',
+      label: 'Online speech',
+      value: onlineText(),
+      run: () => {
+        pref(PREF_ONLINE, onlineOk() ? '0' : '1');
+        setItem('online', onlineText());
+        refreshService();
+      },
+    },
+    { id: 'about', label: 'KaiVA', value: 'Voice commands and dictation', run: null },
   ], focusId, standby);
   refreshDefaults();
   refreshService();
   fetch('/manifest.webmanifest').then((r) => r.json()).then((m) => {
-    setItem('about', `Version ${m.b2g_features.version} · on-device speech to text`);
+    setItem('about', `Version ${m.b2g_features.version}`);
   }).catch(() => {});
 }
 
@@ -948,7 +1026,10 @@ function onKey(e) {
 
 window.addEventListener('keydown', onKey);
 
+let keepalive = null;
+
 window.addEventListener('pagehide', () => {
+  clearInterval(keepalive);
   cancelWork();
   STT.close();
   if (MODE === 'input' && !done) {
@@ -959,7 +1040,7 @@ window.addEventListener('pagehide', () => {
 
 if (MODE === 'input') {
   el.body.dataset.mode = 'input';
-  setInterval(() => toWorker({ type: 'keepalive' }), 5000);
+  keepalive = setInterval(() => toWorker({ type: 'keepalive' }), 5000);
   toWorker({ type: 'hello' });
   document.addEventListener('visibilitychange', () => {
     if (document.hidden && state !== 'starting') {

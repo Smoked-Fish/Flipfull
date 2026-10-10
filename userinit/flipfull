@@ -439,8 +439,6 @@ cmd_setup() {
     find "$USERINIT" -type f -exec chmod 0644 {} \;
     find "$USERINIT" -type f \( -name '*.sh' -o -path '*/bin/*' -o -path '*/remote/*/daemon' -o -name toolboxd \
          -o -name flipfull \) -exec chmod 0755 {} \;
-    # the speech service reads them as its own uid
-    [ -d "$USERINIT/remote/FlipfullSpeech/models" ] && chmod 0755 "$USERINIT/remote/FlipfullSpeech/models"
     [ -f "$GOOGLE_CLIENT" ] && chmod 0600 "$GOOGLE_CLIENT"
     for src in "$USERINIT"/overlays/*; do
         dst=$(readlink -f "$VROOT/${src##*/}" 2>/dev/null)

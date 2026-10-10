@@ -19,10 +19,8 @@ jobs:
           python-version: "3.12"
       - uses: actions/cache@v4
         with:
-          path: |
-            userinit/remote/FlipfullSpeech/models
-            .cache
-          key: models-${{ hashFiles('src/build/stt.py', 'src/minify.py') }}
+          path: .cache
+          key: esbuild-${{ hashFiles('src/minify.py') }}
 
       - run: python flip4.py release dist
 

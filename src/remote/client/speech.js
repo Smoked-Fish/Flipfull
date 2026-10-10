@@ -9,6 +9,18 @@ const SLOW = 75 * 1000;
 
 const speech = service('FlipfullSpeech', lib);
 
+function download(file, offset, bytes) {
+  return speech.call((svc) => {
+    let done = Promise.resolve();
+    for (let at = 0; at < bytes.length; at += PIECE) {
+      const piece = bytes.subarray(at, at + PIECE);
+      const from = offset + at;
+      done = done.then(() => svc.download(file, from, piece));
+    }
+    return done;
+  }, SLOW);
+}
+
 function transcribe(bytes) {
   const clip = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
   return speech.call((svc) => {
@@ -36,5 +48,9 @@ window.FlipfullSpeech = {
   useModel(file) {
     return speech.call((svc) => svc.useModel(file), QUICK);
   },
+  deleteModel(file) {
+    return speech.call((svc) => svc.deleteModel(file), QUICK);
+  },
+  download,
   transcribe,
 };

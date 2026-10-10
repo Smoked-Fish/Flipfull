@@ -2,7 +2,6 @@
 Targets, all of them unless some are named:
   overlays  a stock app with Flipfull's changes
   apps      Flipfull's own apps, userinit/apps/<name>/
-  stt       the speech-to-text models, downloaded to userinit/remote/FlipfullSpeech/models/
 
 userinit/features.ini and the camera profiles are checked first.
 
@@ -11,14 +10,13 @@ userinit/features.ini and the camera profiles are checked first.
   snippets.py  JS and HTML that many overlays put in
   textops.py   strict cut and replace, for Rewrite functions
   zips.py      writes the application.zip files
-  stt.py       downloads the models
   features.py, camera.py
 """
 
 import sys
 from functools import partial
 
-from . import stt, zips
+from . import zips
 from .camera import check_camera_profiles
 from .errors import BuildError
 from .features import check_features, release_features
@@ -36,7 +34,6 @@ APPS = {
 TARGETS = {
     **{name: partial(zips.build_overlay, name, overlay) for name, overlay in OVERLAYS.items()},
     **{name: partial(zips.build_app, name, folder) for name, folder in APPS.items()},
-    "stt": stt.fetch_models,
 }
 
 

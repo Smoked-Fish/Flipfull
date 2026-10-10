@@ -1,11 +1,8 @@
 #include "engine.h"
 
-#include "gguf.h"
 #include "opus.h"
 #include "transcribe.h"
 #include "whisper.h"
-
-#include <sys/stat.h>
 
 #include <algorithm>
 #include <cctype>
@@ -50,17 +47,6 @@ void transcribe_log_cb(transcribe_log_level level, const char * text, void *) {
 bool ends_with(const std::string & s, const char * suffix) {
     const size_t n = strlen(suffix);
     return s.size() >= n && s.compare(s.size() - n, n, suffix) == 0;
-}
-
-std::string whisper_name(const std::string & path) {
-    std::string size = path.substr(path.rfind('/') + 1);
-    size.resize(size.size() - 4);
-    if (size.compare(0, 5, "ggml-") == 0) size.erase(0, 5);
-    size = size.substr(0, size.find("-q"));
-    const bool en = ends_with(size, ".en");
-    if (en) size.resize(size.size() - 3);
-    if (!size.empty()) size[0] = (char) toupper((unsigned char) size[0]);
-    return "Whisper " + size + (en ? " (English)" : "");
 }
 
 std::string clean_text(const std::string & in) {
@@ -340,31 +326,10 @@ extern "C" void stt_set_log(void (*log)(const char *)) {
     transcribe_log_set(transcribe_log_cb, nullptr);
 }
 
-extern "C" int stt_model_info(const char * path, char * name, size_t name_size, int * english) {
-    struct stat st;
-    if (stat(path, &st) != 0) return 0;
-    std::string shown;
-    if (ends_with(path, ".bin")) {
-        shown = whisper_name(path);
-        *english = shown.find("(English)") != std::string::npos;
-    } else {
-        gguf_init_params gp = {true, nullptr};
-        gguf_context * g = gguf_init_from_file(path, gp);
-        if (!g) return 0;
-        const int64_t key = gguf_find_key(g, "general.name");
-        const char * file = strrchr(path, '/');
-        shown = key >= 0 ? gguf_get_val_str(g, key) : (file ? file + 1 : path);
-        const int64_t langs = gguf_find_key(g, "general.languages");
-        *english = langs >= 0 && gguf_get_arr_n(g, langs) == 1 && strcmp(gguf_get_arr_str(g, langs, 0), "en") == 0;
-        gguf_free(g);
-    }
-    snprintf(name, name_size, "%s", shown.c_str());
-    return 1;
-}
-
-extern "C" stt_model * stt_load(const char * path, int threads) {
+extern "C" stt_model * stt_load(const char * path, int threads, int english) {
     auto * m = new stt_model;
     m->threads = threads;
+    m->english = english;
     bool ok;
     if (ends_with(path, ".bin")) {
         whisper_context_params cp = whisper_context_default_params();
@@ -373,14 +338,10 @@ extern "C" stt_model * stt_load(const char * path, int threads) {
         m->whisper = whisper_init_from_file_with_params(path, cp);
         ok = m->whisper != nullptr;
     } else {
-        char name[256];
-        int english = 0;
-        ok = stt_model_info(path, name, sizeof name, &english);
-        m->english = english;
         transcribe_session_params sp;
         transcribe_session_params_init(&sp);
         sp.n_threads = threads;
-        ok = ok && transcribe_open(path, nullptr, &sp, &m->session) == TRANSCRIBE_OK;
+        ok = transcribe_open(path, nullptr, &sp, &m->session) == TRANSCRIBE_OK;
     }
     if (!ok) {
         stt_free(m);

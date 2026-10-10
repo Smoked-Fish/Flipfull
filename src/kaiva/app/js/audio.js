@@ -218,5 +218,6 @@
     }
   }
 
+  exports.RATE = RATE;
   exports.Recorder = Recorder;
 })(window.Mic = {});

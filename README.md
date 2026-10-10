@@ -33,9 +33,11 @@ From the repo:
 |---|---|
 | **Block usage reports** | KaiOS's event logger, api-daemon app usage reports, Mozilla's telemetry, and the servers KaiOS and TCL send reports to are blocked. |
 | **Tracker blocking** | The browser and apps block known trackers, with Mozilla's lists that are already on the phone. |
-| **Speech recognition for websites** | Websites that use the Web Speech API get their speech recognized on the phone, by KaiVA's speech service. I don't know if this will ever be used. |
+| **Speech recognition for websites** | Websites that use the Web Speech API get their speech recognized on the phone, by KaiVA's speech service, with a model downloaded in KaiVA. I don't know if this will ever be used. |
 | **Smoother apps** | The JavaScript memory manager is tuned for 1.6 GB of RAM instead of 256 MB |
 | **Website crash fix** | Prevents websites that send both Cross-Origin-Opener-Policy and Cross-Origin-Embedder-Policy from crashing |
+| **User Agent Override** | Makes websites think you are on desktop |
+| **WebAssembly in apps** | The Firefox 123 update blocked WebAssembly in apps by default. This adds 'wasm-unsafe-eval' to the CSP so WebAssembly works again. (gecko-b2g issue #66) |
 
 ### Home Screen
 
@@ -64,8 +66,8 @@ From the repo:
 | Feature | About |
 |---|---|
 | **Call recording** | Settings > Call Settings > Call Recording: record both sides of a call when you press Left, or every call. Recordings are .m4a files in the callrecording folder. There is about a half second of delay when turning on call recording. Recording laws differ, some places require everyone on the call to agree. |
-| **KaiVA voice assistant** | A voice assistant that works without the internet. Adds many more settings for you to explore in the KaiVA app too. |
-| **Dictation in text fields** | Hold OK in any text field except passwords to dictate, recognized on the phone by KaiVA. |
+| **KaiVA voice assistant** | A voice assistant that works without the internet once you download a speech model in KaiVA's Settings. Until then it uses KaiOS's online speech recognition, like the stock assistant. Adds many more settings for you to explore in the KaiVA app too. |
+| **Dictation in text fields** | Hold OK in any text field except passwords to dictate with KaiVA. |
 
 ### Apps
 
