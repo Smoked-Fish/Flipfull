@@ -3,6 +3,7 @@
 LOG_TAG=api-daemon
 
 DIR=/data/local/service/api-daemon
+REMOTE=$DIR/remote
 
 mount_changed() {
     copy=$USERINIT/state/api-daemon-${1##*/}
@@ -25,6 +26,45 @@ mount_changed() {
         return 1
     fi
 }
+
+install_remote() {
+    mkdir -p "$REMOTE" && chmod 0755 "$REMOTE" || return 1
+    for src in "$USERINIT"/remote/*/daemon; do
+        [ -f "$src" ] || continue
+        name=${src%/daemon}
+        name=${name##*/}
+        dst=$REMOTE/$name
+        cmp -s "$src" "$dst/daemon" && continue
+        if mkdir -p "$dst" && cp "$src" "$dst/daemon.tmp" && chmod 0755 "$dst/daemon.tmp" &&
+            mv -f "$dst/daemon.tmp" "$dst/daemon"; then
+            log "installed $name"
+            pkill -f "^$dst/daemon" 2>/dev/null
+        else
+            log "couldn't install $name"
+        fi
+        chcon -R u:object_r:api_data_file:s0 "$dst" 2>/dev/null
+    done
+}
+
+remove_remote() {
+    for dst in "$REMOTE"/Flipfull*; do
+        [ -d "$dst" ] || continue
+        [ "$1" != all ] && [ -f "$USERINIT/remote/${dst##*/}/daemon" ] && continue
+        rm -rf "$dst" && log "removed ${dst##*/}"
+    done
+}
+
+case $1 in
+    remove)
+        remove_remote all
+        exit 0 ;;
+    remote)
+        install_remote
+        remove_remote
+        exit 0 ;;
+esac
+install_remote
+remove_remote
 
 CONFIG_SED=""
 if planned feature block-telemetry on; then

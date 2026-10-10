@@ -9,7 +9,8 @@ removes Flipfull.
   flipfull state                  each feature: on / off, at the last boot, usable on this phone; what waits for a reboot
   flipfull set ID on|off ...      turn features on / off
   flipfull plan                   what the features that are on need
-  flipfull publish [--remove]     write (or delete) features.js for the overlays
+  flipfull publish [--remove]     write (or delete) features.js for the overlays and
+                                  the remote services, and the services' JS clients
   flipfull removable [set NAME...]    preloaded apps that can be uninstalled
   flipfull google-client [import [FILE] | remove]
                                   your own Google sign-in client
@@ -51,15 +52,22 @@ http_root() {
 
 publish() {
     dir=$(http_root)/flipfull
-    mkdir -p "$dir" || return 1
-    { if [ -n "$1" ]; then echo "$1"; else plan; fi; } | awk -v src="$USERINIT/flipfull" '
+    mkdir -p "$dir" "$STATE" || return 1
+    { if [ -n "$1" ]; then echo "$1"; else plan; fi; } | awk '$1 == "feature" && $3 == "on" { print $2 }' \
+        > "$STATE/features.tmp" && chmod 0644 "$STATE/features.tmp" && mv -f "$STATE/features.tmp" "$STATE/features" || return 1
+    awk -v src="$USERINIT/flipfull" '
         BEGIN {
             print "// Written by " src ": the Flipfull features that are on."
             printf "window.FlipfullFeatures = {"
         }
-        $1 == "feature" && $3 == "on" { printf "%s\"%s\": true", n++ ? ", " : "", $2 }
-        END { print "};" }' > "$dir/features.js.tmp" &&
-        chmod 0644 "$dir/features.js.tmp" && mv -f "$dir/features.js.tmp" "$dir/features.js"
+        { printf "%s\"%s\": true", n++ ? ", " : "", $1 }
+        END { print "};" }' "$STATE/features" > "$dir/features.js.tmp" &&
+        chmod 0644 "$dir/features.js.tmp" && mv -f "$dir/features.js.tmp" "$dir/features.js" || return 1
+    for js in "$USERINIT"/remote/*.js; do
+        [ -f "$js" ] || continue
+        cmp -s "$js" "$dir/${js##*/}" && continue
+        cp "$js" "$dir/${js##*/}.tmp" && chmod 0644 "$dir/${js##*/}.tmp" && mv -f "$dir/${js##*/}.tmp" "$dir/${js##*/}" || return 1
+    done
 }
 
 overlay_status() {
@@ -429,8 +437,10 @@ cmd_setup() {
     chown -R root:root "$USERINIT"
     find "$USERINIT" -type d -exec chmod 0711 {} \;
     find "$USERINIT" -type f -exec chmod 0644 {} \;
-    find "$USERINIT" -type f \( -name '*.sh' -o -path '*/bin/*' -o -path '*/cgi-bin/*' -o -name flipfull \
-         -o -name stt-server -o -name callrecd \) -exec chmod 0755 {} \;
+    find "$USERINIT" -type f \( -name '*.sh' -o -path '*/bin/*' -o -path '*/remote/*/daemon' -o -name toolboxd \
+         -o -name flipfull \) -exec chmod 0755 {} \;
+    # the speech service reads them as its own uid
+    [ -d "$USERINIT/remote/FlipfullSpeech/models" ] && chmod 0755 "$USERINIT/remote/FlipfullSpeech/models"
     [ -f "$GOOGLE_CLIENT" ] && chmod 0600 "$GOOGLE_CLIENT"
     for src in "$USERINIT"/overlays/*; do
         dst=$(readlink -f "$VROOT/${src##*/}" 2>/dev/null)
@@ -445,6 +455,7 @@ cmd_setup() {
     changed=$(cat "$STATE/changed" 2>/dev/null)
     now=$(plan)
     reconcile_services "$now" $(echo "$changed" | sed -n 's|^services/\([^/]*\)/.*|\1|p' | sort -u)
+    sh "$USERINIT/post-fs-data.d/04-api-daemon.sh" remote
     reconcile_apps "$now" $(echo "$changed" | sed -n 's|^[a-z]*/\([^/]*\)/application.zip$|\1|p')
     reconcile_store "$now"
 

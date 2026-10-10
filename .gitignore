@@ -6,7 +6,7 @@ node_modules/
 .cache/
 userinit/overlays/
 userinit/apps/
-userinit/services/stt/models/
+userinit/remote/FlipfullSpeech/models/
 userinit/media/
 client_secret*.json
 backups/
@@ -15,3 +15,8 @@ system_apps/
 icons/
 src/bootanim/
 scripts/
+src/remote/api-daemon
+src/remote/Cargo.lock
+src/remote/*/service.json
+src/remote/*/src/generated/
+src/remote/*/client/generated/

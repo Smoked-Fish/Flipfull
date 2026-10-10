@@ -1,0 +1,25 @@
+dictionary Failure {
+  message: str
+  offline: bool
+}
+
+#[rust:not-tracked]
+interface Speech {
+  fn open() -> bool
+
+  fn close()
+
+  fn health() -> json, Failure
+
+  fn models() -> json, Failure
+
+  fn use_model(file: str) -> json, Failure
+
+  fn begin()
+
+  fn append(audio: binary) -> void, Failure
+
+  fn transcribe() -> json, Failure
+}
+
+service FlipfullSpeech: Speech

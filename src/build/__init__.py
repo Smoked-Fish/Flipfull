@@ -2,7 +2,7 @@
 Targets, all of them unless some are named:
   overlays  a stock app with Flipfull's changes
   apps      Flipfull's own apps, userinit/apps/<name>/
-  stt       the speech-to-text models, downloaded to userinit/services/stt/models/
+  stt       the speech-to-text models, downloaded to userinit/remote/FlipfullSpeech/models/
 
 userinit/features.ini and the camera profiles are checked first.
 

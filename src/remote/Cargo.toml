@@ -1,0 +1,18 @@
+[workspace]
+resolver = "2"
+members = ["common", "bridge", "callrec", "speech", "toolboxd"]
+
+[patch.crates-io]
+actix = {git = "https://github.com/fabricedesre/actix.git", branch = "parking-lot-0.12"}
+pest = {git = "https://github.com/fabricedesre/pest.git"}
+pest_derive = {git = "https://github.com/fabricedesre/pest.git"}
+pest_generator = {git = "https://github.com/fabricedesre/pest.git"}
+pest_meta = {git = "https://github.com/fabricedesre/pest.git"}
+
+[profile.release]
+codegen-units = 1
+debug = false
+lto = true
+opt-level = "s"
+panic = "abort"
+strip = true

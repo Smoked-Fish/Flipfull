@@ -5,7 +5,7 @@ import urllib.request
 from .errors import BuildError
 from .paths import ROOT, USERINIT
 
-MODELS_DIR = USERINIT / "services" / "stt" / "models"
+MODELS_DIR = USERINIT / "remote" / "FlipfullSpeech" / "models"
 
 # file name: (URL of the folder it's in, its sha256)
 MODELS = {

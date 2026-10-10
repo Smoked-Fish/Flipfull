@@ -58,7 +58,7 @@ store_protected() {
 
 store_name_ok() { case $1 in ''|-*|*[!a-z0-9.-]*) return 1 ;; esac; }
 
-# an https URL made of the characters cgi-bin/store passes on; no forks
+# an https URL made of the characters toolboxd passes on; no forks
 # (the charset sits in a variable: & and ; can't appear in a case pattern)
 store_url_ok() {
     bad='*[!A-Za-z0-9._~:/?#@!$&+,;=%-]*'

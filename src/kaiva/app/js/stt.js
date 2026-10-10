@@ -1,91 +1,75 @@
 'use strict';
 
 (function (exports) {
-  const SERVICE = 'http://127.0.0.1:8321';
   const TIMEOUT_MS = 45000;
 
-  let session = null;
   let sessionUp = null;
 
+  function speech() {
+    return window.FlipfullSpeech || null;
+  }
+
+  function offline(message) {
+    const e = new Error(message);
+    e.offline = true;
+    return e;
+  }
+
   function open() {
-    if (session) {
-      return sessionUp;
-    }
-    const s = new EventSource(`${SERVICE}/session`);
-    session = s;
-    let opened = false;
-    sessionUp = new Promise((resolve) => {
-      s.onopen = () => {
-        opened = true;
-        resolve(true);
-      };
-      s.onerror = () => {
-        if (!opened && session === s) {
-          session = null;
-          s.close();
-          resolve(false);
+    if (!sessionUp) {
+      const s = speech();
+      sessionUp = s ? s.open().catch(() => false) : Promise.resolve(false);
+      sessionUp.then((up) => {
+        if (!up) {
+          sessionUp = null;
         }
-      };
-    });
+      });
+    }
     return sessionUp;
   }
 
   function close() {
-    if (session) {
-      session.close();
-      session = null;
+    const s = speech();
+    if (sessionUp && s) {
+      s.close().catch(() => {});
     }
-  }
-
-  function getJson(path) {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 3000);
-    return fetch(`${SERVICE}${path}`, { signal: ctrl.signal })
-      .then((res) => (res.ok ? res.json() : null))
-      .catch(() => null)
-      .finally(() => clearTimeout(timer));
+    sessionUp = null;
   }
 
   function health() {
-    return getJson('/health');
+    const s = speech();
+    return s ? s.health().catch(() => null) : Promise.resolve(null);
   }
 
   function models() {
-    return getJson('/models');
+    const s = speech();
+    return s ? s.models().catch(() => null) : Promise.resolve(null);
   }
 
-  async function useModel(file) {
-    const res = await fetch(`${SERVICE}/model`, { method: 'POST', body: file });
-    const json = await res.json();
-    if (!res.ok) {
-      throw new Error(json.error || `HTTP ${res.status}`);
+  function useModel(file) {
+    const s = speech();
+    return s ? s.useModel(file) : Promise.reject(offline("Flipfull's speech service didn't load"));
+  }
+
+  function transcribe(pcm, ctrl) {
+    const s = speech();
+    if (!s) {
+      return Promise.reject(offline("Flipfull's speech service didn't load"));
     }
-    return json;
-  }
-
-  async function transcribe(pcm, ctrl) {
-    let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      ctrl.abort();
-    }, TIMEOUT_MS);
-    try {
-      const res = await fetch(`${SERVICE}/transcribe`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/octet-stream' },
-        body: pcm.buffer,
-        signal: ctrl.signal,
+    return new Promise((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('took too long')), TIMEOUT_MS);
+      ctrl.signal.addEventListener('abort', () => {
+        clearTimeout(timer);
+        reject(new Error('aborted'));
       });
-      const json = await res.json();
-      if (!res.ok) {
-        throw new Error(json.error || `HTTP ${res.status}`);
-      }
-      return (json.text || '').trim();
-    } catch (e) {
-      throw timedOut ? new Error('took too long') : e;
-    } finally {
-      clearTimeout(timer);
-    }
+      s.transcribe(new Uint8Array(pcm.buffer, pcm.byteOffset, pcm.byteLength)).then((json) => {
+        clearTimeout(timer);
+        resolve((json.text || '').trim());
+      }, (e) => {
+        clearTimeout(timer);
+        reject(e);
+      });
+    });
   }
 
   Object.assign(exports, { open, close, health, models, useModel, transcribe });

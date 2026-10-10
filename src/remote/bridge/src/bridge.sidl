@@ -1,0 +1,11 @@
+dictionary Failure {
+  message: str
+  offline: bool
+}
+
+#[rust:not-tracked]
+interface Bridge {
+  fn run(words: str+) -> str, Failure
+}
+
+service FlipfullBridge: Bridge

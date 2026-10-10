@@ -153,8 +153,37 @@
     };
   }
 
+  const SPEECH_SCRIPTS = [
+    ['ExternalAPI', 'http://127.0.0.1/api/v1/shared/core.js'],
+    ['lib_session', 'http://127.0.0.1/api/v1/shared/session.js'],
+    ['FlipfullSpeech', 'http://127.0.0.1/flipfull/speech.js'],
+  ];
+
+  function script(src) {
+    return new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = src;
+      s.onload = resolve;
+      s.onerror = () => reject(new Error(`${src} didn't load`));
+      document.head.appendChild(s);
+    });
+  }
+
+  function startWebSpeech() {
+    SPEECH_SCRIPTS.reduce((done, [name, src]) => done.then(() => exports[name] ? null : script(src)),
+      Promise.resolve())
+      .then(() => exports.FlipfullSpeech.health())
+      .then(() => log('Web Speech is up'), e => {
+        log(`Web Speech isn't up yet: ${e.message}`);
+        setTimeout(startWebSpeech, 60 * 1000);
+      });
+  }
+
   function startMain() {
     exports.FlipfullMedia = FlipfullMedia;
+    if (featureOn('web-speech')) {
+      startWebSpeech();
+    }
     if (featureOn('outer-screen-music')) {
       watchMediaApp(nowPlayingFeed());
     } else if (featureOn('play-pause-button')) {

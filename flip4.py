@@ -38,9 +38,9 @@ BACKUP_PATHS = ["data/local/service/api-daemon", "data/local/webapps", "data/b2g
 BACKUP_EXCLUDES = ["*/startupCache", "*/shader-cache", "*/safebrowsing", "*/cache2",
                    "data/local/webapps/downloading"]
 MEDIA_PATHS = {"internal": "/data/media", "sdcard": "/mnt/sdcard"}
-NOT_IN_UPDATE = ("services/stt/models/",)
+NOT_IN_UPDATE = ("remote/FlipfullSpeech/models/",)
 TEXT_SUFFIXES = {".sh", ".js", ".md", ".conf", ".rc", ".ini", ".awk", ".hosts", ".xml"}
-TEXT_NAMES = {"flipfull", "api"}
+TEXT_NAMES = {"flipfull"}
 
 
 def find_adb():
@@ -563,9 +563,9 @@ def main():
     ia.add_argument("application", metavar="application.zip",
                     help="path to the application.zip on the PC")
     mn = sub.add_parser("mon", help="memory (RSS) and CPU of processes every second, until Ctrl-C",
-                        description="NAME is a process name (stt-server, callrecd, b2g, api-daemon, "
+                        description="NAME is a process name (toolboxd, callcap, b2g, api-daemon, "
                         "an app: launcher, settings, ...) or, if nothing has that name, text in a "
-                        "command line (CallRec: the call recorder while recording). CPU is % of "
+                        "command line (FlipfullSpeech: the speech service). CPU is % of "
                         "one core; the phone has 8.")
     mn.add_argument("names", nargs="+", metavar="NAME")
     mn.add_argument("-i", "--interval", type=int, default=1, metavar="SECONDS")

@@ -1,7 +1,6 @@
 'use strict';
 
 (function () {
-  const API = 'http://127.0.0.1:8323/cgi-bin/api';
   const M = window.FlipfullModel;
   const $ = (id) => document.getElementById(id);
   const el = {
@@ -44,13 +43,12 @@
   let sending = null;
 
   function run(...words) {
-    return fetch(API, { method: 'POST', body: words.join(' '), cache: 'no-store' })
-      .then((r) => r.text().then((text) => {
-        if (!r.ok) {
-          throw new Error(text.trim() || `HTTP ${r.status}`);
-        }
-        return text;
-      }));
+    if (!window.FlipfullBridge) {
+      const e = new Error("Flipfull's bridge service didn't load");
+      e.offline = true;
+      return Promise.reject(e);
+    }
+    return FlipfullBridge.run(...words);
   }
 
   function refresh() {
@@ -60,7 +58,7 @@
   }
 
   function failed(e) {
-    if (e instanceof TypeError) {
+    if (e.offline) {
       el.offlineWhy.textContent = e.message;
       show('offline');
     } else {

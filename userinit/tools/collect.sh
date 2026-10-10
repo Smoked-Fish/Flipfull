@@ -102,6 +102,7 @@ ls -la /data/local/tmp > $OUT/listings/data-local-tmp.txt 2>&1
 mkdir -p $OUT/userinit
 cp /data/local/userinit/run.log /data/local/userinit/.installed-files $OUT/userinit/ 2>/dev/null
 for l in /data/local/userinit/services/*/*.log; do cp "$l" $OUT/userinit/ 2>/dev/null; done
+for d in /data/local/service/api-daemon/remote/*; do cp "$d/daemon.log" "$OUT/userinit/${d##*/}.log" 2>/dev/null; done
 grep userinit /proc/self/mountinfo > $OUT/userinit/mounts.txt 2>&1
 
 cd /data/local/tmp && tar -cf dump.tar dump && ls -la dump.tar && du -sm dump

@@ -30,7 +30,7 @@ third-party components keep their own licenses:
   - userinit/bin/busybox is BusyBox 1.37.0, GPLv2. Source: busybox.net,
     built with src/native/busybox-1.37.0-armhf.config.
   - userinit/bin/sqlite3 is SQLite, public domain.
-  - userinit/services/stt/stt-server includes whisper.cpp (MIT, (c) the
-    ggml authors).
+  - userinit/remote/FlipfullSpeech/daemon includes whisper.cpp and
+    transcribe.cpp (MIT, (c) the ggml authors) and libopus (BSD).
 
 Follow each component's own terms when you redistribute it.

@@ -210,7 +210,7 @@ async function onClip(rec, pcm) {
     if (request === ctrl) {
       request = null;
       console.error('KaiVA: transcription failed', e);
-      if (e instanceof TypeError) {
+      if (e.offline) {
         showError('Speech service is not running', 'service');
       } else {
         showError(`Couldn't transcribe: ${e.message}`);
@@ -266,7 +266,7 @@ function showError(message, kind) {
     quote: false,
     error: true,
     detail: kind === 'service' ?
-      'Start it with: sh /data/local/userinit/services/stt/service.sh start' :
+      'It starts with KaiVA on in the Flipfull app, after a reboot' :
       'Try “Open Camera” or “What time is it?”',
   });
   softkeys('Help', 'mic', 'Settings');

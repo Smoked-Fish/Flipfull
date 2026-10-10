@@ -1,0 +1,24 @@
+dictionary Failure {
+  message: str
+  offline: bool
+}
+
+dictionary Recording {
+  file: str
+  type: str
+  ext: str
+  seconds: int
+  peak: int
+  size: int
+}
+
+#[rust:not-tracked]
+interface Callrec {
+  fn start() -> void, Failure
+
+  fn stop() -> Recording, Failure
+
+  fn read(offset: int) -> binary, Failure
+}
+
+service FlipfullCallrec: Callrec
