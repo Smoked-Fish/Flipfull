@@ -1,3 +1,4 @@
+import fnmatch
 import hashlib
 import shutil
 import zipfile
@@ -33,15 +34,18 @@ def build_overlay(name, overlay):
     print(f"{name:10} -> {zip_out.relative_to(ROOT)} ({zip_out.stat().st_size} bytes)")
 
 
+def removed(overlay, path):
+    return any(fnmatch.fnmatchcase(path, r) for r in overlay.remove)
+
+
 def write_overlay_zip(name, overlay, stock_zip, dest):
     added = overlay_files(name, overlay)
-    remove = set(overlay.remove)
     with zipfile.ZipFile(stock_zip) as zin:
         check_paths(name, overlay, zin.namelist())
         with zipfile.ZipFile(dest, "w") as zout:
             for info in zin.infolist():
                 path = info.filename
-                if path in remove:
+                if removed(overlay, path):
                     continue
                 data = added.pop(path, None)
                 if data is None:
@@ -64,10 +68,10 @@ def overlay_files(name, overlay):
 
 def check_paths(name, overlay, names):
     """Every file the overlay removes or edits is in the stock zip"""
-    missing = sorted(set(overlay.remove) - set(names))
+    missing = [r for r in overlay.remove if not any(fnmatch.fnmatchcase(n, r) for n in names)]
     if missing:
         raise BuildError(f"{name}: files to remove not in the base zip: {missing}")
-    kept = [n for n in names if n not in overlay.remove]
+    kept = [n for n in names if not removed(overlay, n)]
     unmatched = sorted({e.path for e in overlay.edits if not any(e.matches(n) for n in kept)})
     if unmatched:
         raise BuildError(f"{name}: files to patch not in the base zip: {unmatched}")

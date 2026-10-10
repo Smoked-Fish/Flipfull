@@ -6,8 +6,8 @@ LOG_TAG=camera
 BLOCK="$USERINIT/etc/camera/profiles.xml"
 OPEN='<CamcorderProfiles cameraId="0">'
 
-if ! planned feature camera-frame-rates on; then
-    log "camera-frame-rates is off - stock video profiles"
+if ! planned feature camera-rework on; then
+    log "camera-rework is off - stock video profiles"
     exit 0
 fi
 

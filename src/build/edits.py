@@ -81,7 +81,7 @@ class Overlay:
     """A stock app with Flipfull's changes.
 
     edits        made to the matching stock files
-    remove       stock files left out of the zip
+    remove       stock files left out of the zip, or globs
     extra_files  whether the files in src/overlays/<name>/ go into the zip
     stock_md5    the md5 of the phone's stock application.zip, no overlay if it doesn't match stock
     """

@@ -78,7 +78,7 @@ From the repo:
 | **Video without ads** | Video keeps its YouTube picks, without the ad at start, the ad above the video list or the ads code. |
 | **Video without YouTube** | Video no longer suggests YouTube searches. It needs Video without ads, which is turned on with it. |
 | **Messages redesign** | A denser Messages app: about six conversations or a screenful of texts at a time instead of three, a dark theme, and settings for text size, accent color, spacing, message style and times. They are at the top of Messages > Options > Settings. |
-| **Steady camera frame rates** | Adds video profile for at 24 frames. Flipcam (name pending), from Flipstore, uses them to keep its viewfinder steady in the dark instead of dropping to 10 frames a second, and to record 1080p and 720p video at 24 as well as 30. The stock Camera doesn't use them and works as before. |
+| **Camera rework** | The stock Camera reworked: a viewfinder that stays at 24 frames a second in the dark instead of dropping to 10, photos in under a second, Night photos merged from six shots, colour looks, exposure, white balance, 16:9 and square photos, and 1080p or 720p video at 30 or 24 fps that can be paused. Options > Keys lists every key. |
 
 ### System
 
