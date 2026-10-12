@@ -3,6 +3,7 @@
 (function (exports) {
   const DIR = 'DCIM/100MZLLA/';
   const MODES = ['photo', 'night', 'hdr', 'video'];
+  const HIDDEN_MODES = ['night', 'hdr'];
   const MODE_NAMES = { photo: 'Photo', night: 'Night', hdr: 'HDR', video: 'Video' };
 
   const WB_NAMES = {
@@ -227,7 +228,7 @@
   };
 
   function modes(settings) {
-    return MODES.filter((m) => m !== 'hdr' || settings.hdrUnlocked);
+    return MODES.filter((m) => !HIDDEN_MODES.includes(m) || settings.hiddenUnlocked);
   }
 
   function rows(mode, table) {
@@ -243,7 +244,7 @@
         out[key] = values[0];
       }
     });
-    out.hdrUnlocked = saved.hdrUnlocked === true;
+    out.hiddenUnlocked = saved.hiddenUnlocked === true;
     out.mode = modes(out).includes(saved.mode) ? saved.mode : 'photo';
     return out;
   }
@@ -348,7 +349,7 @@
   }
 
   exports.CameraModel = {
-    MODES, MODE_NAMES, modes, profiles, mmsProfile, lookCss, lookSteps, cropRect, photoSizes,
+    MODES, HIDDEN_MODES, MODE_NAMES, modes, profiles, mmsProfile, lookCss, lookSteps, cropRect, photoSizes,
     formatEv, evSteps, choices, rows, settle, step, nudge, label, configuration, previewSize, fileName, duration,
     room,
   };

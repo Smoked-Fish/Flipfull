@@ -21,7 +21,7 @@
     start: 'http://camera.localhost/resources/sounds/camcorder_start.ogg',
     end: 'http://camera.localhost/resources/sounds/camcorder_end.ogg',
   };
-  const HDR_CODE = '437';
+  const HDN_CODE = '437';
 
   const asked = location.hash === '#activity';
 
@@ -722,18 +722,18 @@
   }
 
   function typeDigit(d) {
-    typed = (typed + d).slice(-HDR_CODE.length);
-    if (typed !== HDR_CODE) {
+    typed = (typed + d).slice(-HDN_CODE.length);
+    if (typed !== HDN_CODE) {
       return;
     }
     typed = '';
-    settings.hdrUnlocked = !settings.hdrUnlocked;
+    settings.hiddenUnlocked = !settings.hiddenUnlocked;
     save();
-    if (!settings.hdrUnlocked && settings.mode === 'hdr') {
+    if (!settings.hiddenUnlocked && M.HIDDEN_MODES.includes(settings.mode)) {
       set('mode', 'photo');
       renderOptions();
     }
-    toast(settings.hdrUnlocked ? 'HDR mode unlocked' : 'HDR mode hidden');
+    toast(settings.hiddenUnlocked ? 'Hidden modes unlocked' : 'Hidden modes hidden');
   }
 
   function set(key, value, say) {
