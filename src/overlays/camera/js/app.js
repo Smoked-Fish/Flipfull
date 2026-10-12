@@ -135,7 +135,7 @@
     }
     const a = new Audio(SOUNDS[name]);
     a.mozAudioChannelType = 'notification';
-    a.play().catch(() => {});
+    a.play().catch(() => { });
   }
 
   function blink() {
@@ -399,8 +399,10 @@
     const want = settings && settings.geotag && camera && !document.hidden;
     if (want && watchId === null) {
       watchId = navigator.geolocation.watchPosition((p) => {
-        place = { latitude: p.coords.latitude, longitude: p.coords.longitude, altitude: p.coords.altitude || 0,
-          timestamp: p.timestamp };
+        place = {
+          latitude: p.coords.latitude, longitude: p.coords.longitude, altitude: p.coords.altitude || 0,
+          timestamp: p.timestamp
+        };
       }, () => {
       }, { enableHighAccuracy: true, maximumAge: 60000 });
     } else if (!want && watchId !== null) {
@@ -597,8 +599,10 @@
         path = name;
       }
     }
-    const r = { path, storage, mime: p.mime, parts: [], files: [], bytes: 0, paused: 0, pausedAt: 0,
-      step: Promise.resolve() };
+    const r = {
+      path, storage, mime: p.mime, parts: [], files: [], bytes: 0, paused: 0, pausedAt: 0,
+      step: Promise.resolve()
+    };
     try {
       const probe = path.replace(/[^/]*$/, `.probe.${p.ext}`);
       await storage.addNamed(new Blob([], { type: p.mime }), probe);
@@ -704,8 +708,10 @@
 
   async function snapshot() {
     try {
-      const blob = await camera.takePicture({ pictureSize: photoOption().size, fileFormat: 'jpeg',
-        rotation: settings.hold });
+      const blob = await camera.takePicture({
+        pictureSize: photoOption().size, fileFormat: 'jpeg',
+        rotation: settings.hold
+      });
       await keep(blob);
       toast('Photo saved');
     } catch (e) {

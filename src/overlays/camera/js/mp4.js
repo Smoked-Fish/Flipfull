@@ -126,7 +126,7 @@
       throw new Error(`no joining ${other.type}`);
     }
     v0(child(trak, 'tkhd').body);
-    const body =(type) => (child(stbl, type) || {}).body;
+    const body = (type) => (child(stbl, type) || {}).body;
     const stsz = view(body('stsz'));
     const fixed = stsz.getUint32(4);
     const stss = body('stss');

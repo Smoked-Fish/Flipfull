@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en-US" dir="ltr">
+
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1">
@@ -10,10 +11,13 @@
   <script defer src="js/mp4.js"></script>
   <script defer src="js/app.js"></script>
 </head>
+
 <body data-view="camera" data-state="opening">
   <div id="viewfinder">
     <video id="preview" muted></video>
-    <div id="picture"><div id="grid"></div></div>
+    <div id="picture">
+      <div id="grid"></div>
+    </div>
   </div>
   <div id="blink"></div>
 
@@ -21,8 +25,12 @@
   <div id="zoom"></div>
   <div id="status"></div>
 
-  <section id="options"><div id="rows"></div></section>
-  <section id="keys"><div id="key-list"></div></section>
+  <section id="options">
+    <div id="rows"></div>
+  </section>
+  <section id="keys">
+    <div id="key-list"></div>
+  </section>
 
   <section id="review">
     <img id="review-image" alt="">
@@ -31,7 +39,9 @@
   </section>
 
   <div id="toast" role="status"></div>
-  <div id="dialog" role="alertdialog"><p id="dialog-text"></p></div>
+  <div id="dialog" role="alertdialog">
+    <p id="dialog-text"></p>
+  </div>
 
   <footer id="softkeys">
     <span id="sk-left"></span>
@@ -39,4 +49,5 @@
     <span id="sk-right"></span>
   </footer>
 </body>
+
 </html>
