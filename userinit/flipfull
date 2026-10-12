@@ -26,10 +26,9 @@ removes Flipfull.
                                   RELEASE_REPO, check it and install it, in
                                   the background
   flipfull update [status]        how the last update went
-  flipfull store info | get URL | stage URL [SHA256] | install ORIGIN SOURCE
-               | uninstall NAME | installed
-                                  what the Flipstore app asks for (flipstore
-                                  feature)
+  flipfull store stage URL [SHA256] | install ORIGIN SOURCE | uninstall NAME
+               | installed
+                                  what OStore asks for (ostore feature)
   flipfull uninstall [--reboot]   remove Flipfull; the next boot finishes it
 EOF
 }
@@ -145,7 +144,7 @@ cmd_set() {
     if apps_changed "$changed"; then
         reconcile_apps "$after"
     fi
-    if echo "$changed" | grep -q '^feature flipstore '; then
+    if echo "$changed" | grep -q '^feature ostore '; then
         reconcile_store "$after"
     fi
     restart_changed "$before" "$after"
@@ -481,7 +480,7 @@ cmd_uninstall() {
     done
     url=http://$STORE_ORIGIN.localhost/manifest.webmanifest
     case $list in *"$url"*)
-        apps_ok "$(apps_cmd uninstall "$url")" && echo "uninstalled Flipstore" || echo "error: Flipstore didn't uninstall" ;;
+        apps_ok "$(apps_cmd uninstall "$url")" && echo "uninstalled OStore" || echo "error: OStore didn't uninstall" ;;
     esac
     echo "Everything else is removed at the next boot (preloaded apps you made removable go back"
     echo "to stock); the phone then boots stock. Changed your mind before rebooting? Install again."

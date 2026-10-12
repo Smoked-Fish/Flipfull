@@ -38,7 +38,7 @@ const SCRIPTS: [Script; 2] = [
     Script {
         name: "store",
         path: "store.sh",
-        verbs: &["info", "get", "stage", "install", "uninstall", "installed"],
+        verbs: &["stage", "install", "uninstall", "installed"],
         chars: |c| c.is_ascii_alphanumeric() || b"._~:/?#@!$&+,;=%-".contains(&c),
     },
 ];

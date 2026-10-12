@@ -62,10 +62,10 @@ impl Service<Bridge> for Bridge {
         let who = attrs.identity();
         let script = match who.as_str() {
             "http://flipfull.localhost" => "flipfull",
-            "http://flipstore.localhost" => "store",
+            "http://ostore.localhost" => "store",
             _ => {
                 info!("refused {}", who);
-                return Err(format!("Only the Flipfull and Flipstore apps, not {}", who));
+                return Err(format!("Only the Flipfull app and OStore, not {}", who));
             }
         };
         Ok(Bridge { script })

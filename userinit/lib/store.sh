@@ -1,8 +1,8 @@
-STORE_REPO=Smoked-Fish/Flipstore
-STORE_ORIGIN=flipstore
-STORE_DIR=/data/local/tmp/flipstore
+STORE_REPO=Smoked-Fish/ostore-solid
+STORE_ORIGIN=ostore
+STORE_DIR=/data/local/tmp/ostore
 STORE_MAX=52428800
-STORE_RECORDS=$CONFIG/flipstore-apps
+STORE_RECORDS=$CONFIG/ostore-apps
 
 app_url() {
     m=$USERINIT/apps/$1/manifest.webmanifest
@@ -76,10 +76,10 @@ store_sha_ok() {
 
 store_official_url() {
     case $1 in
-        "https://github.com/$STORE_REPO/releases/latest/download/flipstore.zip") return 0 ;;
-        "https://github.com/$STORE_REPO/releases/download/"*"/flipstore.zip")
+        "https://github.com/$STORE_REPO/releases/latest/download/ostore.zip") return 0 ;;
+        "https://github.com/$STORE_REPO/releases/download/"*"/ostore.zip")
             tag=${1#"https://github.com/$STORE_REPO/releases/download/"}
-            tag=${tag%/flipstore.zip}
+            tag=${tag%/ostore.zip}
             case $tag in ''|*[!A-Za-z0-9._-]*) return 1 ;; esac
             return 0 ;;
     esac
@@ -143,7 +143,7 @@ store_installed() {
          WHERE preloaded = 0 OR IFNULL(update_url, '') != '' ORDER BY name") || return 1
     [ -n "$rows" ] || return 0
     ours=$(flipfull_apps)
-    tmp=/data/local/tmp/flipstore-inst.$$
+    tmp=/data/local/tmp/ostore-inst.$$
     rm -rf "$tmp" && mkdir -p "$tmp" && chmod 0700 "$tmp" || return 1
     # apps whose manifest isn't a plain file (rare) get it unpacked once, here
     printf '%s\n' "$rows" | while read -r name p u; do
@@ -210,49 +210,38 @@ store_installed_cached() {
     printf '%s\n' "$out"
 }
 
-# is the flipstore feature on? plan's lines, matched whole, without a grep
+# is the ostore feature on? plan's lines, matched whole, without a grep
 store_feature_on() {
     case "
 $(plan)
 " in
         *"
-feature flipstore on
+feature ostore on
 "*) return 0 ;;
     esac
     return 1
 }
 
-# Flipstore itself, installed or removed as its feature is turned on and off
+# OStore itself, installed or removed as its feature is turned on and off
 reconcile_store() {
     url=http://$STORE_ORIGIN.localhost/manifest.webmanifest
     list=$(apps_cmd list)
     apps_ok "$list" || return 0
     installed=0
     case $list in *"$url"*) installed=1 ;; esac
-    if echo "$1" | grep -qx "feature flipstore on"; then
+    if echo "$1" | grep -qx "feature ostore on"; then
         [ $installed = 1 ] && return 0
-        (store_stage "https://github.com/$STORE_REPO/releases/latest/download/flipstore.zip" >/dev/null) &&
-            install_zip "$STORE_DIR/app.zip" Flipstore && store_record "$STORE_ORIGIN" official
+        (store_stage "https://github.com/$STORE_REPO/releases/latest/download/ostore.zip" >/dev/null) &&
+            install_zip "$STORE_DIR/app.zip" OStore && store_record "$STORE_ORIGIN" official
         rm -rf "$STORE_DIR"
     elif [ $installed = 1 ]; then
-        apps_ok "$(apps_cmd uninstall "$url")" && echo "uninstalled Flipstore" || echo "error: Flipstore didn't uninstall"
+        apps_ok "$(apps_cmd uninstall "$url")" && echo "uninstalled OStore" || echo "error: OStore didn't uninstall"
     fi
 }
 
 cmd_store() {
-    store_feature_on || die "turn on Flipstore app store in the Flipfull app first"
+    store_feature_on || die "turn on OStore app store in the Flipfull app first"
     case $1 in
-        info)
-            printf 'store-repo\t%s\n' "$STORE_REPO" ;;
-        get)
-            store_url_ok "$2" || die "not an https URL: $2"
-            tmp=$STORE_DIR-get.$$
-            why=$(store_fetch "$2" "$tmp" 2097152 60) || {
-                rm -f "$tmp"
-                die "couldn't get $2: $why"
-            }
-            cat "$tmp"
-            rm -f "$tmp" ;;
         stage)
             store_url_ok "$2" || die "not an https URL: $2"
             [ -z "$3" ] || store_sha_ok "$3" || die "not a sha256: $3"
@@ -261,7 +250,7 @@ cmd_store() {
             [ $# -eq 3 ] || die "usage: flipfull store install ORIGIN SOURCE"
             [ -f "$STORE_DIR/app.zip" ] || die "nothing downloaded to install"
             m=$STORE_DIR/manifest.webmanifest
-            grep -q '\\u' "$m" && die "the app's manifest has \\u escapes; Flipstore can't check which app it is"
+            grep -q '\\u' "$m" && die "the app's manifest has \\u escapes; Flipfull can't check which app it is"
             protected=$(store_protected) || exit 1
             case $(awk '{ n += gsub(/"origin"/, "") } END { print n + 0 }' "$m") in
                 0) origin=$(store_unnamed "$m" "$2" "$protected") || exit 1 ;;
@@ -271,11 +260,11 @@ cmd_store() {
             store_name_ok "$origin" || die "the app's manifest has no usable origin"
             [ "$origin" = "$2" ] || die "the download is $origin, not $2"
             echo "$protected" | grep -qx "$origin" &&
-                die "$origin is one of the phone's or Flipfull's own apps; Flipstore won't replace it"
+                die "$origin is one of the phone's or Flipfull's own apps; OStore won't replace it"
             source=$3
             if [ "$origin" = "$STORE_ORIGIN" ]; then
                 store_official_url "$(cat "$STORE_DIR/url")" ||
-                    die "Flipstore only updates from github.com/$STORE_REPO"
+                    die "OStore only updates from github.com/$STORE_REPO"
                 source=official
             else
                 store_url_ok "$source" || die "not a source: $source"
@@ -289,7 +278,7 @@ cmd_store() {
             rm -rf "$STORE_DIR" ;;
         uninstall)
             store_name_ok "$2" || die "not an app name: $2"
-            [ "$2" = "$STORE_ORIGIN" ] && die "turn off Flipstore app store in the Flipfull app to remove Flipstore"
+            [ "$2" = "$STORE_ORIGIN" ] && die "turn off OStore app store in the Flipfull app to remove OStore"
             protected=$(store_protected) || exit 1
             echo "$protected" | grep -qx "$2" && die "$2 is one of the phone's or Flipfull's own apps"
             apps_ok "$(apps_cmd uninstall "http://$2.localhost/manifest.webmanifest")" || die "$2 didn't uninstall"
@@ -298,6 +287,6 @@ cmd_store() {
         installed)
             store_installed_cached ;;
         *)
-            die "usage: flipfull store info | get URL | stage URL [SHA256] | install ORIGIN SOURCE | uninstall NAME | installed" ;;
+            die "usage: flipfull store stage URL [SHA256] | install ORIGIN SOURCE | uninstall NAME | installed" ;;
     esac
 }

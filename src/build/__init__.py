@@ -27,7 +27,7 @@ __all__ = ["APPS", "OVERLAYS", "TARGETS", "BuildError", "build", "release_featur
 
 # Flipfull's own apps, by the folder that is zipped
 APPS = {
-    "kaiva": SRC / "kaiva" / "app", #todo move to flipstore
+    "kaiva": SRC / "kaiva" / "app",
     "flipfull": SRC / "toolbox" / "app",
 }
 

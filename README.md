@@ -73,7 +73,7 @@ From the repo:
 
 | Feature | About |
 |---|---|
-| **Flipstore app store** | Installs Flipstore, an app store that relies on Flipfull service's. It shows what each app can reach before you install it, and updates only from its own releases. Needs the internet when you turn it on. |
+| **OStore app store** | Installs OStore, an app store that installs and updates apps through Flipfull's services. Needs the internet when you turn it on. |
 | **Music without ads** | No banner or radio ads in the Music app. |
 | **Video without ads** | Video keeps its YouTube picks, without the ad at start, the ad above the video list or the ads code. |
 | **Video without YouTube** | Video no longer suggests YouTube searches. It needs Video without ads, which is turned on with it. |
