@@ -1,4 +1,6 @@
-STORE_REPO=Smoked-Fish/ostore-solid
+STORE_REPO=gogogoghost/ostore-solid
+STORE_SERVER=https://dl-ostore.yexm.eu.org
+STORE_PROTECTED=flipfull
 STORE_ORIGIN=ostore
 STORE_DIR=/data/local/tmp/ostore
 STORE_MAX=52428800
@@ -42,20 +44,6 @@ flipfull_apps() {
     ls "$USERINIT/overlays" 2>/dev/null
 }
 
-store_protected() {
-    mkdir -p "$STATE"
-    key="# $(stat -c %Y "$APPS_DB" "$APPS_DB-wal" "$MANIFEST" 2>/dev/null | tr '\n' ' ')"
-    if [ "$(head -1 "$STATE/protected" 2>/dev/null)" = "$key" ]; then
-        tail -n +2 "$STATE/protected"
-        return 0
-    fi
-    pre=$(preloaded_apps)
-    [ -n "$pre" ] || die "can't read the phone's app list"
-    { echo "$key"; printf '%s\n' "$pre"; flipfull_apps; } > "$STATE/protected.tmp" &&
-        mv -f "$STATE/protected.tmp" "$STATE/protected" || return 1
-    tail -n +2 "$STATE/protected"
-}
-
 store_name_ok() { case $1 in ''|-*|*[!a-z0-9.-]*) return 1 ;; esac; }
 
 # an https URL made of the characters toolboxd passes on; no forks
@@ -81,6 +69,11 @@ store_official_url() {
             tag=${1#"https://github.com/$STORE_REPO/releases/download/"}
             tag=${tag%/ostore.zip}
             case $tag in ''|*[!A-Za-z0-9._-]*) return 1 ;; esac
+            return 0 ;;
+        "$STORE_SERVER/ostore_"*".zip")
+            v=${1#"$STORE_SERVER/ostore_"}
+            v=${v%.zip}
+            case $v in ''|*[!0-9.]*) return 1 ;; esac
             return 0 ;;
     esac
     return 1
@@ -109,32 +102,92 @@ store_stage() {
     rm -rf "$STORE_DIR" && mkdir -p "$STORE_DIR" && chmod 0700 "$STORE_DIR" || die "can't write $STORE_DIR"
     echo "$1" > "$STORE_DIR/url"
     why=$(store_fetch "$1" "$STORE_DIR/app.zip" $STORE_MAX 300) || die "couldn't download $1: $why"
+    store_inspect "$2"
+}
+
+store_stage_file() {
+    case $1 in *.zip) ;; *) die "not a zip: $1" ;; esac
+    path=$(readlink -f "$1") && [ -f "$path" ] || die "no such file: $1"
+    case $path in
+        /sdcard/*|/storage/*|/mnt/*|/data/media/*|/data/usbmsc_mnt/*) ;;
+        *) die "OStore only installs zips from the memory card, not $path" ;;
+    esac
+    [ "$(stat -c %s "$path")" -le $STORE_MAX ] || die "it's bigger than $(($STORE_MAX / 1048576)) MB"
+    rm -rf "$STORE_DIR" && mkdir -p "$STORE_DIR" && chmod 0700 "$STORE_DIR" || die "can't write $STORE_DIR"
+    echo sdcard > "$STORE_DIR/url"
+    cp "$path" "$STORE_DIR/app.zip" || die "can't read $path"
+    store_inspect
+}
+
+store_inspect() {
     sum=$(sha256sum "$STORE_DIR/app.zip" | cut -d' ' -f1)
-    if [ -n "$2" ] && [ "$2" != "$sum" ]; then
+    if [ -n "$1" ] && [ "$1" != "$sum" ]; then
         rm -rf "$STORE_DIR"
         die "the download doesn't match its checksum"
     fi
-    unzip -p "$STORE_DIR/app.zip" manifest.webmanifest > "$STORE_DIR/manifest.webmanifest" 2>/dev/null
-    [ -s "$STORE_DIR/manifest.webmanifest" ] || die "not a KaiOS app: the zip has no manifest.webmanifest"
-    printf 'sha256\t%s\nsize\t%s\nmanifest\n' "$sum" "$(stat -c %s "$STORE_DIR/app.zip")"
-    cat "$STORE_DIR/manifest.webmanifest"
+    m=$STORE_DIR/manifest.webmanifest
+    unzip -p "$STORE_DIR/app.zip" manifest.webmanifest > "$m" 2>/dev/null
+    [ -s "$m" ] || die "not a KaiOS app: the zip has no manifest.webmanifest"
+    printf 'sha256\t%s\nsize\t%s\n' "$sum" "$(stat -c %s "$STORE_DIR/app.zip")"
+    origin=$(store_guess_origin "$m")
+    [ -z "$origin" ] || printf 'origin\t%s\n' "$origin"
+    echo manifest
+    cat "$m"
 }
 
-# every "name" in the manifest makes a candidate app name on the phone; all of
-# them must be plain ASCII and none may be a protected app's name
-store_unnamed() {
+store_guess_origin() {
+    grep -q '\\u' "$1" && return 0
+    origin=
+    case $(awk '{ n += gsub(/"origin"/, "") } END { print n + 0 }' "$1") in
+        0) names=$(store_names "$1" 2>/dev/null) || return 0
+           [ "$(printf '%s\n' "$names" | sort -u | wc -l)" = 1 ] && origin=$names ;;
+        1) origin=$(json_value origin < "$1" | tr A-Z a-z) ;;
+    esac
+    store_name_ok "$origin" && echo "$origin"
+    return 0
+}
+
+# every "name" in the manifest must be plain ASCII
+store_names() {
     names=$(tr -d '\n' < "$1" | grep -o '"name" *: *"[^"]*"' | sed 's/^.*: *"//; s/"$//')
     [ -n "$names" ] || die "the app's manifest has neither an origin nor a name"
-    # a backslash could hide a quote, and Unicode letters can lowercase to ASCII ones
     case $names in *\\*) die "the app's manifest has no origin, and its name has characters Flipfull can't check" ;; esac
     printf '%s\n' "$names" | LC_ALL=C grep -q '[^ -~]' &&
         die "the app's manifest has no origin, and its name has characters Flipfull can't check"
-    names=$(printf '%s\n' "$names" | tr A-Z a-z | tr -cd 'a-z0-9\n')
-    for n in $names; do
-        echo "$3" | grep -qx "$n" && die "the app would take the name $n, one of the phone's or Flipfull's own apps"
+    printf '%s\n' "$names" | tr A-Z a-z | tr -cd 'a-z0-9\n'
+}
+
+store_names_free() {
+    for n in $1; do
+        echo "$2" | grep -qx "$n" && die "the app would take the name $n, which is Flipfull's"
     done
+    return 0
+}
+
+store_unnamed() {
+    names=$(store_names "$1") || exit 1
+    store_names_free "$names" "$3"
     printf '%s\n' "$names" | grep -qxF "$2" || die "the app's name doesn't make $2"
     echo "$2"
+}
+
+store_install_pwa() {
+    rm -rf "$STORE_DIR" && mkdir -p "$STORE_DIR" && chmod 0700 "$STORE_DIR" || die "can't write $STORE_DIR"
+    m=$STORE_DIR/pwa.webmanifest
+    why=$(store_fetch "$1" "$m" 1048576 60) || die "couldn't download $1: $why"
+    grep -q '\\u' "$m" && die "the manifest has \\u escapes; Flipfull can't check which app it is"
+    names=$(store_names "$m") || exit 1
+    store_names_free "$names" "$STORE_PROTECTED"
+    r=$(apps_cmd install-pwa "$1")
+    rm -rf "$STORE_DIR"
+    apps_ok "$r" || die "the PWA didn't install: $r"
+    name=$("$SQLITE" -init /dev/null "$APPS_DB" "SELECT name FROM apps WHERE update_url = '$1' LIMIT 1" 2>/dev/null)
+    if store_name_ok "$name"; then
+        store_record "$name" "$1"
+        echo "installed $name"
+    else
+        echo "installed"
+    fi
 }
 
 store_installed() {
@@ -152,7 +205,7 @@ store_installed() {
     oursfile=$tmp/ours
     printf '%s\n' "$ours" > "$oursfile"
     printf '%s\n' "$rows" | awk -v vroot="$VROOT" -v records="$STORE_RECORDS" \
-        -v oursfile="$oursfile" -v tmp="$tmp" '
+        -v oursfile="$oursfile" -v tmp="$tmp" -v protected="$STORE_PROTECTED" '
     function jval(m, key,    s, pair, a) {
         s = m
         while (match(s, /"[^"]*" *: *"[^"]*"/)) {
@@ -187,7 +240,7 @@ store_installed() {
         is_mine = (name in mine)
         if (source == "" && is_mine && preloaded == 0) source = "flipfull"
         src_out = source == "" ? "-" : source
-        is_pre = (preloaded == 1 || is_mine) ? 1 : 0
+        is_pre = (name == protected) ? 1 : 0
         printf "app\t%s\t%s\t%s\t%s\t%s\t%d\n", name, jval(m, "name"), jval(m, "version"), update, src_out, is_pre
     }'
     rc=$?
@@ -246,26 +299,32 @@ cmd_store() {
             store_url_ok "$2" || die "not an https URL: $2"
             [ -z "$3" ] || store_sha_ok "$3" || die "not a sha256: $3"
             store_stage "$2" "$3" ;;
+        stage-file)
+            [ $# -eq 2 ] || die "usage: flipfull store stage-file ZIP"
+            store_stage_file "$2" ;;
+        install-pwa)
+            store_url_ok "$2" || die "not an https URL: $2"
+            store_install_pwa "$2" ;;
         install)
             [ $# -eq 3 ] || die "usage: flipfull store install ORIGIN SOURCE"
             [ -f "$STORE_DIR/app.zip" ] || die "nothing downloaded to install"
             m=$STORE_DIR/manifest.webmanifest
             grep -q '\\u' "$m" && die "the app's manifest has \\u escapes; Flipfull can't check which app it is"
-            protected=$(store_protected) || exit 1
             case $(awk '{ n += gsub(/"origin"/, "") } END { print n + 0 }' "$m") in
-                0) origin=$(store_unnamed "$m" "$2" "$protected") || exit 1 ;;
+                0) origin=$(store_unnamed "$m" "$2" "$STORE_PROTECTED") || exit 1 ;;
                 1) origin=$(json_value origin < "$m" | tr A-Z a-z) ;;
                 *) die "the app's manifest names more than one origin" ;;
             esac
             store_name_ok "$origin" || die "the app's manifest has no usable origin"
             [ "$origin" = "$2" ] || die "the download is $origin, not $2"
-            echo "$protected" | grep -qx "$origin" &&
-                die "$origin is one of the phone's or Flipfull's own apps; OStore won't replace it"
+            [ "$origin" = "$STORE_PROTECTED" ] && die "OStore won't replace Flipfull"
             source=$3
             if [ "$origin" = "$STORE_ORIGIN" ]; then
                 store_official_url "$(cat "$STORE_DIR/url")" ||
-                    die "OStore only updates from github.com/$STORE_REPO"
+                    die "OStore only updates from github.com/$STORE_REPO or ${STORE_SERVER#https://}"
                 source=official
+            elif [ "$(cat "$STORE_DIR/url")" = sdcard ]; then
+                source=sdcard
             else
                 store_url_ok "$source" || die "not a source: $source"
             fi
@@ -279,14 +338,13 @@ cmd_store() {
         uninstall)
             store_name_ok "$2" || die "not an app name: $2"
             [ "$2" = "$STORE_ORIGIN" ] && die "turn off OStore app store in the Flipfull app to remove OStore"
-            protected=$(store_protected) || exit 1
-            echo "$protected" | grep -qx "$2" && die "$2 is one of the phone's or Flipfull's own apps"
+            [ "$2" = "$STORE_PROTECTED" ] && die "OStore won't uninstall Flipfull"
             apps_ok "$(apps_cmd uninstall "http://$2.localhost/manifest.webmanifest")" || die "$2 didn't uninstall"
             store_record "$2"
             echo "uninstalled $2" ;;
         installed)
             store_installed_cached ;;
         *)
-            die "usage: flipfull store stage URL [SHA256] | install ORIGIN SOURCE | uninstall NAME | installed" ;;
+            die "usage: flipfull store stage URL [SHA256] | stage-file ZIP | install ORIGIN SOURCE | install-pwa URL | uninstall NAME | installed" ;;
     esac
 }

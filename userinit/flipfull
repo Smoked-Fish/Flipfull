@@ -26,8 +26,8 @@ removes Flipfull.
                                   RELEASE_REPO, check it and install it, in
                                   the background
   flipfull update [status]        how the last update went
-  flipfull store stage URL [SHA256] | install ORIGIN SOURCE | uninstall NAME
-               | installed
+  flipfull store stage URL [SHA256] | stage-file  ZIP | install ORIGIN SOURCE
+                                    | install-pwa URL | uninstall NAME | installed
                                   what OStore asks for (ostore feature)
   flipfull uninstall [--reboot]   remove Flipfull; the next boot finishes it
 EOF
