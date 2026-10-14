@@ -16,6 +16,7 @@ SERVICES=(
     "FlipfullBridge flipfull_bridge bridge $ARM32"
     "FlipfullCallrec flipfull_callrec callrec $ARM32"
     "FlipfullSpeech flipfull_speech speech $ARM64"
+    "FlipfullRetro flipfull_retro retro $ARM64"
 )
 
 for tool in cargo zig git python3; do
@@ -49,11 +50,15 @@ ENGINE="$CACHE/speech-engine"
 echo "Building the speech recognizer..."
 bash "$HERE/speech/engine/build.sh" "$ENGINE"
 
+RETRO_CORE="$CACHE/retro-core"
+echo "Building the libretro core..."
+bash "$HERE/retro/core/build.sh" "$RETRO_CORE"
+
 build() { # target packages...
     t=$1
     shift
     (cd "$HERE" && LIBRARY_PATH="$STUB/host" RUSTFLAGS="-L $STUB/$t --remap-path-prefix=$HOME=~" \
-        SPEECH_ENGINE="$ENGINE" cargo zigbuild --offline --release --target "$t" "$@")
+        SPEECH_ENGINE="$ENGINE" RETRO_CORE="$RETRO_CORE" cargo zigbuild --offline --release --target "$t" "$@")
 }
 
 for t in $ARM32 $ARM64; do

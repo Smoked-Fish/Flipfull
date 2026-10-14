@@ -35,9 +35,11 @@ install_remote() {
         name=${name##*/}
         dst=$REMOTE/$name
         cmp -s "$src" "$dst/daemon" && continue
+        later=
+        [ -n "$LIVE" ] && [ ! -d "$dst" ] && later=" - api-daemon uses it from the next boot"
         if mkdir -p "$dst" && cp "$src" "$dst/daemon.tmp" && chmod 0755 "$dst/daemon.tmp" &&
             mv -f "$dst/daemon.tmp" "$dst/daemon"; then
-            log "installed $name"
+            log "installed $name$later"
             pkill -f "^$dst/daemon" 2>/dev/null
         else
             log "couldn't install $name"
@@ -59,6 +61,7 @@ case $1 in
         remove_remote all
         exit 0 ;;
     remote)
+        LIVE=1
         install_remote
         remove_remote
         exit 0 ;;

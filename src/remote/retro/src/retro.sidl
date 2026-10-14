@@ -1,0 +1,31 @@
+dictionary Failure {
+  message: str
+  offline: bool
+}
+
+dictionary Game {
+  width: int
+  height: int
+  frame_ns: int
+  rate: int
+}
+
+dictionary Frame {
+  picture: binary
+  audio: binary
+}
+
+#[rust:not-tracked]
+interface Retro {
+  fn info() -> json
+
+  fn load(rom: binary, save: binary) -> Game, Failure
+
+  fn frame(keys: int) -> Frame, Failure
+
+  fn save() -> binary, Failure
+
+  fn unload()
+}
+
+service FlipfullRetro: Retro
