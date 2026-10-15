@@ -188,14 +188,24 @@
         requestAnimationFrame(tick);
     }
 
+    let timing = { n: 0, call: 0, draw: 0 };
+
     async function tick() {
         if (!running) {
             return;
         }
         try {
+            const t0 = performance.now();
             const frame = await window.FlipfullRetro.frame(held);
+            const t1 = performance.now();
             draw(frame.picture);
             sound(frame.audio);
+            timing.call += t1 - t0;
+            timing.draw += performance.now() - t1;
+            if (++timing.n === 60) {
+                console.log(`[retro] frame() ${(timing.call / 60).toFixed(1)} ms, drawing ${(timing.draw / 60).toFixed(1)} ms`);
+                timing = { n: 0, call: 0, draw: 0 };
+            }
         } catch (e) {
             running = false;
             failed(e);
