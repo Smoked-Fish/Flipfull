@@ -29,6 +29,7 @@ __all__ = ["APPS", "OVERLAYS", "TARGETS", "BuildError", "build", "release_featur
 APPS = {
     "kaiva": SRC / "kaiva" / "app",
     "flipfull": SRC / "toolbox" / "app",
+    "retro": SRC / "retro" / "app",
 }
 
 TARGETS = {

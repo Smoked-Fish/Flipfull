@@ -1,0 +1,20 @@
+{
+  "name": "GBA",
+  "short_name": "GBA",
+  "description": "Plays Game Boy Advance games with mGBA's libretro core, run by Flipfull's FlipfullRetro service.",
+  "lang": "en-US",
+  "dir": "ltr",
+  "start_url": "/index.html",
+  "orientation": "natural",
+  "theme_color": "#000000",
+  "background_color": "#000000",
+  "b2g_features": {
+    "version": "1.0.0",
+    "origin": "retro",
+    "focus_color": "#8000ff",
+    "developer": { "name": "local" },
+    "permissions": {
+      "device-storage:sdcard": { "access": "readwrite" }
+    }
+  }
+}

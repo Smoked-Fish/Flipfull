@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en-US" dir="ltr">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1">
+    <meta name="theme-color" content="#000000">
+    <title>GBA</title>
+    <link rel="stylesheet" href="style.css">
+    <script defer src="http://127.0.0.1/api/v1/shared/core.js"></script>
+    <script defer src="http://127.0.0.1/api/v1/shared/session.js"></script>
+    <script defer src="http://127.0.0.1/flipfull/retro.js"></script>
+    <script defer src="js/app.js"></script>
+</head>
+<body data-view="loading">
+<header id="bar"><span id="bar-title">GBA</span></header>
+<main>
+    <section id="loading"><p class="text" id="loading-text">Loading…</p></section>
+
+    <section id="offline">
+        <p class="text">Flipfull's GBA service isn't answering. Turn on GBA games in the Flipfull app</p>
+        <p class="text muted" id="offline-why"></p>
+    </section>
+
+    <section id="list">
+        <div id="games"></div>
+        <p class="text muted" id="empty">No games yet. Copy .gba files into a folder called games on the phone's storage.</p>
+    </section>
+
+    <section id="play">
+        <canvas id="screen" width="240" height="160"></canvas>
+    </section>
+
+    <section id="menu"><div id="menu-items"></div></section>
+</main>
+
+<footer id="softkeys">
+    <span id="sk-left"></span>
+    <span id="sk-center"></span>
+    <span id="sk-right"></span>
+</footer>
+</body>
+</html>
