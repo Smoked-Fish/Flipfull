@@ -1,0 +1,94 @@
+'use strict';
+
+(function () {
+    const RATE = 32768;
+
+    class Player {
+        constructor(canvas, events) {
+            this.canvas = canvas;
+            this.events = events;
+            this.held = 0;
+            this.report = null;
+            this.sound = null;
+            this.worker = new Worker('js/screen.js');
+            this.worker.onmessage = (e) => this.message(e.data);
+            const offscreen = canvas.transferControlToOffscreen();
+            this.worker.postMessage({ canvas: offscreen }, [offscreen]);
+            this.ready = this.startSound();
+        }
+
+        async startSound() {
+            try {
+                let ctx;
+                try {
+                    ctx = new AudioContext({ sampleRate: RATE });
+                } catch (e) {
+                    ctx = new AudioContext();
+                }
+                await ctx.audioWorklet.addModule('js/sound.js');
+                const node = new AudioWorkletNode(ctx, 'retro-sound', { numberOfInputs: 0, outputChannelCount: [2] });
+                node.connect(ctx.destination);
+                const channel = new MessageChannel();
+                node.port.postMessage({ feed: channel.port1 }, [channel.port1]);
+                this.worker.postMessage({ sound: channel.port2, rate: ctx.sampleRate }, [channel.port2]);
+                this.sound = ctx;
+            } catch (e) {
+                console.log(`[retro] no sound: ${e}`);
+            }
+        }
+
+        message(m) {
+            if (m.stats && this.report) {
+                this.report(m.stats);
+            }
+            if (m.failed) {
+                this.events.failed(new Error(m.failed));
+            }
+            if (m.closed) {
+                const e = new Error("The GBA service closed the game's connection.");
+                e.offline = true;
+                this.events.failed(e);
+            }
+        }
+
+        connect(url) {
+            this.worker.postMessage({ connect: url });
+        }
+
+        open(width, height, outWidth, outHeight) {
+            this.canvas.style.width = `${outWidth}px`;
+            this.canvas.style.height = `${outHeight}px`;
+            this.worker.postMessage({ open: { width, height, outWidth, outHeight } });
+        }
+
+        play() {
+            this.ready.then(() => {
+                if (this.sound && this.sound.state !== 'running') {
+                    this.sound.resume().catch(() => {});
+                }
+            });
+            this.worker.postMessage({ play: true });
+        }
+
+        pause() {
+            this.worker.postMessage({ pause: true });
+            if (this.sound) {
+                this.sound.suspend().catch(() => {});
+            }
+        }
+
+        set keys(bits) {
+            if (bits !== this.held) {
+                this.held = bits;
+                this.worker.postMessage({ keys: bits });
+            }
+        }
+
+        set monitor(fn) {
+            this.report = fn;
+            this.worker.postMessage({ monitor: !!fn });
+        }
+    }
+
+    window.RetroPlayer = Player;
+}());

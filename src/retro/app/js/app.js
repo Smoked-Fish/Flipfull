@@ -3,9 +3,10 @@
 (function () {
     const $ = (id) => document.getElementById(id);
     const el = {
-        body: document.body, barTitle: $('bar-title'), loadingText: $('loading-text'), offlineWhy: $('offline-why'),
-        list: $('list'), games: $('games'), screen: $('screen'), menuItems: $('menu-items'),
-        left: $('sk-left'), center: $('sk-center'), right: $('sk-right'),
+        body: document.body, bar: $('bar'), barTitle: $('bar-title'), loadingText: $('loading-text'),
+        offlineWhy: $('offline-why'), list: $('list'), games: $('games'), screen: $('screen'), fps: $('fps'),
+        menuItems: $('menu-items'), softkeys: $('softkeys'), left: $('sk-left'), center: $('sk-center'),
+        right: $('sk-right'),
     };
     const FOLDER = 'games';
     const B = 0;
@@ -28,13 +29,8 @@
     let games = [];
     const focus = { list: 0, menu: 0 };
     let current = null;
-    let running = false;
+    let player = null;
     let held = 0;
-    const ctx = el.screen.getContext('2d');
-    let image = null;
-    let audio = null;
-    let soundAt = 0;
-    let rate = 32768;
 
     function storage() {
         return navigator.b2g.getDeviceStorage('sdcard');
@@ -50,16 +46,39 @@
         });
     }
 
+    function stored(key) {
+        try {
+            return localStorage.getItem(key);
+        } catch (e) {
+            return null;
+        }
+    }
+
+    function store(key, value) {
+        try {
+            localStorage.setItem(key, value);
+        } catch (e) {}
+    }
+
     function softkeys(left, center, right) {
         el.left.textContent = left || '';
         el.center.textContent = center || '';
         el.right.textContent = right || '';
     }
 
-    function row(name) {
+    function row(name, detail) {
         const div = document.createElement('div');
         div.className = 'row';
-        div.textContent = name;
+        const n = document.createElement('span');
+        n.className = 'name';
+        n.textContent = name;
+        div.appendChild(n);
+        if (detail) {
+            const d = document.createElement('span');
+            d.className = 'detail';
+            d.textContent = detail;
+            div.appendChild(d);
+        }
         return div;
     }
 
@@ -88,9 +107,11 @@
             case 'play': return renderPlay();
             case 'menu': return renderMenu();
             case 'offline':
-                keys = { center: begin, back: () => window.close() };
+                el.barTitle.textContent = 'GBA';
+                keys = { center: connect, back: () => window.close() };
                 return softkeys('', 'Retry', '');
             default:
+                el.barTitle.textContent = 'GBA';
                 keys = {};
                 return softkeys('', '', '');
         }
@@ -153,17 +174,20 @@
         }
     }
 
+    function fit(width, height) {
+        const room = window.innerHeight - el.bar.offsetHeight - el.softkeys.offsetHeight;
+        const scale = Math.max(1, Math.min(window.innerWidth / width, room / height));
+        player.open(width, height, Math.round(width * scale), Math.round(height * scale));
+    }
+
     async function start(game) {
         show('loading', `Loading ${game.title}…`);
         try {
             const rom = await readFile(game.path);
             const save = await readFile(savePath(game));
             const info = await window.FlipfullRetro.load(rom, save);
-            el.screen.width = info.width;
-            el.screen.height = info.height;
-            image = ctx.createImageData(info.width, info.height);
-            rate = info.rate;
             current = game;
+            fit(info.width, info.height);
             play();
         } catch (e) {
             current = null;
@@ -179,95 +203,35 @@
 
     function play() {
         held = 0;
+        player.keys = 0;
         show('play');
-        if (!audio) {
-            audio = new AudioContext();
-        }
-        soundAt = 0;
-        running = true;
-        requestAnimationFrame(tick);
+        player.play();
     }
 
-    let timing = { n: 0, call: 0, draw: 0 };
-
-    async function tick() {
-        if (!running) {
-            return;
-        }
-        try {
-            const t0 = performance.now();
-            const frame = await window.FlipfullRetro.frame(held);
-            const t1 = performance.now();
-            draw(frame.picture);
-            sound(frame.audio);
-            timing.call += t1 - t0;
-            timing.draw += performance.now() - t1;
-            if (++timing.n === 60) {
-                console.log(`[retro] frame() ${(timing.call / 60).toFixed(1)} ms, drawing ${(timing.draw / 60).toFixed(1)} ms`);
-                timing = { n: 0, call: 0, draw: 0 };
-            }
-        } catch (e) {
-            running = false;
-            failed(e);
-            return;
-        }
-        requestAnimationFrame(tick);
+    function menuItems() {
+        return [
+            { name: 'Resume', run: play },
+            { name: 'Save', run: () => writeSave().then(play, failed) },
+            { name: 'FPS monitor', detail: stored('fps') === 'on' ? 'On' : 'Off', run: toggleMonitor },
+            { name: 'Quit game', run: quit },
+        ];
     }
-
-    function draw(bytes) {
-        const px = new Uint16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength >> 1);
-        const d = image.data;
-        for (let i = 0, j = 0; i < px.length; i++, j += 4) {
-            const p = px[i];
-            d[j] = (p >> 8) & 0xf8;
-            d[j + 1] = (p >> 3) & 0xfc;
-            d[j + 2] = (p << 3) & 0xf8;
-            d[j + 3] = 255;
-        }
-        ctx.putImageData(image, 0, 0);
-    }
-
-    function sound(bytes) {
-        const s = new Int16Array(bytes.buffer, bytes.byteOffset, bytes.byteLength >> 1);
-        const n = s.length >> 1;
-        if (!n) {
-            return;
-        }
-        const buf = audio.createBuffer(2, n, rate);
-        const left = buf.getChannelData(0);
-        const right = buf.getChannelData(1);
-        for (let i = 0; i < n; i++) {
-            left[i] = s[2 * i] / 32768;
-            right[i] = s[2 * i + 1] / 32768;
-        }
-        const src = audio.createBufferSource();
-        src.buffer = buf;
-        src.connect(audio.destination);
-        soundAt = Math.max(soundAt, audio.currentTime + 0.05);
-        src.start(soundAt);
-        soundAt += buf.duration;
-    }
-
-    const MENU = [
-        { name: 'Resume', run: () => play() },
-        { name: 'Save', run: () => writeSave().then(() => play(), failed) },
-        { name: 'Quit game', run: () => quit() },
-    ];
 
     function renderMenu() {
+        const menu = menuItems();
         el.barTitle.textContent = current ? current.title : 'GBA';
         el.menuItems.textContent = '';
-        MENU.forEach((m) => el.menuItems.appendChild(row(m.name)));
+        menu.forEach((m) => el.menuItems.appendChild(row(m.name, m.detail)));
         moveFocus('menu', el.menuItems, 0);
         keys = {
-            center: () => MENU[focus.menu].run(),
-            back: () => play(),
+            center: () => menu[focus.menu].run(),
+            back: play,
         };
         softkeys('', 'Select', '');
     }
 
     function pause() {
-        running = false;
+        player.pause();
         focus.menu = 0;
         show('menu');
     }
@@ -282,6 +246,22 @@
         show('list');
     }
 
+    function monitor(m) {
+        el.fps.textContent = `${m.fps.toFixed(1)} fps`;
+    }
+
+    function useMonitor() {
+        const on = stored('fps') === 'on';
+        player.monitor = on ? monitor : null;
+        el.fps.classList.toggle('show', on);
+    }
+
+    function toggleMonitor() {
+        store('fps', stored('fps') === 'on' ? 'off' : 'on');
+        useMonitor();
+        renderMenu();
+    }
+
     function gameKey(e, down) {
         if (e.key === 'Backspace' || e.key === 'GoBack') {
             if (down) {
@@ -294,6 +274,7 @@
         }
         const bit = 1 << KEYS[e.key];
         held = down ? held | bit : held & ~bit;
+        player.keys = held;
         return true;
     }
 
@@ -341,7 +322,7 @@
         }
     }
 
-    async function begin() {
+    async function connect() {
         if (!window.FlipfullRetro) {
             el.offlineWhy.textContent = "Flipfull's retro.js didn't load from api-daemon.";
             show('offline');
@@ -350,11 +331,23 @@
         show('loading');
         try {
             await window.FlipfullRetro.info();
+            player.connect(await window.FlipfullRetro.stream());
             games = await scan();
             show('list');
         } catch (e) {
             failed(e);
         }
+    }
+
+    function begin() {
+        player = new window.RetroPlayer(el.screen, {
+            failed: (e) => {
+                current = null;
+                failed(e);
+            },
+        });
+        useMonitor();
+        connect();
     }
 
     window.addEventListener('keydown', onKeyDown);
