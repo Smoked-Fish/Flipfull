@@ -1,6 +1,7 @@
 use crate::generated::common::*;
 use crate::generated::service::*;
 use crate::libretro::{self, Frontend};
+use crate::stream;
 use common::core::BaseMessage;
 use common::traits::{
     EmptyConfig, EmptyState, OriginAttributes, Service, SessionSupport, Shared, SharedServiceState,
@@ -35,7 +36,15 @@ impl RetroMethods for Retro {
         })));
     }
 
+    fn stream(&mut self, responder: RetroStreamResponder) {
+        match stream::url() {
+            Ok(url) => responder.resolve(url),
+            Err(why) => responder.reject(failure(why)),
+        }
+    }
+
     fn load(&mut self, responder: RetroLoadResponder, rom: Vec<u8>, save: Vec<u8>) {
+        stream::stop();
         match frontend().load(&rom, &save) {
             Ok(game) => {
                 info!(
@@ -58,13 +67,6 @@ impl RetroMethods for Retro {
         }
     }
 
-    fn frame(&mut self, responder: RetroFrameResponder, keys: i64) {
-        match frontend().frame(keys as u16) {
-            Ok((picture, audio)) => responder.resolve(Frame { picture, audio }),
-            Err(why) => responder.reject(failure(why)),
-        }
-    }
-
     fn save(&mut self, responder: RetroSaveResponder) {
         match frontend().save_data() {
             Ok(data) => responder.resolve(data),
@@ -73,6 +75,7 @@ impl RetroMethods for Retro {
     }
 
     fn unload(&mut self, responder: RetroUnloadResponder) {
+        stream::stop();
         frontend().unload();
         responder.resolve();
     }

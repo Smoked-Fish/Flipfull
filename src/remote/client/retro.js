@@ -12,11 +12,11 @@ window.FlipfullRetro = {
     info() {
         return retro.call((svc) => svc.info(), QUICK);
     },
+    stream() {
+        return retro.call((svc) => svc.stream(), QUICK);
+    },
     load(rom, save) {
         return retro.call((svc) => svc.load(rom, save), SLOW);
-    },
-    frame(keys) {
-        return retro.call((svc) => svc.frame(keys), QUICK);
     },
     save() {
         return retro.call((svc) => svc.save(), QUICK);

@@ -10,18 +10,13 @@ dictionary Game {
   rate: int
 }
 
-dictionary Frame {
-  picture: binary
-  audio: binary
-}
-
 #[rust:not-tracked]
 interface Retro {
   fn info() -> json
 
-  fn load(rom: binary, save: binary) -> Game, Failure
+  fn stream() -> str, Failure
 
-  fn frame(keys: int) -> Frame, Failure
+  fn load(rom: binary, save: binary) -> Game, Failure
 
   fn save() -> binary, Failure
 

@@ -217,6 +217,7 @@ pub struct Game {
 #[derive(Default)]
 pub struct Frontend {
     loaded: bool,
+    timing: (f64, f64),
 }
 
 impl Frontend {
@@ -226,6 +227,14 @@ impl Frontend {
         } else {
             Err("no game is loaded".into())
         }
+    }
+
+    pub fn loaded(&self) -> bool {
+        self.loaded
+    }
+
+    pub fn timing(&self) -> Option<(f64, f64)> {
+        Some(self.timing).filter(|_| self.loaded)
     }
 
     pub fn load(&mut self, rom: &[u8], save: &[u8]) -> Result<Game, String> {
@@ -248,6 +257,7 @@ impl Frontend {
         memory[..n].copy_from_slice(&save[..n]);
         let mut av = AvInfo::default();
         unsafe { retro_get_system_av_info(&mut av) };
+        self.timing = (av.timing.fps, av.timing.sample_rate);
         Ok(Game {
             width: av.geometry.base_width,
             height: av.geometry.base_height,
@@ -256,15 +266,26 @@ impl Frontend {
         })
     }
 
-    pub fn frame(&mut self, keys: u16) -> Result<(Vec<u8>, Vec<u8>), String> {
-        self.check()?;
-        output().keys = keys;
-        unsafe { retro_run() };
+    pub fn frame(&mut self, keys: u16) {
+        if self.loaded {
+            output().keys = keys;
+            unsafe { retro_run() };
+        }
+    }
+
+    pub fn picture(&self, into: &mut Vec<u8>) -> (usize, usize) {
+        let out = output();
+        into.reserve(out.picture.len() * 2);
+        for p in &out.picture {
+            into.extend_from_slice(&p.to_le_bytes());
+        }
+        (out.width, out.height)
+    }
+
+    pub fn audio(&mut self, into: &mut Vec<i16>) {
         let mut out = output();
-        let picture = out.picture.iter().flat_map(|p| p.to_le_bytes()).collect();
-        let audio = out.audio.iter().flat_map(|s| s.to_le_bytes()).collect();
+        into.extend_from_slice(&out.audio);
         out.audio.clear();
-        Ok((picture, audio))
     }
 
     pub fn save_data(&self) -> Result<Vec<u8>, String> {
