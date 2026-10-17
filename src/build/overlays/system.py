@@ -89,6 +89,21 @@ HARDWARE_BUTTONS = [
           'if(clearTimeout(this.qdTimer),this.qdCount++||window.FlipfullMedia&&'
           'FlipfullMedia.quickPress(this.flipfullScreenWasOff,this._isCalling),'
           'this.qdTimer=setTimeout(()=>{var e;window.FlipfullMedia&&FlipfullMedia.quickPresses(this.qdCount);'),
+    # gba: favorite contacts and messages keys are game buttons in the gba app
+    Patch(BUTTONS_JS,
+          'case"favoritecontacts-button-release":var s=Service.query("getTopMostWindow").manifestUrl;'
+          'if(-1<s.indexOf("mmitest")||',
+          'case"favoritecontacts-button-release":var s=Service.query("getTopMostWindow").manifestUrl;'
+          'if(-1<s.indexOf("mmitest")||-1<s.indexOf("retro.localhost")||'),
+    Patch(BUTTONS_JS,
+          'else if(this.hardwareButtons.shouldLaunchApp()){var s=Service.query("getTopMostWindow").manifestUrl;'
+          'if(s&&(-1<s.indexOf("sms.localhost")||',
+          'else if(this.hardwareButtons.shouldLaunchApp()){var s=Service.query("getTopMostWindow").manifestUrl;'
+          'if(s&&(-1<s.indexOf("retro.localhost")||-1<s.indexOf("sms.localhost")||'),
+    Patch(BUTTONS_JS,
+          'case"sms-button-release":if(this.hardwareButtons.shouldLaunchApp()){',
+          'case"sms-button-release":if(-1===(Service.query("getTopMostWindow").manifestUrl||"")'
+          '.indexOf("retro.localhost")&&this.hardwareButtons.shouldLaunchApp()){'),
 ]
 
 NO_BATTERY_FULL = [

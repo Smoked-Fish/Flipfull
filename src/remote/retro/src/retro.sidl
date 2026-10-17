@@ -18,6 +18,12 @@ interface Retro {
 
   fn load(rom: binary, save: binary) -> Game, Failure
 
+  fn reset() -> void, Failure
+
+  fn save_state() -> binary, Failure
+
+  fn load_state(state: binary) -> void, Failure
+
   fn save() -> binary, Failure
 
   fn unload()

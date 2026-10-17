@@ -18,6 +18,15 @@ window.FlipfullRetro = {
     load(rom, save) {
         return retro.call((svc) => svc.load(rom, save), SLOW);
     },
+    reset() {
+        return retro.call((svc) => svc.reset(), QUICK);
+    },
+    saveState() {
+        return retro.call((svc) => svc.saveState(), SLOW);
+    },
+    loadState(state) {
+        return retro.call((svc) => svc.loadState(state), SLOW);
+    },
     save() {
         return retro.call((svc) => svc.save(), QUICK);
     },

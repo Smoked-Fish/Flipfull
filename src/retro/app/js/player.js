@@ -9,8 +9,9 @@
             this.events = events;
             this.held = 0;
             this.report = null;
+            this.waiters = [];
             this.sound = null;
-            this.worker = new Worker('js/screen.js');
+            this.worker = new Worker('js/net.js');
             this.worker.onmessage = (e) => this.message(e.data);
             const offscreen = canvas.transferControlToOffscreen();
             this.worker.postMessage({ canvas: offscreen }, [offscreen]);
@@ -38,13 +39,16 @@
         }
 
         message(m) {
+            if (m.paused) {
+                this.waiters.splice(0).forEach((resolve) => resolve());
+            }
             if (m.stats && this.report) {
                 this.report(m.stats);
             }
             if (m.failed) {
                 this.events.failed(new Error(m.failed));
             }
-            if (m.closed) {
+            if (m.closed && m.playing) {
                 const e = new Error("The GBA service closed the game's connection.");
                 e.offline = true;
                 this.events.failed(e);
@@ -71,10 +75,13 @@
         }
 
         pause() {
-            this.worker.postMessage({ pause: true });
             if (this.sound) {
                 this.sound.suspend().catch(() => {});
             }
+            return new Promise((resolve) => {
+                this.waiters.push(resolve);
+                this.worker.postMessage({ pause: true });
+            });
         }
 
         set keys(bits) {

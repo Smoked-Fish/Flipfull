@@ -24,7 +24,7 @@
 
     <section id="list">
         <div id="games"></div>
-        <p class="text muted" id="empty">No games yet. Copy .gba files into a folder called games on the phone's storage.</p>
+        <p class="text muted" id="empty">No games yet. Copy .gba, .gbc, or .gb files into a folder called games on the phone's storage.</p>
     </section>
 
     <section id="play">
@@ -35,7 +35,15 @@
     </section>
 
     <section id="menu"><div id="menu-items"></div></section>
+
+    <section id="keys">
+        <p class="hint" id="keys-hint"></p>
+        <div id="key-items"></div>
+    </section>
 </main>
+
+<div id="toast" role="status"></div>
+
 
 <footer id="softkeys">
     <span id="sk-left"></span>

@@ -1,3 +1,4 @@
+use crate::video::Video;
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_uint, c_void};
 use std::ptr;
@@ -65,6 +66,10 @@ extern "C" {
     fn retro_load_game(game: *const GameInfo) -> bool;
     fn retro_unload_game();
     fn retro_run();
+    fn retro_reset();
+    fn retro_serialize_size() -> usize;
+    fn retro_serialize(data: *mut c_void, size: usize) -> bool;
+    fn retro_unserialize(data: *const c_void, size: usize) -> bool;
     fn retro_get_memory_data(id: c_uint) -> *mut c_void;
     fn retro_get_memory_size(id: c_uint) -> usize;
 }
@@ -102,6 +107,7 @@ extern "C" fn environment(cmd: c_uint, data: *mut c_void) -> bool {
 fn rgb565(pixel: u32, format: u32) -> u16 {
     match format {
         PIXEL_XRGB8888 => (((pixel >> 8) & 0xf800) | ((pixel >> 5) & 0x07e0) | ((pixel >> 3) & 0x001f)) as u16,
+        // 0rgb1555, green's top bit again as the sixth
         _ => (((pixel & 0x7fe0) << 1) | ((pixel >> 4) & 0x20) | (pixel & 0x1f)) as u16,
     }
 }
@@ -207,17 +213,34 @@ fn save_memory() -> &'static mut [u8] {
     }
 }
 
+#[derive(Clone, Copy, PartialEq)]
+pub enum Platform {
+    Gba,
+    Gb,
+}
+
+fn platform_of(rom: &[u8]) -> Platform {
+    if rom.get(0xb2) == Some(&0x96) {
+        Platform::Gba
+    } else {
+        Platform::Gb
+    }
+}
+
 pub struct Game {
     pub width: u32,
     pub height: u32,
     pub fps: f64,
     pub rate: f64,
+    pub platform: Platform,
 }
 
 #[derive(Default)]
 pub struct Frontend {
     loaded: bool,
+    platform: Option<Platform>,
     timing: (f64, f64),
+    video: Video,
 }
 
 impl Frontend {
@@ -233,6 +256,10 @@ impl Frontend {
         self.loaded
     }
 
+    pub fn platform(&self) -> Option<Platform> {
+        self.platform.filter(|_| self.loaded)
+    }
+
     pub fn timing(&self) -> Option<(f64, f64)> {
         Some(self.timing).filter(|_| self.loaded)
     }
@@ -246,15 +273,18 @@ impl Frontend {
             out.audio.clear();
             out.keys = 0;
         }
-        let path = CString::new("game.gba").unwrap();
+        // mgba goes by the rom, not the name
+        let path = CString::new("game").unwrap();
         let game = GameInfo { path: path.as_ptr(), data: rom.as_ptr() as *const c_void, size: rom.len(), meta: ptr::null() };
         if rom.is_empty() || !unsafe { retro_load_game(&game) } {
             return Err("the core can't play this file".into());
         }
         self.loaded = true;
+        self.platform = Some(platform_of(rom));
         let memory = save_memory();
         let n = save.len().min(memory.len());
         memory[..n].copy_from_slice(&save[..n]);
+        self.video.forget();
         let mut av = AvInfo::default();
         unsafe { retro_get_system_av_info(&mut av) };
         self.timing = (av.timing.fps, av.timing.sample_rate);
@@ -263,6 +293,7 @@ impl Frontend {
             height: av.geometry.base_height,
             fps: av.timing.fps,
             rate: av.timing.sample_rate,
+            platform: self.platform.unwrap(),
         })
     }
 
@@ -273,13 +304,16 @@ impl Frontend {
         }
     }
 
-    pub fn picture(&self, into: &mut Vec<u8>) -> (usize, usize) {
-        let out = output();
-        into.reserve(out.picture.len() * 2);
-        for p in &out.picture {
-            into.extend_from_slice(&p.to_le_bytes());
+    pub fn picture(&mut self, into: &mut Vec<u8>) -> (usize, usize, usize, usize) {
+        {
+            let out = output();
+            self.video.compose(&out.picture, out.width, out.height);
         }
-        (out.width, out.height)
+        self.video.band(into)
+    }
+
+    pub fn forget_picture(&mut self) {
+        self.video.forget();
     }
 
     pub fn audio(&mut self, into: &mut Vec<i16>) {
@@ -291,6 +325,30 @@ impl Frontend {
     pub fn save_data(&self) -> Result<Vec<u8>, String> {
         self.check()?;
         Ok(save_memory().to_vec())
+    }
+
+    pub fn reset(&mut self) -> Result<(), String> {
+        self.check()?;
+        unsafe { retro_reset() };
+        Ok(())
+    }
+
+    pub fn save_state(&mut self) -> Result<Vec<u8>, String> {
+        self.check()?;
+        let size = unsafe { retro_serialize_size() };
+        let mut state = vec![0u8; size];
+        if size == 0 || !unsafe { retro_serialize(state.as_mut_ptr() as *mut c_void, size) } {
+            return Err("the core couldn't save its state".into());
+        }
+        Ok(state)
+    }
+
+    pub fn load_state(&mut self, state: &[u8]) -> Result<(), String> {
+        self.check()?;
+        if !unsafe { retro_unserialize(state.as_ptr() as *const c_void, state.len()) } {
+            return Err("the state isn't one of this game's".into());
+        }
+        Ok(())
     }
 
     pub fn unload(&mut self) {

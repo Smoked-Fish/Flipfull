@@ -67,6 +67,27 @@ impl RetroMethods for Retro {
         }
     }
 
+    fn reset(&mut self, responder: RetroResetResponder) {
+        match frontend().reset() {
+            Ok(()) => responder.resolve(),
+            Err(why) => responder.reject(failure(why)),
+        }
+    }
+
+    fn save_state(&mut self, responder: RetroSaveStateResponder) {
+        match frontend().save_state() {
+            Ok(state) => responder.resolve(state),
+            Err(why) => responder.reject(failure(why)),
+        }
+    }
+
+    fn load_state(&mut self, responder: RetroLoadStateResponder, state: Vec<u8>) {
+        match frontend().load_state(&state) {
+            Ok(()) => responder.resolve(),
+            Err(why) => responder.reject(failure(why)),
+        }
+    }
+
     fn save(&mut self, responder: RetroSaveResponder) {
         match frontend().save_data() {
             Ok(data) => responder.resolve(data),

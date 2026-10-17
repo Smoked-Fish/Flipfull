@@ -2,6 +2,7 @@
     --gs60: #272730;
     --muted: #b2b2c2;
     --purple: #8000ff;
+    --amber: #ffc36b;
 }
 
 * {
@@ -64,7 +65,8 @@ body[data-view="offline"] #offline,
 body[data-view="list"] #list,
 body[data-view="play"] #play,
 body[data-view="menu"] #play,
-body[data-view="menu"] #menu {
+body[data-view="menu"] #menu,
+body[data-view="keys"] #keys {
     display: block;
 }
 
@@ -77,6 +79,18 @@ body[data-view="menu"] #menu {
 
 .muted {
     color: var(--muted);
+}
+
+.hint {
+    margin: 0;
+    padding: 0.5rem 1rem;
+    font-size: 1.2rem;
+    line-height: 1.6rem;
+    color: var(--muted);
+}
+
+.hint:empty {
+    display: none;
 }
 
 #empty {
@@ -117,6 +131,10 @@ body[data-view="menu"] #menu {
 
 .row.focus .detail {
     color: #fff;
+}
+
+.row.waiting .detail {
+    color: var(--amber);
 }
 
 #play {
@@ -166,6 +184,24 @@ body[data-view="menu"] #play {
     background: rgba(0, 0, 0, 0.88);
     overflow-y: auto;
     max-height: 100%;
+}
+
+#toast {
+    display: none;
+    position: absolute;
+    left: 0.6rem;
+    right: 0.6rem;
+    bottom: 3.4rem;
+    padding: 0.7rem 1rem;
+    border-radius: 0.6rem;
+    background: var(--gs60);
+    font-size: 1.35rem;
+    line-height: 1.9rem;
+    box-shadow: 0 0.2rem 0.8rem rgba(0, 0, 0, 0.6);
+}
+
+#toast.show {
+    display: block;
 }
 
 #softkeys {

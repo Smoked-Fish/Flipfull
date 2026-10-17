@@ -1,7 +1,7 @@
 'use strict';
 
 (function (scope) {
-    const HEADER = 8;
+    const HEADER = 16;
     const STATS_EVERY = 1000;
 
     class Screen {
@@ -9,6 +9,7 @@
             this.canvas = canvas;
             this.width = 0;
             this.height = 0;
+            this.changed = false;
             const gl = canvas.getContext('webgl', {
                 alpha: false, antialias: false, depth: false, stencil: false, premultipliedAlpha: false,
             });
@@ -76,81 +77,47 @@
             gl.uniform2f(this.perPixel, width / outWidth, height / outHeight);
             gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, width, height, 0, gl.RGB, gl.UNSIGNED_SHORT_5_6_5,
                 new Uint16Array(width * height));
+            this.changed = true;
         }
 
-        draw(width, height, buffer) {
+        rows(width, height, top, rows, buffer) {
             if (width !== this.width || height !== this.height) {
                 this.clear(width, height, this.canvas.width, this.canvas.height);
             }
-            const gl = this.gl;
-            gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, gl.RGB, gl.UNSIGNED_SHORT_5_6_5,
-                new Uint16Array(buffer, HEADER, width * height));
-            gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+            if (rows) {
+                const gl = this.gl;
+                gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, top, width, rows, gl.RGB, gl.UNSIGNED_SHORT_5_6_5,
+                    new Uint16Array(buffer, HEADER, width * rows));
+                this.changed = true;
+            }
+        }
+
+        draw() {
+            this.gl.drawArrays(this.gl.TRIANGLE_STRIP, 0, 4);
+            this.changed = false;
         }
     }
 
     let screen = null;
-    let socket = null;
-    let url = null;
-    let sound = null;
-    let playing = false;
-    let monitor = false;
-    let frames = 0;
+    const net = scope;
+    let monitor = null;
+    let shown = 0;
     let since = 0;
 
-    function send(message) {
-        if (socket && socket.readyState === WebSocket.OPEN) {
-            socket.send(JSON.stringify(message));
+    function show(buffer) {
+        const h16 = new Uint16Array(buffer, 0, HEADER >> 1);
+        screen.rows(h16[1], h16[2], h16[3], h16[4], buffer);
+        if (screen.changed) {
+            screen.draw();
+            shown++;
         }
     }
 
-    function connect() {
-        if (socket || !url) {
-            return;
-        }
-        const s = new WebSocket(url);
-        s.binaryType = 'arraybuffer';
-        socket = s;
-        s.onopen = () => {
-            if (playing) {
-                send({ play: true });
-            }
-        };
-        s.onmessage = (e) => frame(e.data);
-        s.onclose = () => {
-            if (socket !== s) {
-                return;
-            }
-            socket = null;
-            if (playing) {
-                playing = false;
-                scope.postMessage({ closed: true });
-            }
-        };
-    }
-
-    function frame(data) {
-        const h16 = new Uint16Array(data, 0, 2);
-        const samples = new Uint32Array(data, 4, 1)[0];
-        const width = h16[0];
-        const height = h16[1];
-        screen.draw(width, height, data);
-        frames++;
-        if (samples && sound) {
-            const pcm = new Int16Array(data, HEADER + width * height * 2, samples * 2);
-            const out = new Float32Array(samples * 2);
-            for (let i = 0; i < samples; i++) {
-                out[i] = pcm[2 * i] / 32768;
-                out[samples + i] = pcm[2 * i + 1] / 32768;
-            }
-            sound.postMessage(out, [out.buffer]);
-        }
+    function stats() {
         const now = performance.now();
-        if (monitor && now - since >= STATS_EVERY) {
-            scope.postMessage({ stats: { fps: (frames * 1000) / (now - since) } });
-            frames = 0;
-            since = now;
-        }
+        net.postMessage({ stats: { shown: (shown * 1000) / (now - since) } });
+        shown = 0;
+        since = now;
     }
 
     scope.onmessage = (e) => {
@@ -159,37 +126,21 @@
             try {
                 screen = new Screen(m.canvas);
             } catch (err) {
-                scope.postMessage({ failed: err.message });
+                net.postMessage({ failed: err.message });
             }
-        } else if (m.sound) {
-            sound = m.sound;
-        } else if (m.connect) {
-            if (m.connect !== url && socket) {
-                const old = socket;
-                socket = null;
-                old.close();
-            }
-            url = m.connect;
-            connect();
         } else if (m.open) {
             screen.clear(m.open.width, m.open.height, m.open.outWidth, m.open.outHeight);
-        } else if (m.play) {
-            playing = true;
-            frames = 0;
-            since = performance.now();
-            if (socket && socket.readyState === WebSocket.OPEN) {
-                send({ play: true });
-            } else {
-                connect();
+            screen.draw();
+        } else if (m.frame) {
+            show(m.frame);
+        } else if (m.last) {
+            if (screen.changed) {
+                screen.draw();
             }
-        } else if (m.pause) {
-            playing = false;
-            send({ pause: true });
-        } else if (m.keys !== undefined) {
-            send({ keys: m.keys });
         } else if (m.monitor !== undefined) {
-            monitor = m.monitor;
-            frames = 0;
+            clearInterval(monitor);
+            monitor = m.monitor ? setInterval(stats, STATS_EVERY) : null;
+            shown = 0;
             since = performance.now();
         }
     };

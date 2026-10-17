@@ -13,7 +13,9 @@ use std::time::{Duration, Instant};
 
 const APP: &str = "http://retro.localhost";
 
-const FRAME_HEADER: usize = 8;
+const KIND_FRAME: u8 = 1;
+const PAUSED: u8 = 2;
+const FRAME_HEADER: usize = 16;
 const BEHIND: f64 = 4.0;
 const IDLE: Duration = Duration::from_secs(3600);
 const WRITE_TIMEOUT: Duration = Duration::from_secs(2);
@@ -173,6 +175,7 @@ impl Player {
                     let _ = old.shutdown(Shutdown::Both);
                 }
                 self.running = false;
+                frontend().forget_picture();
             }
             Command::Gone(id) => {
                 if self.client.as_ref().map_or(false, |(c, _)| *c == id) {
@@ -195,7 +198,7 @@ impl Player {
                     self.play();
                 }
                 if m["pause"].as_bool() == Some(true) {
-                    self.running = false;
+                    self.pause();
                 }
             }
         }
@@ -211,6 +214,18 @@ impl Player {
         self.deadline = Instant::now();
     }
 
+    fn pause(&mut self) {
+        if self.running {
+            self.message.clear();
+            self.message.resize(ws::HEADER + FRAME_HEADER, 0);
+            let m = &mut self.message[ws::HEADER..];
+            m[0] = KIND_FRAME;
+            m[1] = PAUSED;
+            self.send();
+        }
+        self.running = false;
+    }
+
     fn frame(&mut self) {
         let mut f = frontend();
         if !f.loaded() {
@@ -221,18 +236,37 @@ impl Player {
         f.frame(self.keys);
         self.message.clear();
         self.message.resize(ws::HEADER + FRAME_HEADER, 0);
-        let (width, height) = f.picture(&mut self.message);
+        let (width, height, top, rows) = f.picture(&mut self.message);
         self.audio.clear();
         f.audio(&mut self.audio);
         drop(f);
 
-        for s in &self.audio {
-            self.message.extend_from_slice(&s.to_le_bytes());
+        let samples = self.audio.len() / 2;
+        self.message.reserve(samples * 8);
+        for c in 0..2 {
+            for frame in self.audio.chunks_exact(2) {
+                self.message.extend_from_slice(&(frame[c] as f32 / 32768.0).to_le_bytes());
+            }
         }
         let m = &mut self.message[ws::HEADER..];
-        m[0..2].copy_from_slice(&(width as u16).to_le_bytes());
-        m[2..4].copy_from_slice(&(height as u16).to_le_bytes());
-        m[4..8].copy_from_slice(&((self.audio.len() / 2) as u32).to_le_bytes());
+        m[0] = KIND_FRAME;
+        m[2..4].copy_from_slice(&(width as u16).to_le_bytes());
+        m[4..6].copy_from_slice(&(height as u16).to_le_bytes());
+        m[6..8].copy_from_slice(&(top as u16).to_le_bytes());
+        m[8..10].copy_from_slice(&(rows as u16).to_le_bytes());
+        m[10..12].copy_from_slice(&1u16.to_le_bytes());
+        m[12..16].copy_from_slice(&(samples as u32).to_le_bytes());
+        self.send();
+
+        let period = Duration::from_secs_f64(self.period);
+        self.deadline += period;
+        let now = Instant::now();
+        if now > self.deadline + period.mul_f64(BEHIND) {
+            self.deadline = now;
+        }
+    }
+
+    fn send(&mut self) {
         let start = ws::frame(&mut self.message, ws::BINARY);
         let gone = match self.client.as_mut() {
             Some((_, stream)) => stream.write_all(&self.message[start..]).is_err(),
@@ -240,13 +274,6 @@ impl Player {
         };
         if gone {
             self.running = false;
-        }
-
-        let period = Duration::from_secs_f64(self.period);
-        self.deadline += period;
-        let now = Instant::now();
-        if now > self.deadline + period.mul_f64(BEHIND) {
-            self.deadline = now;
         }
     }
 }
