@@ -3,12 +3,15 @@
 (function () {
     const $ = (id) => document.getElementById(id);
     const el = {
-        body: document.body, bar: $('bar'), barTitle: $('bar-title'), loadingText: $('loading-text'),
-        offlineWhy: $('offline-why'), list: $('list'), games: $('games'), screen: $('screen'), fps: $('fps'),
-        menuItems: $('menu-items'), keyItems: $('key-items'), keysHint: $('keys-hint'), toast: $('toast'),
+        body: document.body, bar: $('bar'), barTitle: $('bar-title'), barCount: $('bar-count'),
+        loadingText: $('loading-text'), offlineWhy: $('offline-why'), list: $('list'), scanning: $('scanning'),
+        games: $('games'), screen: $('screen'), fps: $('fps'), status: $('status'), menuItems: $('menu-items'), keyItems: $('key-items'), keysHint: $('keys-hint'), toast: $('toast'),
         softkeys: $('softkeys'), left: $('sk-left'), center: $('sk-center'), right: $('sk-right'),
     };
-    const FOLDER = 'games';
+    const FOLDER = 'roms';
+    const STATUS_HEIGHT = 22;
+    const MENU_KEY = 'SoftLeft';
+    const FAST_KEY = 'SoftRight';
     const SYSTEMS = { gba: 'GBA', gbc: 'GBC', gb: 'GB' };
     const KEY_NAMES = {
         ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→', Enter: 'OK', Call: 'Call',
@@ -60,7 +63,11 @@
     let view = 'loading';
     let keys = {};
     let toastTimer = null;
+    let statusTimer = null;
     let games = [];
+    let scanned = false;
+    let folder = '';
+    const folderFocus = {};
     const focus = { list: 0, menu: 0, keys: 0 };
     let current = null;
     let player = null;
@@ -114,6 +121,16 @@
         toastTimer = setTimeout(() => el.toast.classList.remove('show'), 3000);
     }
 
+    function status(text, lasts) {
+        el.status.textContent = text || '';
+        clearTimeout(statusTimer);
+        if (text && !lasts) {
+            statusTimer = setTimeout(() => {
+                el.status.textContent = '';
+            }, 3000);
+        }
+    }
+
     function row(name, detail, extra) {
         const div = document.createElement('div');
         div.className = `row${extra ? ` ${extra}` : ''}`;
@@ -150,6 +167,7 @@
     }
 
     function render() {
+        el.barCount.textContent = '';
         switch (view) {
             case 'list': return renderList();
             case 'play': return renderPlay();
@@ -180,26 +198,98 @@
         const found = [];
         const cursor = storage().enumerate(FOLDER);
         for await (const file of cursor.values()) {
-            const name = file.name.replace(/^.*\//, '');
+            const inside = file.name.slice(file.name.indexOf(`${FOLDER}/`) + FOLDER.length + 1);
+            const name = inside.replace(/^.*\//, '');
             const m = /^(.*)\.(gba|gbc|gb)$/i.exec(name);
             if (m) {
-                found.push({ path: file.name, title: m[1], system: SYSTEMS[m[2].toLowerCase()] });
+                const folder = inside.slice(0, inside.length - name.length);
+                found.push({ path: file.name, title: m[1], system: SYSTEMS[m[2].toLowerCase()], folder });
             }
         }
-        return found.sort((a, b) => a.title.localeCompare(b.title));
+        return found;
+    }
+
+    function entries() {
+        const folders = new Set();
+        const here = [];
+        games.forEach((g) => {
+            if (!g.folder.toLowerCase().startsWith(folder.toLowerCase())) {
+                return;
+            }
+            const rest = g.folder.slice(folder.length);
+            if (rest) {
+                folders.add(rest.slice(0, rest.indexOf('/')));
+            } else {
+                here.push(g);
+            }
+        });
+        const named = (a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
+        return [...[...folders].sort(named).map((name) => ({ folder: `${folder}${name}/`, name })),
+            ...here.sort((a, b) => named(a.title, b.title))];
+    }
+
+    function openFolder(path) {
+        folderFocus[folder] = focus.list;
+        folder = path;
+        focus.list = folderFocus[folder] || 0;
+        renderList();
     }
 
     function renderList() {
-        el.barTitle.textContent = 'GBA';
-        el.list.classList.toggle('empty', !games.length);
+        const items = entries();
+        el.barTitle.textContent = folder ? folder.slice(0, -1).replace(/^.*\//, '') : 'GBA';
+        el.barCount.textContent = items.length ? String(items.length) : '';
+        el.scanning.textContent = scanned ? '' : 'Looking for games…';
+        el.list.classList.toggle('empty', scanned && !games.length);
         el.games.textContent = '';
-        games.forEach((g) => el.games.appendChild(row(g.title, g.system)));
+        items.forEach((item) => {
+            if (item.folder) {
+                el.games.appendChild(row(item.name, '›', 'folder'));
+            } else {
+                el.games.appendChild(row(item.title, item.system));
+            }
+        });
         moveFocus('list', el.games, 0);
         keys = {
-            center: () => games[focus.list] && start(games[focus.list]),
-            back: () => window.close(),
+            center: () => {
+                const item = items[focus.list];
+                if (item && item.folder) {
+                    openFolder(item.folder);
+                } else if (item) {
+                    start(item);
+                }
+            },
+            right: () => rescan(),
+            back: () => (folder ? openFolder(folder.replace(/[^/]*\/$/, '')) : window.close()),
         };
-        softkeys('', games.length ? 'Play' : '', '');
+        listSoftkeys(items);
+    }
+
+    function listSoftkeys(items) {
+        const item = items[focus.list];
+        softkeys('', item ? (item.folder ? 'Open' : 'Play') : '', 'Rescan');
+    }
+
+    async function rescan() {
+        scanned = false;
+        show('list');
+        try {
+            games = await scan();
+        } catch (e) {
+            games = [];
+            toast(`The games couldn't be listed: ${(e && e.message) || e}`);
+        }
+        scanned = true;
+        const game = games.find((g) => g.path === stored('last'));
+        if (game) {
+            folder = game.folder;
+            focus.list = Math.max(0, entries().indexOf(game));
+        } else if (!entries().length) {
+            folder = '';
+        }
+        if (view === 'list') {
+            renderList();
+        }
     }
 
     function sibling(game, ext) {
@@ -230,7 +320,7 @@
     }
 
     function fit(width, height) {
-        const room = window.innerHeight - el.bar.offsetHeight - el.softkeys.offsetHeight;
+        const room = window.innerHeight - el.bar.offsetHeight - el.softkeys.offsetHeight - STATUS_HEIGHT;
         const scale = Math.max(1, Math.min(window.innerWidth / width, room / height));
         player.open(width, height, Math.round(width * scale), Math.round(height * scale));
     }
@@ -241,8 +331,10 @@
             const rom = await readFile(game.path);
             const save = await readFile(sibling(game, 'sav'));
             const info = await window.FlipfullRetro.load(rom, save);
+            store('last', game.path);
             current = game;
             fit(info.width, info.height);
+            status('');
             play();
         } catch (e) {
             current = null;
@@ -253,7 +345,7 @@
     function renderPlay() {
         el.barTitle.textContent = current ? current.title : 'GBA';
         keys = {};
-        softkeys('', '', '');
+        softkeys('Pause', '', 'Fast');
     }
 
     function play() {
@@ -263,7 +355,14 @@
         player.play();
     }
 
+    function resume() {
+        if (current) {
+            play();
+        }
+    }
+
     async function pause() {
+        status('');
         held.clear();
         await player.pause();
         player.keys = 0;
@@ -271,7 +370,7 @@
 
     function menuItems() {
         return [
-            { name: 'Resume', run: play },
+            { name: 'Resume', run: resume },
             { name: 'Save state', run: saveState },
             { name: 'Load state', run: loadState },
             { name: 'Reset', run: reset },
@@ -289,15 +388,24 @@
         moveFocus('menu', el.menuItems, 0);
         keys = {
             center: () => menu[focus.menu].run(),
-            back: play,
+            back: resume,
         };
         softkeys('', 'Select', '');
     }
 
     async function openMenu() {
-        focus.menu = 0;
+        if (!current) {
+            show('list');
+            return;
+        }
+        const playing = view === 'play';
+        if (playing) {
+            focus.menu = 0;
+        }
         show('menu');
-        await pause();
+        if (playing) {
+            await pause();
+        }
     }
 
     async function saveState() {
@@ -306,6 +414,7 @@
             await writeSave();
             await writeFile(sibling(current, 'state'), await window.FlipfullRetro.saveState());
             play();
+            status('State saved');
         } catch (e) {
             failed(e);
         }
@@ -321,6 +430,7 @@
         try {
             await window.FlipfullRetro.loadState(state);
             play();
+            status('State loaded');
         } catch (e) {
             failed(e);
         }
@@ -342,6 +452,7 @@
             await window.FlipfullRetro.unload();
         } catch (e) {}
         current = null;
+        status('');
         show('list');
     }
 
@@ -401,7 +512,8 @@
     function renderKeys() {
         const map = presets.maps[presets.active];
         el.barTitle.textContent = 'Keys';
-        el.keysHint.textContent = waitingKey ? 'Press the key for the button, or Cancel.' : '';
+        el.keysHint.textContent = waitingKey ? 'Press the key for the button, or Cancel.' :
+            'The left soft key pauses; holding the right soft key fast forwards.';
         el.keyItems.textContent = '';
         el.keyItems.appendChild(row('Preset', preset().name));
         BUTTONS.forEach((b, i) => {
@@ -439,9 +551,12 @@
 
     // the phone sends a MicrophoneToggle after other keys, ignore keys that aren't on the keypad
     function setKey(key) {
-        if (key === 'SoftRight') {
+        if (key === FAST_KEY) {
             waitingKey = false;
         } else if (!KEYPAD.includes(key)) {
+            if (key === MENU_KEY) {
+                toast('The left soft key pauses. Press another key.');
+            }
             return;
         } else {
             const map = presets.maps[presets.active];
@@ -462,14 +577,17 @@
     }
 
     function gameKey(e, down) {
+        if (e.key === FAST_KEY) {
+            player.fast = down;
+            status(down ? 'Fast forward' : '', true);
+            return true;
+        }
         if (!(e.key in keyBits)) {
-            if (e.key === 'Backspace' || e.key === 'GoBack') {
-                if (down) {
-                    openMenu();
-                }
+            if (down && e.key === MENU_KEY) {
+                openMenu();
                 return true;
             }
-            return false;
+            return e.key === 'Backspace' || e.key === 'GoBack';
         }
         if (down) {
             held.add(e.key);
@@ -512,6 +630,7 @@
                 const by = e.key === 'ArrowUp' ? -1 : 1;
                 if (view === 'list') {
                     moveFocus('list', el.games, by);
+                    listSoftkeys(entries());
                 } else if (view === 'menu') {
                     moveFocus('menu', el.menuItems, by);
                 } else if (view === 'keys') {
@@ -552,8 +671,7 @@
         try {
             await window.FlipfullRetro.info();
             player.connect(await window.FlipfullRetro.stream());
-            games = await scan();
-            show('list');
+            rescan();
         } catch (e) {
             el.offlineWhy.textContent = e.message;
             show('offline');
@@ -576,6 +694,11 @@
 
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
+    window.addEventListener('blur', () => {
+        if (view === 'play') {
+            openMenu();
+        }
+    });
     document.addEventListener('visibilitychange', () => {
         if (document.hidden && view === 'play') {
             openMenu();

@@ -30,21 +30,38 @@ body {
 
 #bar {
     flex: none;
+    display: flex;
     height: 2.4rem;
     line-height: 2.4rem;
     padding: 0 0.8rem;
     color: var(--muted);
     font-size: 1.3rem;
     font-weight: 400;
+}
+
+body[data-view="play"] #bar,
+body[data-view="play"] #softkeys {
+    color: #5c5c6b;
+}
+
+#bar-title {
+    flex: 1;
+    min-width: 0;
     text-align: center;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
-body[data-view="play"] #bar,
-body[data-view="play"] #softkeys {
-    color: #5c5c6b;
+#bar-count {
+    flex: none;
+    font-size: 1.2rem;
+    font-weight: 400;
+    color: var(--muted);
+}
+
+#bar-count:not(:empty) {
+    margin-left: 0.4rem;
 }
 
 main {
@@ -145,6 +162,7 @@ body[data-view="keys"] #keys {
 body[data-view="play"] #play,
 body[data-view="menu"] #play {
     display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
 }
@@ -177,6 +195,14 @@ body[data-view="menu"] #play {
 
 #fps.show:not(:empty) {
     display: block;
+}
+
+#status {
+    height: 1.8rem;
+    margin: 0.4rem 0 0;
+    font-size: 1.2rem;
+    line-height: 1.8rem;
+    color: var(--muted);
 }
 
 #menu {

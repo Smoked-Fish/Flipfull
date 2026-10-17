@@ -109,15 +109,24 @@
             connect();
         } else if (m.open) {
             screen.postMessage(m);
+            if (sound) {
+                sound.postMessage({ flush: true });
+            }
         } else if (m.play) {
             playing = true;
             pausing = false;
+            if (sound) {
+                sound.postMessage({ hold: false });
+            }
             if (socket && socket.readyState === WebSocket.OPEN) {
                 send({ play: true });
             } else {
                 connect();
             }
         } else if (m.pause) {
+            if (sound) {
+                sound.postMessage({ hold: true });
+            }
             if (socket && socket.readyState === WebSocket.OPEN && playing) {
                 pausing = true;
                 send({ pause: true });
@@ -127,6 +136,8 @@
             }
         } else if (m.keys !== undefined) {
             send({ keys: m.keys });
+        } else if (m.fast !== undefined) {
+            send({ fast: m.fast });
         } else if (m.monitor !== undefined) {
             monitor = m.monitor;
             frames = 0;

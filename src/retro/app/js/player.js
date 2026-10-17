@@ -8,6 +8,7 @@
             this.canvas = canvas;
             this.events = events;
             this.held = 0;
+            this.fastOn = false;
             this.report = null;
             this.waiters = [];
             this.sound = null;
@@ -38,6 +39,15 @@
             }
         }
 
+        // resume() right after suspend() never finishes on this phone, so the context keeps running
+        sounding() {
+            this.ready.then(() => {
+                if (this.sound && this.sound.state !== 'running') {
+                    this.sound.resume().catch(() => {});
+                }
+            });
+        }
+
         message(m) {
             if (m.paused) {
                 this.waiters.splice(0).forEach((resolve) => resolve());
@@ -66,18 +76,12 @@
         }
 
         play() {
-            this.ready.then(() => {
-                if (this.sound && this.sound.state !== 'running') {
-                    this.sound.resume().catch(() => {});
-                }
-            });
+            this.sounding();
             this.worker.postMessage({ play: true });
         }
 
         pause() {
-            if (this.sound) {
-                this.sound.suspend().catch(() => {});
-            }
+            this.fastOn = false;
             return new Promise((resolve) => {
                 this.waiters.push(resolve);
                 this.worker.postMessage({ pause: true });
@@ -88,6 +92,13 @@
             if (bits !== this.held) {
                 this.held = bits;
                 this.worker.postMessage({ keys: bits });
+            }
+        }
+
+        set fast(on) {
+            if (on !== this.fastOn) {
+                this.fastOn = on;
+                this.worker.postMessage({ fast: on });
             }
         }
 

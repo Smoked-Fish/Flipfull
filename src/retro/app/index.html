@@ -13,7 +13,7 @@
     <script defer src="js/app.js"></script>
 </head>
 <body data-view="loading">
-<header id="bar"><span id="bar-title">GBA</span></header>
+<header id="bar"><span id="bar-title"></span><span id="bar-count"></span></header>
 <main>
     <section id="loading"><p class="text" id="loading-text">Loading…</p></section>
 
@@ -23,6 +23,7 @@
     </section>
 
     <section id="list">
+        <p class="hint" id="scanning"></p>
         <div id="games"></div>
         <p class="text muted" id="empty">No games yet. Copy .gba, .gbc, or .gb files into a folder called games on the phone's storage.</p>
     </section>
@@ -32,6 +33,7 @@
             <canvas id="screen" width="240" height="160"></canvas>
             <pre id="fps"></pre>
         </div>
+        <p id="status" role="status"></p>
     </section>
 
     <section id="menu"><div id="menu-items"></div></section>
@@ -43,7 +45,6 @@
 </main>
 
 <div id="toast" role="status"></div>
-
 
 <footer id="softkeys">
     <span id="sk-left"></span>

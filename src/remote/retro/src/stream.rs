@@ -16,6 +16,7 @@ const APP: &str = "http://retro.localhost";
 const KIND_FRAME: u8 = 1;
 const PAUSED: u8 = 2;
 const FRAME_HEADER: usize = 16;
+const FAST_MAX: u32 = 20;
 const BEHIND: f64 = 4.0;
 const IDLE: Duration = Duration::from_secs(3600);
 const WRITE_TIMEOUT: Duration = Duration::from_secs(2);
@@ -138,6 +139,7 @@ struct Player {
     deadline: Instant,
     period: f64,
     keys: u16,
+    fast: bool,
     message: Vec<u8>,
     audio: Vec<i16>,
 }
@@ -150,6 +152,7 @@ impl Player {
             deadline: Instant::now(),
             period: 1.0 / 59.7275,
             keys: 0,
+            fast: false,
             message: Vec::new(),
             audio: Vec::new(),
         }
@@ -186,6 +189,7 @@ impl Player {
             Command::Stop => {
                 self.running = false;
                 self.keys = 0;
+                self.fast = false;
             }
             Command::Message(id, m) => {
                 if self.client.as_ref().map_or(true, |(c, _)| *c != id) {
@@ -193,6 +197,9 @@ impl Player {
                 }
                 if let Some(keys) = m["keys"].as_u64() {
                     self.keys = keys as u16;
+                }
+                if let Some(fast) = m["fast"].as_bool() {
+                    self.fast = fast;
                 }
                 if m["play"].as_bool() == Some(true) {
                     self.play();
@@ -233,7 +240,19 @@ impl Player {
             self.running = false;
             return;
         }
+        let started = Instant::now();
+        let mut frames = 1;
         f.frame(self.keys);
+        if self.fast {
+            let until = started + Duration::from_secs_f64(self.period * 0.75);
+            let mut each = started.elapsed();
+            while frames < FAST_MAX && Instant::now() + each < until {
+                let at = Instant::now();
+                f.frame(self.keys);
+                frames += 1;
+                each = at.elapsed();
+            }
+        }
         self.message.clear();
         self.message.resize(ws::HEADER + FRAME_HEADER, 0);
         let (width, height, top, rows) = f.picture(&mut self.message);
@@ -241,10 +260,10 @@ impl Player {
         f.audio(&mut self.audio);
         drop(f);
 
-        let samples = self.audio.len() / 2;
+        let samples = if self.fast { 0 } else { self.audio.len() / 2 };
         self.message.reserve(samples * 8);
         for c in 0..2 {
-            for frame in self.audio.chunks_exact(2) {
+            for frame in self.audio.chunks_exact(2).take(samples) {
                 self.message.extend_from_slice(&(frame[c] as f32 / 32768.0).to_le_bytes());
             }
         }
@@ -254,7 +273,7 @@ impl Player {
         m[4..6].copy_from_slice(&(height as u16).to_le_bytes());
         m[6..8].copy_from_slice(&(top as u16).to_le_bytes());
         m[8..10].copy_from_slice(&(rows as u16).to_le_bytes());
-        m[10..12].copy_from_slice(&1u16.to_le_bytes());
+        m[10..12].copy_from_slice(&(frames as u16).to_le_bytes());
         m[12..16].copy_from_slice(&(samples as u32).to_le_bytes());
         self.send();
 
