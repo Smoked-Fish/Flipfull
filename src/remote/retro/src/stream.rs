@@ -15,8 +15,11 @@ const APP: &str = "http://retro.localhost";
 
 const KIND_FRAME: u8 = 1;
 const PAUSED: u8 = 2;
-const FRAME_HEADER: usize = 16;
+const FRAME_HEADER: usize = 24;
+const PREFIX: usize = 4;
+
 const FAST_MAX: u32 = 20;
+const FAST_SHARE: f64 = 0.75;
 const BEHIND: f64 = 4.0;
 const IDLE: Duration = Duration::from_secs(3600);
 const WRITE_TIMEOUT: Duration = Duration::from_secs(2);
@@ -25,6 +28,7 @@ enum Command {
     Client(u32, TcpStream),
     Gone(u32),
     Message(u32, Value),
+    Play(TcpStream, Value),
     Stop,
 }
 
@@ -98,17 +102,33 @@ fn client(id: u32, mut stream: TcpStream, path: &str, tx: Sender<Command>) {
         }
         Err(e) => return warn!("worker connection: {}", e),
     };
+    let _ = stream.set_nodelay(true);
+    // so a stuck worker can't hold up the game
+    let _ = stream.set_write_timeout(Some(WRITE_TIMEOUT));
+    let base = request.path.split('?').next().unwrap_or("");
+    if base == format!("{}/play", path) {
+        let options = ws::query(&request.path, "o").and_then(|o| serde_json::from_str(&o).ok());
+        let head = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nX-Content-Type-Options: nosniff\r\n\
+             Cache-Control: no-store\r\nAccess-Control-Allow-Origin: {}\r\nConnection: close\r\n\r\n",
+            APP
+        );
+        match options {
+            Some(options) if stream.write_all(head.as_bytes()).is_ok() => {
+                let _ = tx.send(Command::Play(stream, options));
+            }
+            _ => ws::refuse(&mut stream),
+        }
+        return;
+    }
     match request.key {
-        Some(key) if request.path == path => {
+        Some(key) if base == path => {
             if let Err(e) = ws::upgrade(&mut stream, &key) {
                 return warn!("worker connection: {}", e);
             }
         }
         _ => return ws::refuse(&mut stream),
     }
-    let _ = stream.set_nodelay(true);
-    // so a stuck worker can't hold up the game
-    let _ = stream.set_write_timeout(Some(WRITE_TIMEOUT));
     let reader = match stream.try_clone() {
         Ok(r) => r,
         Err(_) => return,
@@ -135,11 +155,13 @@ fn client(id: u32, mut stream: TcpStream, path: &str, tx: Sender<Command>) {
 
 struct Player {
     client: Option<(u32, TcpStream)>,
+    out: Option<(u64, TcpStream)>,
     running: bool,
     deadline: Instant,
     period: f64,
     keys: u16,
     fast: bool,
+    played: Instant,
     message: Vec<u8>,
     audio: Vec<i16>,
 }
@@ -148,11 +170,13 @@ impl Player {
     fn new() -> Player {
         Player {
             client: None,
+            out: None,
             running: false,
             deadline: Instant::now(),
             period: 1.0 / 59.7275,
             keys: 0,
             fast: false,
+            played: Instant::now(),
             message: Vec::new(),
             audio: Vec::new(),
         }
@@ -171,25 +195,38 @@ impl Player {
         }
     }
 
+    fn stop(&mut self) {
+        self.running = false;
+        self.fast = false;
+        self.out = None;
+    }
+
     fn command(&mut self, command: Command) {
         match command {
             Command::Client(id, stream) => {
                 if let Some((_, old)) = self.client.replace((id, stream)) {
                     let _ = old.shutdown(Shutdown::Both);
                 }
-                self.running = false;
+                self.pause();
                 frontend().forget_picture();
             }
             Command::Gone(id) => {
                 if self.client.as_ref().map_or(false, |(c, _)| *c == id) {
                     self.client = None;
-                    self.running = false;
+                    self.pause();
                 }
             }
             Command::Stop => {
-                self.running = false;
+                self.pause();
                 self.keys = 0;
-                self.fast = false;
+            }
+            Command::Play(stream, options) => {
+                if self.client.is_some() {
+                    self.pause();
+                    frontend().forget_picture();
+                    self.out = Some((options["session"].as_u64().unwrap_or(0), stream));
+                    self.play();
+                }
             }
             Command::Message(id, m) => {
                 if self.client.as_ref().map_or(true, |(c, _)| *c != id) {
@@ -201,11 +238,10 @@ impl Player {
                 if let Some(fast) = m["fast"].as_bool() {
                     self.fast = fast;
                 }
-                if m["play"].as_bool() == Some(true) {
-                    self.play();
-                }
-                if m["pause"].as_bool() == Some(true) {
-                    self.pause();
+                if let Some(session) = m["pause"].as_u64() {
+                    if self.out.as_ref().map_or(false, |(s, _)| *s == session) {
+                        self.pause();
+                    }
                 }
             }
         }
@@ -214,37 +250,38 @@ impl Player {
     fn play(&mut self) {
         let fps = match frontend().timing() {
             Some((fps, _)) => fps,
-            None => return,
+            None => return self.pause(),
         };
         self.period = 1.0 / fps;
+        self.played = Instant::now();
         self.running = true;
         self.deadline = Instant::now();
     }
 
     fn pause(&mut self) {
-        if self.running {
+        if self.out.is_some() {
             self.message.clear();
-            self.message.resize(ws::HEADER + FRAME_HEADER, 0);
-            let m = &mut self.message[ws::HEADER..];
+            self.message.resize(PREFIX + FRAME_HEADER, 0);
+            let m = &mut self.message[PREFIX..];
             m[0] = KIND_FRAME;
             m[1] = PAUSED;
             self.send();
         }
-        self.running = false;
+        self.stop();
     }
 
     fn frame(&mut self) {
+        let started = Instant::now();
         let mut f = frontend();
         if !f.loaded() {
             drop(f);
-            self.running = false;
+            self.stop();
             return;
         }
-        let started = Instant::now();
         let mut frames = 1;
         f.frame(self.keys);
         if self.fast {
-            let until = started + Duration::from_secs_f64(self.period * 0.75);
+            let until = started + Duration::from_secs_f64(self.period * FAST_SHARE);
             let mut each = started.elapsed();
             while frames < FAST_MAX && Instant::now() + each < until {
                 let at = Instant::now();
@@ -254,7 +291,7 @@ impl Player {
             }
         }
         self.message.clear();
-        self.message.resize(ws::HEADER + FRAME_HEADER, 0);
+        self.message.resize(PREFIX + FRAME_HEADER, 0);
         let (width, height, top, rows) = f.picture(&mut self.message);
         self.audio.clear();
         f.audio(&mut self.audio);
@@ -267,7 +304,8 @@ impl Player {
                 self.message.extend_from_slice(&(frame[c] as f32 / 32768.0).to_le_bytes());
             }
         }
-        let m = &mut self.message[ws::HEADER..];
+        let work = started.elapsed();
+        let m = &mut self.message[PREFIX..];
         m[0] = KIND_FRAME;
         m[2..4].copy_from_slice(&(width as u16).to_le_bytes());
         m[4..6].copy_from_slice(&(height as u16).to_le_bytes());
@@ -275,6 +313,8 @@ impl Player {
         m[8..10].copy_from_slice(&(rows as u16).to_le_bytes());
         m[10..12].copy_from_slice(&(frames as u16).to_le_bytes());
         m[12..16].copy_from_slice(&(samples as u32).to_le_bytes());
+        m[16..20].copy_from_slice(&(work.as_micros() as u32).to_le_bytes());
+        m[20..24].copy_from_slice(&(self.played.elapsed().as_micros() as u32).to_le_bytes());
         self.send();
 
         let period = Duration::from_secs_f64(self.period);
@@ -286,13 +326,14 @@ impl Player {
     }
 
     fn send(&mut self) {
-        let start = ws::frame(&mut self.message, ws::BINARY);
-        let gone = match self.client.as_mut() {
-            Some((_, stream)) => stream.write_all(&self.message[start..]).is_err(),
+        let len = (self.message.len() - PREFIX) as u32;
+        self.message[..PREFIX].copy_from_slice(&len.to_le_bytes());
+        let gone = match self.out.as_mut() {
+            Some((_, stream)) => stream.write_all(&self.message).is_err(),
             None => true,
         };
         if gone {
-            self.running = false;
+            self.stop();
         }
     }
 }

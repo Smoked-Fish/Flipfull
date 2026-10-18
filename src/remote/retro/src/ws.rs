@@ -116,6 +116,32 @@ pub fn refuse(stream: &mut TcpStream) {
     let _ = stream.write_all(b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n");
 }
 
+pub fn query(path: &str, name: &str) -> Option<String> {
+    let query = path.split_once('?')?.1;
+    let value = query.split('&').find_map(|pair| pair.strip_prefix(name)?.strip_prefix('='))?;
+    let bytes = value.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'%' if i + 2 < bytes.len() => {
+                let hex = std::str::from_utf8(&bytes[i + 1..i + 3]).ok()?;
+                out.push(u8::from_str_radix(hex, 16).ok()?);
+                i += 3;
+            }
+            b'+' => {
+                out.push(b' ');
+                i += 1;
+            }
+            b => {
+                out.push(b);
+                i += 1;
+            }
+        }
+    }
+    String::from_utf8(out).ok()
+}
+
 pub fn frame(buf: &mut [u8], opcode: u8) -> usize {
     let len = buf.len() - HEADER;
     let start = match len {

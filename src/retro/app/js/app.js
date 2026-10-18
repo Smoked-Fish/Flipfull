@@ -457,7 +457,8 @@
     }
 
     function monitor(m) {
-        el.fps.textContent = `${m.fps.toFixed(1)} fps  shown ${Math.round(m.shown)}`;
+        const one = (n) => n.toFixed(1);
+        el.fps.textContent = `${one(m.fps)} fps  shown ${Math.round(m.shown)}\ncore ${one(m.work)}  jitter ${one(m.jitter)}`;
     }
 
     function useMonitor() {

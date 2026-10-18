@@ -1,7 +1,7 @@
 'use strict';
 
 (function (scope) {
-    const HEADER = 16;
+    const HEADER = 24;
     const STATS_EVERY = 1000;
 
     class Screen {
@@ -111,6 +111,7 @@
             screen.draw();
             shown++;
         }
+        net.postMessage({ spare: buffer }, [buffer]);
     }
 
     function stats() {
