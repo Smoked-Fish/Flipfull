@@ -1,9 +1,9 @@
 use log::{LevelFilter, Log, Metadata, Record};
-use nix::sys::socket::{sendmsg, ControlMessage, MsgFlags};
+use nix::sys::socket::{recvmsg, sendmsg, ControlMessage, ControlMessageOwned, MsgFlags};
 use nix::sys::uio::IoVec;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
-use std::os::unix::io::AsRawFd;
+use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::sync::Mutex;
@@ -91,6 +91,33 @@ pub fn record(file: &File) -> Result<UnixStream, String> {
         MsgFlags::empty(),
         None,
     )
-    .map_err(|e| e.to_string())?;
+        .map_err(|e| e.to_string())?;
     Ok(stream)
+}
+
+fn receive_file(words: &str, what: &str) -> Result<File, String> {
+    let mut stream = toolbox(Some(Duration::from_secs(10)))?;
+    stream.write_all(format!("{}\n", words).as_bytes()).map_err(|e| e.to_string())?;
+    let mut buf = [0u8; 256];
+    let mut space = nix::cmsg_space!([RawFd; 1]);
+    let iov = [IoVec::from_mut_slice(&mut buf)];
+    let msg = recvmsg(stream.as_raw_fd(), &iov, Some(&mut space), MsgFlags::MSG_CMSG_CLOEXEC)
+        .map_err(|e| e.to_string())?;
+    let fd = msg.cmsgs().find_map(|c| match c {
+        ControlMessageOwned::ScmRights(fds) => fds.first().copied(),
+        _ => None,
+    });
+    let got = msg.bytes;
+    match fd {
+        Some(fd) => Ok(unsafe { File::from_raw_fd(fd) }),
+        None => {
+            let mut answer = String::from_utf8_lossy(&buf[..got]).into_owned();
+            let _ = stream.read_to_string(&mut answer);
+            Err(answer.lines().nth(1).map_or_else(|| format!("toolboxd sent no {}", what), str::to_string))
+        }
+    }
+}
+
+pub fn keypad() -> Result<File, String> {
+    receive_file("keypad", "keypad")
 }

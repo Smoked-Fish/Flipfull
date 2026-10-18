@@ -16,6 +16,7 @@ struct Config {
     socket: String,
     bridge_uid: Option<u32>,
     callrec_uid: Option<u32>,
+    retro_uid: Option<u32>,
 }
 
 struct Script {
@@ -43,18 +44,20 @@ const SCRIPTS: [Script; 2] = [
     },
 ];
 
+mod retro;
+
 fn log(msg: &str) {
     let secs = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
     println!("{} {}", secs, msg);
 }
 
 fn usage() -> ! {
-    eprintln!("usage: toolboxd --socket PATH [--bridge-uid N] [--callrec-uid N]");
+    eprintln!("usage: toolboxd --socket PATH [--bridge-uid N] [--callrec-uid N] [--retro-uid N]");
     std::process::exit(2);
 }
 
 fn parse_args() -> Config {
-    let mut c = Config { socket: String::new(), bridge_uid: None, callrec_uid: None };
+    let mut c = Config { socket: String::new(), bridge_uid: None, callrec_uid: None, retro_uid: None };
     let mut args = std::env::args().skip(1);
     while let Some(a) = args.next() {
         let v = args.next().unwrap_or_else(|| usage());
@@ -62,6 +65,7 @@ fn parse_args() -> Config {
             "--socket" => c.socket = v,
             "--bridge-uid" => c.bridge_uid = v.parse().ok(),
             "--callrec-uid" => c.callrec_uid = v.parse().ok(),
+            "--retro-uid" => c.retro_uid = v.parse().ok(),
             _ => usage(),
         }
     }
@@ -130,7 +134,7 @@ fn read_request(stream: &UnixStream) -> Result<(String, Option<OwnedFd>), &'stat
     String::from_utf8(line).map(|l| (l, fd)).map_err(|_| "Not a command")
 }
 
-fn answer(stream: &mut UnixStream, ok: bool, text: &[u8]) {
+pub(crate) fn answer(stream: &mut UnixStream, ok: bool, text: &[u8]) {
     let _ = stream.write_all(if ok { b"ok\n" } else { b"error\n" });
     let _ = stream.write_all(text);
 }
@@ -213,7 +217,8 @@ fn handle(config: &Config, mut stream: UnixStream) {
     let uid = peer_uid(&stream);
     let bridge = uid.is_some() && uid == config.bridge_uid;
     let callrec = uid.is_some() && uid == config.callrec_uid;
-    if !bridge && !callrec {
+    let retro = uid.is_some() && uid == config.retro_uid;
+    if !bridge && !callrec && !retro {
         log(&format!("refused uid {:?}", uid));
         return answer(&mut stream, false, b"Only Flipfull's services\n");
     }
@@ -221,6 +226,9 @@ fn handle(config: &Config, mut stream: UnixStream) {
         Ok(r) => r,
         Err(why) => return answer(&mut stream, false, format!("{}\n", why).as_bytes()),
     };
+    if retro && fd.is_none() {
+        return retro::command(&mut stream, &line);
+    }
     let words: Vec<&str> = line.split(' ').filter(|w| !w.is_empty()).collect();
     match (words.first(), fd) {
         (Some(&"record"), Some(file)) if callrec && words.len() == 1 => {
@@ -243,7 +251,8 @@ fn main() {
         }
     };
     let _ = fs::set_permissions(&config.socket, fs::Permissions::from_mode(0o666));
-    log(&format!("listening on {} for uids {:?} and {:?}", config.socket, config.bridge_uid, config.callrec_uid));
+    log(&format!("listening on {} for uids {:?}, {:?} and {:?}", config.socket, config.bridge_uid, config.callrec_uid,
+                 config.retro_uid));
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
