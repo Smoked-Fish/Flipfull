@@ -55,8 +55,11 @@
             },
         },
     ];
-    const KEYPAD = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '*', '#', 'ArrowUp', 'ArrowDown', 'ArrowLeft',
-        'ArrowRight', 'Enter', 'Call', 'Backspace', 'FavoriteContacts', 'Message'];
+    const KEY_CODES = {
+        1: 2, 2: 3, 3: 4, 4: 5, 5: 6, 6: 7, 7: 8, 8: 9, 9: 10, 0: 11, '*': 522, '#': 523,
+        ArrowUp: 103, ArrowDown: 108, ArrowLeft: 105, ArrowRight: 106, Enter: 352, Call: 231,
+        Backspace: 48, FavoriteContacts: 138, Message: 30,
+    };
 
     const copy = (o) => JSON.parse(JSON.stringify(o));
 
@@ -352,7 +355,7 @@
         held.clear();
         player.keys = 0;
         show('play');
-        player.play();
+        player.play({ keymap: keymap() });
     }
 
     function resume() {
@@ -498,6 +501,10 @@
         updateKeys();
     }
 
+    function keymap() {
+        return Object.keys(keyBits).filter((key) => key in KEY_CODES).map((key) => [KEY_CODES[key], keyBits[key]]);
+    }
+
     function updateKeys() {
         keyBits = {};
         const map = presets.maps[presets.active];
@@ -554,7 +561,7 @@
     function setKey(key) {
         if (key === FAST_KEY) {
             waitingKey = false;
-        } else if (!KEYPAD.includes(key)) {
+        } else if (!(key in KEY_CODES)) {
             if (key === MENU_KEY) {
                 toast('The left soft key pauses. Press another key.');
             }

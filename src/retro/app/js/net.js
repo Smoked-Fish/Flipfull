@@ -4,6 +4,7 @@
     const KIND_FRAME = 1;
     const PAUSED = 2;
     const HEADER = 24;
+    // buffers go back and forth with the screen worker so there's no garbage
     const BUFFER = 128 * 1024;
     const CHUNK = 64 * 1024;
 
@@ -14,6 +15,7 @@
     let session = 0;
     let playing = false;
     let pausing = false;
+    let options = {};
     let monitor = false;
     let c = counts();
     let since = 0;
@@ -70,12 +72,13 @@
     function start() {
         session++;
         const s = session;
+        const asked = Object.assign({ session }, options);
         c = counts();
         since = performance.now();
         if (sound) {
             sound.postMessage({ hold: false });
         }
-        fetch(`${url.replace(/^ws:/, 'http:')}/play?o=${encodeURIComponent(JSON.stringify({ session }))}`, { cache: 'no-store' })
+        fetch(`${url.replace(/^ws:/, 'http:')}/play?o=${encodeURIComponent(JSON.stringify(asked))}`, { cache: 'no-store' })
             .then((response) => read(s, response))
             .catch(() => {})
             .then(() => ended(s));
@@ -218,6 +221,7 @@
                 sound.postMessage({ flush: true });
             }
         } else if (m.play) {
+            options = m.play;
             playing = true;
             pausing = false;
             if (socket && socket.readyState === WebSocket.OPEN) {

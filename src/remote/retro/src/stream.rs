@@ -1,3 +1,4 @@
+use crate::keypad::Keypad;
 use crate::service::frontend;
 use crate::ws;
 use log::{info, warn};
@@ -20,6 +21,7 @@ const PREFIX: usize = 4;
 
 const FAST_MAX: u32 = 20;
 const FAST_SHARE: f64 = 0.75;
+const FAST_KEY: u16 = 158;
 const BEHIND: f64 = 4.0;
 const IDLE: Duration = Duration::from_secs(3600);
 const WRITE_TIMEOUT: Duration = Duration::from_secs(2);
@@ -153,6 +155,16 @@ fn client(id: u32, mut stream: TcpStream, path: &str, tx: Sender<Command>) {
     let _ = tx.send(Command::Gone(id));
 }
 
+fn buttons(keypad: &mut Keypad, map: &[(u16, u16)]) -> u16 {
+    keypad.read();
+    map.iter().filter(|(code, _)| keypad.held(*code)).fold(0, |b, (_, bits)| b | bits)
+}
+
+fn keymap(m: &Value) -> Vec<(u16, u16)> {
+    let pairs = m["keymap"].as_array().map(|a| a.iter().filter_map(Value::as_array)).into_iter().flatten();
+    pairs.filter_map(|p| Some((p.first()?.as_u64()? as u16, p.get(1)?.as_u64()? as u16))).collect()
+}
+
 struct Player {
     client: Option<(u32, TcpStream)>,
     out: Option<(u64, TcpStream)>,
@@ -161,6 +173,8 @@ struct Player {
     period: f64,
     keys: u16,
     fast: bool,
+    keypad: Option<Keypad>,
+    map: Vec<(u16, u16)>,
     played: Instant,
     message: Vec<u8>,
     audio: Vec<i16>,
@@ -176,6 +190,8 @@ impl Player {
             period: 1.0 / 59.7275,
             keys: 0,
             fast: false,
+            keypad: None,
+            map: Vec::new(),
             played: Instant::now(),
             message: Vec::new(),
             audio: Vec::new(),
@@ -198,6 +214,7 @@ impl Player {
     fn stop(&mut self) {
         self.running = false;
         self.fast = false;
+        self.keypad = None;
         self.out = None;
     }
 
@@ -225,7 +242,7 @@ impl Player {
                     self.pause();
                     frontend().forget_picture();
                     self.out = Some((options["session"].as_u64().unwrap_or(0), stream));
-                    self.play();
+                    self.play(&options);
                 }
             }
             Command::Message(id, m) => {
@@ -247,12 +264,20 @@ impl Player {
         }
     }
 
-    fn play(&mut self) {
+    fn play(&mut self, m: &Value) {
         let fps = match frontend().timing() {
             Some((fps, _)) => fps,
             None => return self.pause(),
         };
         self.period = 1.0 / fps;
+        self.map = keymap(m);
+        self.keypad = match Keypad::open() {
+            Ok(k) => Some(k),
+            Err(e) => {
+                warn!("the keys come from the app: {}", e);
+                None
+            }
+        };
         self.played = Instant::now();
         self.running = true;
         self.deadline = Instant::now();
@@ -270,8 +295,20 @@ impl Player {
         self.stop();
     }
 
+    fn held(&mut self) -> u16 {
+        match self.keypad.as_mut() {
+            Some(k) => buttons(k, &self.map),
+            None => self.keys,
+        }
+    }
+
     fn frame(&mut self) {
         let started = Instant::now();
+        let keys = self.held();
+        let fast = match self.keypad.as_ref() {
+            Some(k) => k.held(FAST_KEY),
+            None => self.fast,
+        };
         let mut f = frontend();
         if !f.loaded() {
             drop(f);
@@ -279,13 +316,13 @@ impl Player {
             return;
         }
         let mut frames = 1;
-        f.frame(self.keys);
-        if self.fast {
+        f.frame(keys);
+        if fast {
             let until = started + Duration::from_secs_f64(self.period * FAST_SHARE);
             let mut each = started.elapsed();
             while frames < FAST_MAX && Instant::now() + each < until {
                 let at = Instant::now();
-                f.frame(self.keys);
+                f.frame(self.held());
                 frames += 1;
                 each = at.elapsed();
             }
@@ -297,7 +334,7 @@ impl Player {
         f.audio(&mut self.audio);
         drop(f);
 
-        let samples = if self.fast { 0 } else { self.audio.len() / 2 };
+        let samples = if fast { 0 } else { self.audio.len() / 2 };
         self.message.reserve(samples * 8);
         for c in 0..2 {
             for frame in self.audio.chunks_exact(2).take(samples) {
