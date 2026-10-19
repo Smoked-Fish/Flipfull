@@ -1,4 +1,6 @@
 use crate::keypad::Keypad;
+use crate::libretro::Frontend;
+use crate::panel::Panel;
 use crate::service::frontend;
 use crate::ws;
 use log::{info, warn};
@@ -19,10 +21,13 @@ const PAUSED: u8 = 2;
 const FRAME_HEADER: usize = 24;
 const PREFIX: usize = 4;
 
+const SYNC_WITHIN: f64 = 0.015;
+const BEFORE: f64 = 0.045;
 const FAST_MAX: u32 = 20;
 const FAST_SHARE: f64 = 0.75;
 const FAST_KEY: u16 = 158;
-const BEHIND: f64 = 4.0;
+const AHEAD_MAX: u32 = 2;
+const BEHIND: u32 = 4;
 const IDLE: Duration = Duration::from_secs(3600);
 const WRITE_TIMEOUT: Duration = Duration::from_secs(2);
 
@@ -165,16 +170,29 @@ fn keymap(m: &Value) -> Vec<(u16, u16)> {
     pairs.filter_map(|p| Some((p.first()?.as_u64()? as u16, p.get(1)?.as_u64()? as u16))).collect()
 }
 
+fn shift(at: Instant, secs: f64) -> Instant {
+    let by = Duration::from_secs_f64(secs.abs());
+    if secs >= 0.0 {
+        at + by
+    } else {
+        at.checked_sub(by).unwrap_or(at)
+    }
+}
+
 struct Player {
     client: Option<(u32, TcpStream)>,
     out: Option<(u64, TcpStream)>,
     running: bool,
     deadline: Instant,
-    period: f64,
+    refresh: Option<Instant>,
     keys: u16,
     fast: bool,
     keypad: Option<Keypad>,
     map: Vec<(u16, u16)>,
+    ahead: u32,
+    panel: Option<Panel>,
+    per: u32,
+    fps: f64,
     played: Instant,
     message: Vec<u8>,
     audio: Vec<i16>,
@@ -187,11 +205,15 @@ impl Player {
             out: None,
             running: false,
             deadline: Instant::now(),
-            period: 1.0 / 59.7275,
+            refresh: None,
             keys: 0,
             fast: false,
             keypad: None,
             map: Vec::new(),
+            ahead: 0,
+            panel: None,
+            per: 1,
+            fps: 59.7275,
             played: Instant::now(),
             message: Vec::new(),
             audio: Vec::new(),
@@ -207,7 +229,14 @@ impl Player {
 
     fn wake(&mut self) {
         if Instant::now() >= self.deadline {
-            self.frame();
+            self.picture();
+        }
+    }
+
+    fn period(&self) -> f64 {
+        match &self.panel {
+            Some(panel) => panel.period() / self.per as f64,
+            None => 1.0 / self.fps,
         }
     }
 
@@ -215,6 +244,7 @@ impl Player {
         self.running = false;
         self.fast = false;
         self.keypad = None;
+        self.panel = None;
         self.out = None;
     }
 
@@ -265,12 +295,12 @@ impl Player {
     }
 
     fn play(&mut self, m: &Value) {
-        let fps = match frontend().timing() {
+        self.fps = match frontend().timing() {
             Some((fps, _)) => fps,
             None => return self.pause(),
         };
-        self.period = 1.0 / fps;
         self.map = keymap(m);
+        self.ahead = (m["ahead"].as_u64().unwrap_or(0) as u32).min(AHEAD_MAX);
         self.keypad = match Keypad::open() {
             Ok(k) => Some(k),
             Err(e) => {
@@ -278,9 +308,30 @@ impl Player {
                 None
             }
         };
+        self.per = 1;
+        self.panel = match Panel::open() {
+            Ok(panel) => {
+                let frames = self.fps * panel.period();
+                let n = frames.round().max(1.0);
+                if (n / frames - 1.0).abs() < SYNC_WITHIN {
+                    self.per = n as u32;
+                    Some(panel)
+                } else {
+                    warn!("the panel's {:.2} Hz doesn't fit the game's frames", 1.0 / panel.period());
+                    None
+                }
+            }
+            Err(e) => {
+                warn!("pictures at the game's pace: {}", e);
+                None
+            }
+        };
         self.played = Instant::now();
         self.running = true;
-        self.deadline = Instant::now();
+        let now = Instant::now();
+        self.refresh = None;
+        self.deadline = now;
+        self.plan(now);
     }
 
     fn pause(&mut self) {
@@ -295,6 +346,35 @@ impl Player {
         self.stop();
     }
 
+    fn plan(&mut self, now: Instant) {
+        if let Some(panel) = self.panel.as_mut() {
+            let period = panel.period();
+            let after = self.refresh.map_or(now, |r| shift(r, period / 2.0).max(now));
+            match panel.next(after) {
+                Some(mut refresh) => loop {
+                    let start = shift(refresh, -BEFORE);
+                    if start >= now {
+                        self.refresh = Some(refresh);
+                        self.deadline = start;
+                        return;
+                    }
+                    refresh = shift(refresh, period);
+                },
+                None => {
+                    warn!("the panel's vsync stopped: pictures at the game's pace");
+                    self.panel = None;
+                    self.per = 1;
+                }
+            }
+        }
+        let period = self.period();
+        self.refresh = None;
+        self.deadline = shift(self.deadline, period);
+        if now > shift(self.deadline, period * BEHIND as f64) {
+            self.deadline = now;
+        }
+    }
+
     fn held(&mut self) -> u16 {
         match self.keypad.as_mut() {
             Some(k) => buttons(k, &self.map),
@@ -302,9 +382,59 @@ impl Player {
         }
     }
 
-    fn frame(&mut self) {
+    fn frames(&mut self, f: &mut Frontend, fast: bool, started: Instant) -> u32 {
+        self.audio.clear();
+        if fast {
+            let until = started + Duration::from_secs_f64(self.period() * self.per as f64 * FAST_SHARE);
+            let mut each = Duration::from_secs(0);
+            let mut frames = 0;
+            loop {
+                let at = Instant::now();
+                let last = frames + 1 >= FAST_MAX || at + each * 2 >= until;
+                let keys = self.held();
+                f.frame(keys, if last { Some(1) } else { None });
+                frames += 1;
+                each = at.elapsed();
+                if last {
+                    break;
+                }
+            }
+            f.audio(&mut self.audio);
+            self.audio.clear();
+            return frames;
+        }
+        let total = self.per + self.ahead;
+        let slot = move |i: u32| {
+            if i + 1 == total {
+                Some(1)
+            } else if i + 2 == total {
+                Some(0)
+            } else {
+                None
+            }
+        };
+        for i in 0..self.per {
+            let keys = self.held();
+            f.frame(keys, slot(i));
+        }
+        f.audio(&mut self.audio);
+        if self.ahead > 0 {
+            let keys = self.held();
+            if f.ahead() {
+                for i in self.per..total {
+                    f.frame(keys, slot(i));
+                }
+                f.back();
+            } else {
+                warn!("no run-ahead: the core didn't save its state");
+                self.ahead = 0;
+            }
+        }
+        self.per
+    }
+
+    fn picture(&mut self) {
         let started = Instant::now();
-        let keys = self.held();
         let fast = match self.keypad.as_ref() {
             Some(k) => k.held(FAST_KEY),
             None => self.fast,
@@ -315,23 +445,10 @@ impl Player {
             self.stop();
             return;
         }
-        let mut frames = 1;
-        f.frame(keys);
-        if fast {
-            let until = started + Duration::from_secs_f64(self.period * FAST_SHARE);
-            let mut each = started.elapsed();
-            while frames < FAST_MAX && Instant::now() + each < until {
-                let at = Instant::now();
-                f.frame(self.held());
-                frames += 1;
-                each = at.elapsed();
-            }
-        }
+        let frames = self.frames(&mut f, fast, started);
         self.message.clear();
         self.message.resize(PREFIX + FRAME_HEADER, 0);
-        let (width, height, top, rows) = f.picture(&mut self.message);
-        self.audio.clear();
-        f.audio(&mut self.audio);
+        let (width, height, top, rows) = f.picture(&mut self.message, !fast);
         drop(f);
 
         let samples = if fast { 0 } else { self.audio.len() / 2 };
@@ -353,12 +470,8 @@ impl Player {
         m[16..20].copy_from_slice(&(work.as_micros() as u32).to_le_bytes());
         m[20..24].copy_from_slice(&(self.played.elapsed().as_micros() as u32).to_le_bytes());
         self.send();
-
-        let period = Duration::from_secs_f64(self.period);
-        self.deadline += period;
-        let now = Instant::now();
-        if now > self.deadline + period.mul_f64(BEHIND) {
-            self.deadline = now;
+        if self.running {
+            self.plan(Instant::now());
         }
     }
 

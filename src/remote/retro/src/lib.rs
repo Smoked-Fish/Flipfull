@@ -1,6 +1,7 @@
 pub mod generated;
 pub mod keypad;
 pub mod libretro;
+pub mod panel;
 pub mod service;
 pub mod stream;
 pub mod video;

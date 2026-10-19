@@ -355,7 +355,7 @@
         held.clear();
         player.keys = 0;
         show('play');
-        player.play({ keymap: keymap() });
+        player.play({ keymap: keymap(), ahead: ahead() });
     }
 
     function resume() {
@@ -378,9 +378,28 @@
             { name: 'Load state', run: loadState },
             { name: 'Reset', run: reset },
             { name: 'Keys', detail: preset().name, run: () => openKeys() },
+            { name: 'Run-ahead', detail: aheadName(), run: nextAhead },
             { name: 'FPS monitor', detail: stored('fps') === 'on' ? 'On' : 'Off', run: toggleMonitor },
             { name: 'Quit game', run: quit },
         ];
+    }
+
+    function aheadKey() {
+        return current && current.system === 'GBA' ? 'ahead-gba' : 'ahead-gb';
+    }
+
+    function ahead() {
+        return Number(stored(aheadKey())) || 0;
+    }
+
+    function aheadName() {
+        const n = ahead();
+        return n ? `${n} frame${n > 1 ? 's' : ''}` : 'Off';
+    }
+
+    function nextAhead() {
+        store(aheadKey(), String((ahead() + 1) % 3));
+        renderMenu();
     }
 
     function renderMenu() {

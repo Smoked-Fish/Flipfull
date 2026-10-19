@@ -79,7 +79,8 @@ struct Output {
     format: u32,
     width: usize,
     height: usize,
-    picture: Vec<u16>,
+    frames: [Vec<u16>; 2],
+    slot: Option<usize>,
     audio: Vec<i16>,
     keys: u16,
 }
@@ -113,18 +114,20 @@ fn rgb565(pixel: u32, format: u32) -> u16 {
 }
 
 extern "C" fn video(data: *const c_void, width: c_uint, height: c_uint, pitch: usize) {
-    if data.is_null() {
-        return;
-    }
     let mut out = output();
+    let slot = match out.slot {
+        Some(s) if !data.is_null() => s,
+        _ => return,
+    };
     let format = out.format;
     let (w, h) = (width as usize, height as usize);
     out.width = w;
     out.height = h;
-    out.picture.resize(w * h, 0);
+    let frame = &mut out.frames[slot];
+    frame.resize(w * h, 0);
     for y in 0..h {
         let src = unsafe { (data as *const u8).add(y * pitch) };
-        let dst = &mut out.picture[y * w..(y + 1) * w];
+        let dst = &mut frame[y * w..(y + 1) * w];
         match format {
             PIXEL_RGB565 => dst.copy_from_slice(unsafe { std::slice::from_raw_parts(src as *const u16, w) }),
             PIXEL_XRGB8888 => {
@@ -213,6 +216,15 @@ fn save_memory() -> &'static mut [u8] {
     }
 }
 
+fn run(keys: u16, slot: Option<usize>) {
+    {
+        let mut out = output();
+        out.keys = keys;
+        out.slot = slot;
+    }
+    unsafe { retro_run() };
+}
+
 #[derive(Clone, Copy, PartialEq)]
 pub enum Platform {
     Gba,
@@ -240,6 +252,7 @@ pub struct Frontend {
     loaded: bool,
     platform: Option<Platform>,
     timing: (f64, f64),
+    before: Vec<u8>,
     video: Video,
 }
 
@@ -269,7 +282,7 @@ impl Frontend {
         self.unload();
         {
             let mut out = output();
-            out.picture.clear();
+            out.frames = Default::default();
             out.audio.clear();
             out.keys = 0;
         }
@@ -297,17 +310,31 @@ impl Frontend {
         })
     }
 
-    pub fn frame(&mut self, keys: u16) {
+    pub fn frame(&mut self, keys: u16, slot: Option<usize>) {
         if self.loaded {
-            output().keys = keys;
-            unsafe { retro_run() };
+            run(keys, slot);
         }
     }
 
-    pub fn picture(&mut self, into: &mut Vec<u8>) -> (usize, usize, usize, usize) {
+    pub fn ahead(&mut self) -> bool {
+        if !self.loaded {
+            return false;
+        }
+        let size = unsafe { retro_serialize_size() };
+        self.before.resize(size, 0);
+        size > 0 && unsafe { retro_serialize(self.before.as_mut_ptr() as *mut c_void, size) }
+    }
+
+    pub fn back(&mut self) {
+        unsafe { retro_unserialize(self.before.as_ptr() as *const c_void, self.before.len()) };
+        output().audio.clear();
+    }
+
+    pub fn picture(&mut self, into: &mut Vec<u8>, mix: bool) -> (usize, usize, usize, usize) {
         {
             let out = output();
-            self.video.compose(&out.picture, out.width, out.height);
+            let before = if mix { Some(&out.frames[0][..]) } else { None };
+            self.video.compose(before, &out.frames[1], out.width, out.height);
         }
         self.video.band(into)
     }

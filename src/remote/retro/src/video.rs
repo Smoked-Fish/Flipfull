@@ -1,3 +1,5 @@
+const MASK: u16 = 0xf7de;
+
 #[derive(Default)]
 pub struct Video {
     width: usize,
@@ -7,7 +9,7 @@ pub struct Video {
 }
 
 impl Video {
-    pub fn compose(&mut self, last: &[u16], width: usize, height: usize) {
+    pub fn compose(&mut self, before: Option<&[u16]>, last: &[u16], width: usize, height: usize) {
         let n = width * height;
         if last.len() < n {
             return;
@@ -15,7 +17,14 @@ impl Video {
         self.width = width;
         self.height = height;
         self.picture.resize(n, 0);
-        self.picture.copy_from_slice(&last[..n]);
+        match before.filter(|b| b.len() >= n) {
+            Some(before) => {
+                for ((p, &a), &b) in self.picture.iter_mut().zip(&before[..n]).zip(&last[..n]) {
+                    *p = (a & b) + (((a ^ b) & MASK) >> 1);
+                }
+            }
+            None => self.picture.copy_from_slice(&last[..n]),
+        }
     }
 
     pub fn band(&mut self, into: &mut Vec<u8>) -> (usize, usize, usize, usize) {
