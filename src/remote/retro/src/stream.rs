@@ -1,3 +1,4 @@
+use crate::cpu;
 use crate::keypad::Keypad;
 use crate::libretro::Frontend;
 use crate::panel::Panel;
@@ -5,6 +6,7 @@ use crate::service::frontend;
 use crate::ws;
 use log::{info, warn};
 use serde_json::Value;
+use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::net::{Shutdown, TcpListener, TcpStream};
@@ -12,17 +14,31 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::{channel, RecvTimeoutError, Sender};
 use std::sync::{Mutex, OnceLock};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const APP: &str = "http://retro.localhost";
 
 const KIND_FRAME: u8 = 1;
 const PAUSED: u8 = 2;
-const FRAME_HEADER: usize = 24;
+const HOLD: u8 = 4;
+const FRAME_HEADER: usize = 32;
 const PREFIX: usize = 4;
 
 const SYNC_WITHIN: f64 = 0.015;
-const BEFORE: f64 = 0.045;
+// drawn 10ms or more before the refresh the compositor takes it, 8-10 86%, 6-8 half, less none
+const LEAD: f64 = 0.0095;
+const EARLIER: f64 = 0.001;
+const LATER: f64 = 0.00004;
+const EARLY: f64 = 0.022;
+const EARLY_MIN: f64 = 0.004;
+const EARLY_MAX: f64 = 0.05;
+// b2g presents 9-24ms after its refresh, 95% within 22
+const MARGIN: f64 = 0.023;
+const MARGIN_MIN: f64 = 0.021;
+const MARGIN_MAX: f64 = 0.027;
+const MARGIN_STEP: f64 = 0.001;
+const MARGIN_DECAY: f64 = 0.00002;
+const SEEN: Duration = Duration::from_millis(3);
 const FAST_MAX: u32 = 20;
 const FAST_SHARE: f64 = 0.75;
 const FAST_KEY: u16 = 158;
@@ -30,6 +46,7 @@ const AHEAD_MAX: u32 = 2;
 const BEHIND: u32 = 4;
 const IDLE: Duration = Duration::from_secs(3600);
 const WRITE_TIMEOUT: Duration = Duration::from_secs(2);
+const STATS_EVERY: u32 = 1800;
 
 enum Command {
     Client(u32, TcpStream),
@@ -73,6 +90,7 @@ fn start() -> Result<Stream, String> {
     thread::Builder::new()
         .name("retro-game".into())
         .spawn(move || {
+            cpu::fast();
             let mut player = Player::new();
             loop {
                 let wait = player.wait();
@@ -179,12 +197,65 @@ fn shift(at: Instant, secs: f64) -> Instant {
     }
 }
 
+fn between(from: Instant, to: Instant) -> f64 {
+    if to >= from {
+        (to - from).as_secs_f64()
+    } else {
+        -(from - to).as_secs_f64()
+    }
+}
+
+fn epoch_now() -> f64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs_f64() * 1e6).unwrap_or(0.0)
+}
+
+fn from_epoch(us: f64) -> Instant {
+    shift(Instant::now(), (us - epoch_now()) / 1e6)
+}
+
+fn to_epoch(at: Instant) -> u64 {
+    (epoch_now() + between(Instant::now(), at) * 1e6).max(0.0) as u64
+}
+
+fn grid(m: &Value) -> Option<(Instant, f64)> {
+    let tick = m["tick"].as_f64()?;
+    let period = m["period"].as_f64()? / 1e6;
+    if period > 0.004 && period < 0.1 {
+        Some((from_epoch(tick), period))
+    } else {
+        None
+    }
+}
+
+fn refresh_before(grid: Option<(Instant, f64)>, at: Instant) -> Option<Instant> {
+    let (tick, period) = grid?;
+    Some(shift(tick, (between(tick, at) / period).floor() * period))
+}
+
+#[derive(Default)]
+struct Stats {
+    since: Option<Instant>,
+    wake: Duration,
+    frames: u32,
+    messages: u32,
+    busy: Duration,
+    made: u32,
+    missed: u32,
+    held: u32,
+}
+
+#[derive(Clone, Copy, Default)]
+struct Target {
+    panel: Option<Instant>,
+    tick: Option<Instant>,
+}
+
 struct Player {
     client: Option<(u32, TcpStream)>,
     out: Option<(u64, TcpStream)>,
     running: bool,
     deadline: Instant,
-    refresh: Option<Instant>,
+    target: Target,
     keys: u16,
     fast: bool,
     keypad: Option<Keypad>,
@@ -192,8 +263,16 @@ struct Player {
     ahead: u32,
     panel: Option<Panel>,
     per: u32,
+    grid: Option<(Instant, f64)>,
+    margin: f64,
+    early: f64,
+    work: f64,
+    fasting: bool,
+    flight: VecDeque<(Instant, bool)>,
+    hold: bool,
     fps: f64,
     played: Instant,
+    stats: Stats,
     message: Vec<u8>,
     audio: Vec<i16>,
 }
@@ -205,7 +284,7 @@ impl Player {
             out: None,
             running: false,
             deadline: Instant::now(),
-            refresh: None,
+            target: Target::default(),
             keys: 0,
             fast: false,
             keypad: None,
@@ -213,8 +292,16 @@ impl Player {
             ahead: 0,
             panel: None,
             per: 1,
+            grid: None,
+            margin: MARGIN,
+            early: EARLY,
+            work: 0.004,
+            fasting: false,
+            flight: VecDeque::new(),
+            hold: false,
             fps: 59.7275,
             played: Instant::now(),
+            stats: Stats::default(),
             message: Vec::new(),
             audio: Vec::new(),
         }
@@ -224,19 +311,28 @@ impl Player {
         if !self.running {
             return IDLE;
         }
-        self.deadline.saturating_duration_since(Instant::now())
+        let until = match self.flight.front() {
+            Some(&(refresh, _)) => self.deadline.min(refresh + SEEN),
+            None => self.deadline,
+        };
+        until.saturating_duration_since(Instant::now())
     }
 
     fn wake(&mut self) {
-        if Instant::now() >= self.deadline {
+        let now = Instant::now();
+        self.check(now);
+        if now >= self.deadline {
             self.picture();
         }
     }
 
     fn period(&self) -> f64 {
-        match &self.panel {
-            Some(panel) => panel.period() / self.per as f64,
-            None => 1.0 / self.fps,
+        if let Some(panel) = &self.panel {
+            return panel.period() / self.per as f64;
+        }
+        match self.grid {
+            Some((_, t)) if (1.0 / t / self.fps - 1.0).abs() < SYNC_WITHIN => t,
+            _ => 1.0 / self.fps,
         }
     }
 
@@ -245,6 +341,8 @@ impl Player {
         self.fast = false;
         self.keypad = None;
         self.panel = None;
+        self.flight.clear();
+        self.hold = false;
         self.out = None;
     }
 
@@ -290,6 +388,9 @@ impl Player {
                         self.pause();
                     }
                 }
+                if let Some(sync) = m.get("sync") {
+                    self.sync(sync);
+                }
             }
         }
     }
@@ -299,6 +400,9 @@ impl Player {
             Some((fps, _)) => fps,
             None => return self.pause(),
         };
+        if let Some(g) = grid(m) {
+            self.grid = Some(g);
+        }
         self.map = keymap(m);
         self.ahead = (m["ahead"].as_u64().unwrap_or(0) as u32).min(AHEAD_MAX);
         self.keypad = match Keypad::open() {
@@ -326,10 +430,13 @@ impl Player {
                 None
             }
         };
+        self.flight.clear();
+        self.hold = false;
         self.played = Instant::now();
+        self.stats = Stats::default();
         self.running = true;
         let now = Instant::now();
-        self.refresh = None;
+        self.target = Target::default();
         self.deadline = now;
         self.plan(now);
     }
@@ -346,15 +453,61 @@ impl Player {
         self.stop();
     }
 
+    fn sync(&mut self, sync: &Value) {
+        if let Some(g) = grid(sync) {
+            self.grid = Some(g);
+        }
+        if !self.running || self.fasting {
+            return;
+        }
+        let leads = sync["leads"].as_array().map(|l| l.iter().filter_map(Value::as_f64)).into_iter().flatten();
+        for lead in leads {
+            self.early += if lead / 1e6 < LEAD { EARLIER } else { -LATER };
+        }
+        self.early = self.early.max(EARLY_MIN).min(EARLY_MAX);
+    }
+
+    fn check(&mut self, now: Instant) {
+        let panel = match self.panel.as_ref() {
+            Some(p) => p,
+            None => return self.flight.clear(),
+        };
+        let period = Duration::from_secs_f64(panel.period());
+        let mut retired = None;
+        while let Some(&(refresh, fast)) = self.flight.front() {
+            if refresh + SEEN > now {
+                break;
+            }
+            self.flight.pop_front();
+            if now + SEEN > refresh + period {
+                continue;
+            }
+            let retired = *retired.get_or_insert_with(|| panel.retired());
+            if retired.map_or(false, |r| r + SEEN >= refresh) {
+                self.margin = (self.margin - MARGIN_DECAY).max(MARGIN_MIN);
+                self.stats.made += 1;
+            } else {
+                if !fast {
+                    self.margin = (self.margin + MARGIN_STEP).min(MARGIN_MAX);
+                }
+                self.hold = true;
+                self.stats.missed += 1;
+            }
+        }
+    }
+
     fn plan(&mut self, now: Instant) {
+        let early = self.early + if self.fasting { FAST_SHARE * self.period() * self.per as f64 } else { 0.0 };
+        let (grid, margin, last) = (self.grid, self.margin, self.target);
         if let Some(panel) = self.panel.as_mut() {
             let period = panel.period();
-            let after = self.refresh.map_or(now, |r| shift(r, period / 2.0).max(now));
+            let after = last.panel.map_or(now, |r| shift(r, period / 2.0).max(now));
             match panel.next(after) {
                 Some(mut refresh) => loop {
-                    let start = shift(refresh, -BEFORE);
+                    let tick = refresh_before(grid, shift(refresh, -margin));
+                    let start = shift(tick.unwrap_or(refresh), -early - tick.map_or(margin, |_| 0.0));
                     if start >= now {
-                        self.refresh = Some(refresh);
+                        self.target = Target { panel: Some(refresh), tick };
                         self.deadline = start;
                         return;
                     }
@@ -364,11 +517,22 @@ impl Player {
                     warn!("the panel's vsync stopped: pictures at the game's pace");
                     self.panel = None;
                     self.per = 1;
+                    self.flight.clear();
                 }
             }
         }
         let period = self.period();
-        self.refresh = None;
+        if let Some((_, t)) = grid.filter(|&(_, t)| t == period) {
+            let after = last.tick.map_or(now, |r| shift(r, t / 2.0).max(now));
+            let mut tick = refresh_before(grid, shift(after, t)).unwrap_or(after);
+            while shift(tick, -early) < now {
+                tick = shift(tick, t);
+            }
+            self.target = Target { panel: None, tick: Some(tick) };
+            self.deadline = shift(tick, -early);
+            return;
+        }
+        self.target = Target::default();
         self.deadline = shift(self.deadline, period);
         if now > shift(self.deadline, period * BEHIND as f64) {
             self.deadline = now;
@@ -383,10 +547,12 @@ impl Player {
     }
 
     fn frames(&mut self, f: &mut Frontend, fast: bool, started: Instant) -> u32 {
+        let period = self.period();
         self.audio.clear();
         if fast {
-            let until = started + Duration::from_secs_f64(self.period() * self.per as f64 * FAST_SHARE);
-            let mut each = Duration::from_secs(0);
+            let budget = Duration::from_secs_f64(period * self.per as f64 * FAST_SHARE);
+            let until = self.target.tick.map_or(started + budget, |t| shift(t, self.work - self.early));
+            let mut each = Duration::from_secs_f64(self.work / (self.per + self.ahead) as f64);
             let mut frames = 0;
             loop {
                 let at = Instant::now();
@@ -435,10 +601,13 @@ impl Player {
 
     fn picture(&mut self) {
         let started = Instant::now();
+        self.stats.wake = self.stats.wake.max(started.saturating_duration_since(self.deadline));
+        let target = self.target;
         let fast = match self.keypad.as_ref() {
             Some(k) => k.held(FAST_KEY),
             None => self.fast,
         };
+
         let mut f = frontend();
         if !f.loaded() {
             drop(f);
@@ -446,6 +615,8 @@ impl Player {
             return;
         }
         let frames = self.frames(&mut f, fast, started);
+        self.fasting = fast;
+
         self.message.clear();
         self.message.resize(PREFIX + FRAME_HEADER, 0);
         let (width, height, top, rows) = f.picture(&mut self.message, !fast);
@@ -459,8 +630,14 @@ impl Player {
             }
         }
         let work = started.elapsed();
+        if !fast {
+            self.work += (work.as_secs_f64() - self.work) / 16.0;
+        }
+
+        let hold = std::mem::take(&mut self.hold) && rows > 0;
         let m = &mut self.message[PREFIX..];
         m[0] = KIND_FRAME;
+        m[1] = if hold { HOLD } else { 0 };
         m[2..4].copy_from_slice(&(width as u16).to_le_bytes());
         m[4..6].copy_from_slice(&(height as u16).to_le_bytes());
         m[6..8].copy_from_slice(&(top as u16).to_le_bytes());
@@ -469,7 +646,14 @@ impl Player {
         m[12..16].copy_from_slice(&(samples as u32).to_le_bytes());
         m[16..20].copy_from_slice(&(work.as_micros() as u32).to_le_bytes());
         m[20..24].copy_from_slice(&(self.played.elapsed().as_micros() as u32).to_le_bytes());
+        m[24..32].copy_from_slice(&target.tick.map_or(0, to_epoch).to_le_bytes());
         self.send();
+        if hold {
+            self.stats.held += 1;
+        } else if let (true, Some(refresh)) = (rows > 0, target.panel) {
+            self.flight.push_back((refresh, fast));
+        }
+        self.count(frames, work);
         if self.running {
             self.plan(Instant::now());
         }
@@ -484,6 +668,48 @@ impl Player {
         };
         if gone {
             self.stop();
+        }
+    }
+
+    fn count(&mut self, frames: u32, work: Duration) {
+        let now = Instant::now();
+        let st = &mut self.stats;
+        let since = *st.since.get_or_insert(now);
+        st.frames += frames;
+        st.messages += 1;
+        st.busy += work;
+        if st.frames >= STATS_EVERY {
+            let secs = (now - since).as_secs_f64();
+            let panel = match &self.panel {
+                Some(p) => format!(
+                    "the panel's {:.3} Hz, {} frames a picture: {} pictures made their refresh, {} missed it, \
+                     {} weren't drawn; compositor refresh {:.1} ms before the panel's at the least, frames \
+                     {:.1} ms before that",
+                    1.0 / p.period(),
+                    self.per,
+                    st.made,
+                    st.missed,
+                    st.held,
+                    self.margin * 1000.0,
+                    self.early * 1000.0
+                ),
+                None => "without the panel".into(),
+            };
+            info!(
+                "{} frames in {:.1} s ({:.2} a second) in {} pictures, {:.2} ms of emulation a frame with {} \
+                 of run-ahead, keys from {}, {}, compositor {:.3} Hz, woke up to {:.1} ms late",
+                st.frames,
+                secs,
+                st.frames as f64 / secs,
+                st.messages,
+                st.busy.as_secs_f64() * 1000.0 / st.frames as f64,
+                self.ahead,
+                if self.keypad.is_some() { "the keypad" } else { "the app" },
+                panel,
+                self.grid.map_or(0.0, |(_, t)| 1.0 / t),
+                st.wake.as_secs_f64() * 1000.0
+            );
+            self.stats = Stats { since: Some(now), ..Stats::default() };
         }
     }
 }

@@ -20,7 +20,8 @@ if [ "$(git -C "$MG" rev-parse HEAD 2>/dev/null)" != "$MGBA_COMMIT" ]; then
   git -C "$MG" checkout -q --force FETCH_HEAD
 fi
 
-CPU="-target aarch64-linux-musl"
+# built for the a78s, the game thread stays on them
+CPU="-target aarch64-linux-musl -mcpu=cortex_a78"
 ZIG="$(command -v "$ZIG")"
 mkdir -p "$OBJ/zig" "$OUT"
 for tool in cc ar ranlib; do
