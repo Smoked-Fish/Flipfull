@@ -480,7 +480,13 @@
 
     function monitor(m) {
         const one = (n) => n.toFixed(1);
-        el.fps.textContent = `${one(m.fps)} fps  shown ${Math.round(m.shown)}\ncore ${one(m.work)}  jitter ${one(m.jitter)}`;
+        const lines = [
+            `${one(m.fps)} fps  shown ${Math.round(m.shown)}  held ${Math.round(m.held)}  late ${Math.round(m.late)}`,
+            `core ${one(m.work)}  lead ${m.lead === null ? '-' : one(m.lead)}`,
+        ];
+        el.fps.textContent = lines.join('\n');
+        console.log(`[retro] ${lines.join(' | ')} | trip jitter ${one(m.jitter)} ms | refresh ${one(m.refresh)} (${m.hz.toFixed(3)} Hz), ` +
+            `screen js ${Math.round(m.busy)} ms/s`);
     }
 
     function useMonitor() {

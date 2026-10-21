@@ -94,7 +94,7 @@ fn peer_uid(stream: &UnixStream) -> Option<u32> {
     }
 }
 
-fn read_request(stream: &UnixStream) -> Result<(String, Option<OwnedFd>), &'static str> {
+fn read_request(stream: &UnixStream) -> Result<(String, Option<OwnedFd>, Vec<u8>), &'static str> {
     let mut line = Vec::new();
     let mut fd = None;
     let mut buf = [0u8; 512];
@@ -130,8 +130,9 @@ fn read_request(stream: &UnixStream) -> Result<(String, Option<OwnedFd>), &'stat
         line.extend_from_slice(&buf[..n as usize]);
     }
     let end = line.iter().position(|&b| b == b'\n').unwrap_or(line.len());
+    let rest = line.split_off(end + 1);
     line.truncate(end);
-    String::from_utf8(line).map(|l| (l, fd)).map_err(|_| "Not a command")
+    String::from_utf8(line).map(|l| (l, fd, rest)).map_err(|_| "Not a command")
 }
 
 pub(crate) fn answer(stream: &mut UnixStream, ok: bool, text: &[u8]) {
@@ -222,12 +223,12 @@ fn handle(config: &Config, mut stream: UnixStream) {
         log(&format!("refused uid {:?}", uid));
         return answer(&mut stream, false, b"Only Flipfull's services\n");
     }
-    let (line, fd) = match read_request(&stream) {
+    let (line, fd, rest) = match read_request(&stream) {
         Ok(r) => r,
         Err(why) => return answer(&mut stream, false, format!("{}\n", why).as_bytes()),
     };
     if retro && fd.is_none() {
-        return retro::command(&mut stream, &line);
+        return retro::command(&mut stream, &line, rest);
     }
     let words: Vec<&str> = line.split(' ').filter(|w| !w.is_empty()).collect();
     match (words.first(), fd) {

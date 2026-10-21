@@ -1,8 +1,18 @@
 'use strict';
 
 (function (scope) {
-    const HEADER = 24;
+    const HEADER = 32;
+    const HOLD = 4;
+    const SYNC_EVERY = 250;
     const STATS_EVERY = 1000;
+    const IDLE = 30;
+    // raf times are whole ms here, average them
+    const SMOOTH = 0.05;
+    const IN_TIME = 10;
+
+    function counts() {
+        return { shown: 0, held: 0, late: 0, ticks: 0, busy: 0, lead: null };
+    }
 
     class Screen {
         constructor(canvas) {
@@ -100,25 +110,126 @@
 
     let screen = null;
     const net = scope;
-    let monitor = null;
-    let shown = 0;
+    let playing = false;
+    let looping = false;
+    let idle = 0;
+    let period = 1000 / 60;
+    let phase = 0;
+    let last = 0;
+    let span = 0;
+    let refreshes = 0;
+    let synced = 0;
+    let leads = [];
+    let monitor = false;
+    let c = counts();
     let since = 0;
+
+    function loop() {
+        idle = 0;
+        if (!looping) {
+            looping = true;
+            requestAnimationFrame(tick);
+        }
+    }
 
     function show(buffer) {
         const h16 = new Uint16Array(buffer, 0, HEADER >> 1);
+        const h32 = new Uint32Array(buffer, 0, HEADER >> 2);
         screen.rows(h16[1], h16[2], h16[3], h16[4], buffer);
-        if (screen.changed) {
+        if ((h16[0] >> 8) & HOLD) {
+            c.held++;
+        } else if (screen.changed) {
             screen.draw();
-            shown++;
+            c.shown++;
+            const due = h32[6] + h32[7] * 4294967296;
+            if (due) {
+                const ahead = due / 1000 - (performance.timeOrigin + performance.now());
+                leads.push(Math.round(ahead * 1000));
+                c.lead = c.lead === null ? ahead : Math.min(c.lead, ahead);
+                if (ahead < IN_TIME) {
+                    c.late++;
+                }
+            }
         }
         net.postMessage({ spare: buffer }, [buffer]);
     }
 
-    function stats() {
-        const now = performance.now();
-        net.postMessage({ stats: { shown: (shown * 1000) / (now - since) } });
-        shown = 0;
-        since = now;
+    function tick(t) {
+        const t0 = performance.now();
+        const at = performance.timeOrigin + t;
+        c.ticks++;
+        if (last) {
+            const dt = t - last;
+            const n = Math.max(1, Math.round(dt / period));
+            if (n <= 4) {
+                span += dt;
+                refreshes += n;
+                if (refreshes >= 30) {
+                    period = span / refreshes;
+                }
+            }
+            const expected = phase + Math.round((at - phase) / period) * period;
+            phase = expected + (at - expected) * SMOOTH;
+        } else {
+            phase = at;
+        }
+        last = t;
+        if (!playing && ++idle > IDLE) {
+            looping = false;
+            last = 0;
+            return;
+        }
+        if (t - synced >= SYNC_EVERY) {
+            synced = t;
+            const grid = { tick: Math.round(phase * 1000), period: Math.round(period * 1000) };
+            net.postMessage({ grid });
+            if (playing) {
+                net.postMessage({ sync: Object.assign(grid, { leads }) });
+                leads = [];
+            }
+        }
+        c.busy += performance.now() - t0;
+        if (monitor && t - since >= STATS_EVERY) {
+            const secs = (t - since) / 1000;
+            net.postMessage({
+                stats: {
+                    shown: c.shown / secs,
+                    held: c.held / secs,
+                    late: c.late / secs,
+                    refresh: c.ticks / secs,
+                    hz: 1000 / period,
+                    lead: c.lead,
+                    busy: c.busy / secs,
+                },
+            });
+            c = counts();
+            since = t;
+        }
+        requestAnimationFrame(tick);
+    }
+
+    function fromNet(m) {
+        if (m.frame) {
+            show(m.frame);
+        } else if (m.last) {
+            if (screen.changed) {
+                screen.draw();
+            }
+        } else if (m.playing !== undefined) {
+            playing = m.playing;
+            if (playing) {
+                span = 0;
+                refreshes = 0;
+                leads = [];
+                c = counts();
+                since = performance.now();
+                loop();
+            }
+        } else if (m.monitor !== undefined) {
+            monitor = m.monitor;
+            c = counts();
+            since = performance.now();
+        }
     }
 
     scope.onmessage = (e) => {
@@ -132,17 +243,9 @@
         } else if (m.open) {
             screen.clear(m.open.width, m.open.height, m.open.outWidth, m.open.outHeight);
             screen.draw();
-        } else if (m.frame) {
-            show(m.frame);
-        } else if (m.last) {
-            if (screen.changed) {
-                screen.draw();
-            }
-        } else if (m.monitor !== undefined) {
-            clearInterval(monitor);
-            monitor = m.monitor ? setInterval(stats, STATS_EVERY) : null;
-            shown = 0;
-            since = performance.now();
+            loop();
+        } else {
+            fromNet(m);
         }
     };
 }(self));

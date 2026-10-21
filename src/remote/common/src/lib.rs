@@ -121,3 +121,29 @@ fn receive_file(words: &str, what: &str) -> Result<File, String> {
 pub fn keypad() -> Result<File, String> {
     receive_file("keypad", "keypad")
 }
+
+pub fn retro_list() -> Result<String, String> {
+    match run("retro-list", Duration::from_secs(20))? {
+        (true, text) => Ok(text),
+        (false, why) => Err(why.trim().to_string()),
+    }
+}
+
+pub fn retro_open(path: &str) -> Result<File, String> {
+    receive_file(&format!("retro-open {}", path), "file")
+}
+
+pub fn retro_write(path: &str, data: &[u8]) -> Result<(), String> {
+    let mut stream = toolbox(Some(Duration::from_secs(20)))?;
+    let mut answer = String::new();
+    stream
+        .write_all(format!("retro-write {} {}\n", data.len(), path).as_bytes())
+        .and_then(|_| stream.write_all(data))
+        .and_then(|_| stream.read_to_string(&mut answer))
+        .map_err(|e| e.to_string())?;
+    match answer.split_once('\n') {
+        Some(("ok", _)) => Ok(()),
+        Some(("error", why)) => Err(why.trim().to_string()),
+        _ => Err("toolboxd's answer made no sense".into()),
+    }
+}

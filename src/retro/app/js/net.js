@@ -3,7 +3,7 @@
 (function (scope) {
     const KIND_FRAME = 1;
     const PAUSED = 2;
-    const HEADER = 24;
+    const HEADER = 32;
     // buffers go back and forth with the screen worker so there's no garbage
     const BUFFER = 128 * 1024;
     const CHUNK = 64 * 1024;
@@ -16,6 +16,7 @@
     let playing = false;
     let pausing = false;
     let options = {};
+    let grid = null;
     let monitor = false;
     let c = counts();
     let since = 0;
@@ -63,6 +64,7 @@
 
     function stopped() {
         playing = false;
+        screen.postMessage({ playing: false });
         if (pausing) {
             pausing = false;
             post({ paused: true });
@@ -72,9 +74,10 @@
     function start() {
         session++;
         const s = session;
-        const asked = Object.assign({ session }, options);
+        const asked = Object.assign({ session }, options, grid);
         c = counts();
         since = performance.now();
+        screen.postMessage({ playing: true });
         if (sound) {
             sound.postMessage({ hold: false });
         }
@@ -181,6 +184,12 @@
             if (m.spare.byteLength === BUFFER && spare.length < 16) {
                 spare.push(m.spare);
             }
+        } else if (m.grid) {
+            grid = m.grid;
+        } else if (m.sync) {
+            if (playing) {
+                send({ sync: m.sync });
+            }
         } else if (m.stats) {
             if (monitor) {
                 const secs = (performance.now() - since) / 1000;
@@ -249,7 +258,7 @@
             monitor = m.monitor;
             c = counts();
             since = performance.now();
-            screen.postMessage({ monitor });
+            screen.postMessage({ monitor: monitor });
         }
     };
 }(self));
