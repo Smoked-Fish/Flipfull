@@ -349,9 +349,11 @@ impl Frontend {
         out.audio.clear();
     }
 
-    pub fn save_data(&self) -> Result<Vec<u8>, String> {
-        self.check()?;
-        Ok(save_memory().to_vec())
+    pub fn save_data(&self) -> &[u8] {
+        if !self.loaded {
+            return &[];
+        }
+        save_memory()
     }
 
     pub fn reset(&mut self) -> Result<(), String> {

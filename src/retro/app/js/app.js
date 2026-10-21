@@ -5,14 +5,13 @@
     const el = {
         body: document.body, bar: $('bar'), barTitle: $('bar-title'), barCount: $('bar-count'),
         loadingText: $('loading-text'), offlineWhy: $('offline-why'), list: $('list'), scanning: $('scanning'),
-        games: $('games'), screen: $('screen'), fps: $('fps'), status: $('status'), menuItems: $('menu-items'), keyItems: $('key-items'), keysHint: $('keys-hint'), toast: $('toast'),
+        games: $('games'), screen: $('screen'), fps: $('fps'), status: $('status'), menuItems: $('menu-items'),
+        slotItems: $('slot-items'), keyItems: $('key-items'), keysHint: $('keys-hint'), toast: $('toast'),
         softkeys: $('softkeys'), left: $('sk-left'), center: $('sk-center'), right: $('sk-right'),
     };
-    const FOLDER = 'roms';
     const STATUS_HEIGHT = 22;
     const MENU_KEY = 'SoftLeft';
     const FAST_KEY = 'SoftRight';
-    const SYSTEMS = { gba: 'GBA', gbc: 'GBC', gb: 'GB' };
     const KEY_NAMES = {
         ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→', Enter: 'OK', Call: 'Call',
         Backspace: 'Back', FavoriteContacts: 'Fav', Message: 'Msg',
@@ -71,27 +70,15 @@
     let scanned = false;
     let folder = '';
     const folderFocus = {};
-    const focus = { list: 0, menu: 0, keys: 0 };
+    const focus = { list: 0, menu: 0, slots: 0, keys: 0 };
     let current = null;
     let player = null;
     const held = new Set();
     let presets = null;
     let keyBits = {};
     let waitingKey = false;
-
-    function storage() {
-        return navigator.b2g.getDeviceStorage('sdcard');
-    }
-
-    function done(req) {
-        if (req.then) {
-            return req;
-        }
-        return new Promise((resolve, reject) => {
-            req.onsuccess = () => resolve(req.result);
-            req.onerror = () => reject(req.error);
-        });
-    }
+    let slots = [];
+    let saving = false;
 
     function stored(key) {
         try {
@@ -175,6 +162,7 @@
             case 'list': return renderList();
             case 'play': return renderPlay();
             case 'menu': return renderMenu();
+            case 'slots': return renderSlots();
             case 'keys': return renderKeys();
             case 'offline':
                 el.barTitle.textContent = 'GBA';
@@ -195,21 +183,6 @@
             toast((e && e.message) || String(e));
             show(current ? 'menu' : 'list');
         }
-    }
-
-    async function scan() {
-        const found = [];
-        const cursor = storage().enumerate(FOLDER);
-        for await (const file of cursor.values()) {
-            const inside = file.name.slice(file.name.indexOf(`${FOLDER}/`) + FOLDER.length + 1);
-            const name = inside.replace(/^.*\//, '');
-            const m = /^(.*)\.(gba|gbc|gb)$/i.exec(name);
-            if (m) {
-                const folder = inside.slice(0, inside.length - name.length);
-                found.push({ path: file.name, title: m[1], system: SYSTEMS[m[2].toLowerCase()], folder });
-            }
-        }
-        return found;
     }
 
     function entries() {
@@ -249,7 +222,7 @@
             if (item.folder) {
                 el.games.appendChild(row(item.name, '›', 'folder'));
             } else {
-                el.games.appendChild(row(item.title, item.system));
+                el.games.appendChild(row(item.title, `${item.system}${item.sd ? ' SD' : ''}`));
             }
         });
         moveFocus('list', el.games, 0);
@@ -273,53 +246,34 @@
         softkeys('', item ? (item.folder ? 'Open' : 'Play') : '', 'Rescan');
     }
 
-    async function rescan() {
+    function rescan() {
         scanned = false;
         show('list');
-        try {
-            games = await scan();
-        } catch (e) {
-            games = [];
-            toast(`The games couldn't be listed: ${(e && e.message) || e}`);
-        }
-        scanned = true;
-        const game = games.find((g) => g.path === stored('last'));
-        if (game) {
-            folder = game.folder;
-            focus.list = Math.max(0, entries().indexOf(game));
-        } else if (!entries().length) {
-            folder = '';
-        }
-        if (view === 'list') {
-            renderList();
-        }
-    }
-
-    function sibling(game, ext) {
-        return game.path.replace(/\.[^./]*$/, `.${ext}`);
-    }
-
-    async function readFile(path) {
-        try {
-            const file = await done(storage().get(path));
-            return new Uint8Array(await file.arrayBuffer());
-        } catch (e) {
-            return new Uint8Array(0);
-        }
-    }
-
-    async function writeFile(path, data) {
-        const s = storage();
-        try {
-            await done(s.delete(path));
-        } catch (e) {}
-        await done(s.addNamed(new Blob([data]), path));
-    }
-
-    async function writeSave() {
-        if (current) {
-            await writeFile(sibling(current, 'sav'), await window.FlipfullRetro.save());
-        }
+        window.FlipfullRetro.games().then((found) => {
+            games = found;
+            scanned = true;
+            const game = games.find((g) => g.path === stored('last'));
+            if (game) {
+                folder = game.folder;
+                focus.list = Math.max(0, entries().indexOf(game));
+            } else if (!entries().length) {
+                folder = '';
+            }
+            if (view === 'list') {
+                renderList();
+            }
+        }, (e) => {
+            scanned = true;
+            if (e && e.offline) {
+                failed(e);
+            } else {
+                games = [];
+                toast(`The games couldn't be listed: ${(e && e.message) || e}`);
+                if (view === 'list') {
+                    renderList();
+                }
+            }
+        });
     }
 
     function fit(width, height) {
@@ -331,9 +285,7 @@
     async function start(game) {
         show('loading', `Loading ${game.title}…`);
         try {
-            const rom = await readFile(game.path);
-            const save = await readFile(sibling(game, 'sav'));
-            const info = await window.FlipfullRetro.load(rom, save);
+            const info = await window.FlipfullRetro.load(game.path);
             store('last', game.path);
             current = game;
             fit(info.width, info.height);
@@ -374,8 +326,8 @@
     function menuItems() {
         return [
             { name: 'Resume', run: resume },
-            { name: 'Save state', run: saveState },
-            { name: 'Load state', run: loadState },
+            { name: 'Save state', detail: '›', run: () => openSlots(true) },
+            { name: 'Load state', detail: '›', run: () => openSlots(false) },
             { name: 'Reset', run: reset },
             { name: 'Keys', detail: preset().name, run: () => openKeys() },
             { name: 'Run-ahead', detail: aheadName(), run: nextAhead },
@@ -430,29 +382,67 @@
         }
     }
 
-    async function saveState() {
+    function stamp(secs) {
+        const d = new Date(secs * 1000);
+        const pad = (n) => String(n).padStart(2, '0');
+        return `${d.getMonth() + 1}/${d.getDate()} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+    }
+
+    async function openSlots(save) {
+        saving = save;
+        focus.slots = 0;
+        slots = [];
+        show('slots');
+        try {
+            slots = await window.FlipfullRetro.states();
+            if (!save) {
+                const newest = slots.reduce((b, s, i) => (s.time > (slots[b] || { time: 0 }).time ? i : b), 0);
+                focus.slots = newest;
+            }
+        } catch (e) {
+            toast(`The states couldn't be listed: ${(e && e.message) || e}`);
+        }
+        if (view === 'slots') {
+            renderSlots();
+        }
+    }
+
+    function renderSlots() {
+        el.barTitle.textContent = saving ? 'Save state' : 'Load state';
+        el.slotItems.textContent = '';
+        slots.forEach((s) => el.slotItems.appendChild(row(`Slot ${s.slot + 1}`, s.time ? stamp(s.time) : 'empty')));
+        moveFocus('slots', el.slotItems, 0);
+        keys = {
+            center: () => {
+                const s = slots[focus.slots];
+                if (s && saving) {
+                    saveState(s.slot);
+                } else if (s && s.time) {
+                    loadState(s.slot);
+                }
+            },
+            back: () => show('menu'),
+        };
+        softkeys('', slots.length ? (saving ? 'Save' : 'Load') : '', '');
+    }
+
+    async function saveState(slot) {
         show('loading', 'Saving the state…');
         try {
-            await writeSave();
-            await writeFile(sibling(current, 'state'), await window.FlipfullRetro.saveState());
+            await window.FlipfullRetro.saveState(slot);
             play();
-            status('State saved');
+            status(`State saved to slot ${slot + 1}`);
         } catch (e) {
             failed(e);
         }
     }
 
-    async function loadState() {
-        const state = await readFile(sibling(current, 'state'));
-        if (!state.length) {
-            toast('No state saved yet');
-            return;
-        }
+    async function loadState(slot) {
         show('loading', 'Loading the state…');
         try {
-            await window.FlipfullRetro.loadState(state);
+            await window.FlipfullRetro.loadState(slot);
             play();
-            status('State loaded');
+            status(`State ${slot + 1} loaded`);
         } catch (e) {
             failed(e);
         }
@@ -470,7 +460,6 @@
     async function quit() {
         show('loading', 'Saving…');
         try {
-            await writeSave();
             await window.FlipfullRetro.unload();
         } catch (e) {}
         current = null;
@@ -666,6 +655,8 @@
                     listSoftkeys(entries());
                 } else if (view === 'menu') {
                     moveFocus('menu', el.menuItems, by);
+                } else if (view === 'slots') {
+                    moveFocus('slots', el.slotItems, by);
                 } else if (view === 'keys') {
                     moveFocus('keys', el.keyItems, by);
                     softkeys('Defaults', focus.keys === 0 ? 'Switch' : 'Change', '');

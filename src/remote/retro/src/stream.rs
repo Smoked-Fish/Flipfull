@@ -2,7 +2,7 @@ use crate::cpu;
 use crate::keypad::Keypad;
 use crate::libretro::Frontend;
 use crate::panel::Panel;
-use crate::service::frontend;
+use crate::service::state;
 use crate::ws;
 use log::{info, warn};
 use serde_json::Value;
@@ -353,7 +353,7 @@ impl Player {
                     let _ = old.shutdown(Shutdown::Both);
                 }
                 self.pause();
-                frontend().forget_picture();
+                state().frontend.forget_picture();
             }
             Command::Gone(id) => {
                 if self.client.as_ref().map_or(false, |(c, _)| *c == id) {
@@ -368,7 +368,7 @@ impl Player {
             Command::Play(stream, options) => {
                 if self.client.is_some() {
                     self.pause();
-                    frontend().forget_picture();
+                    state().frontend.forget_picture();
                     self.out = Some((options["session"].as_u64().unwrap_or(0), stream));
                     self.play(&options);
                 }
@@ -396,7 +396,7 @@ impl Player {
     }
 
     fn play(&mut self, m: &Value) {
-        self.fps = match frontend().timing() {
+        self.fps = match state().frontend.timing() {
             Some((fps, _)) => fps,
             None => return self.pause(),
         };
@@ -449,6 +449,9 @@ impl Player {
             m[0] = KIND_FRAME;
             m[1] = PAUSED;
             self.send();
+        }
+        if self.running {
+            state().flush_save();
         }
         self.stop();
     }
@@ -608,19 +611,20 @@ impl Player {
             None => self.fast,
         };
 
-        let mut f = frontend();
-        if !f.loaded() {
-            drop(f);
+        let mut guard = state();
+        let s = &mut *guard;
+        if !s.frontend.loaded() {
+            drop(guard);
             self.stop();
             return;
         }
-        let frames = self.frames(&mut f, fast, started);
+        let frames = self.frames(&mut s.frontend, fast, started);
         self.fasting = fast;
 
         self.message.clear();
         self.message.resize(PREFIX + FRAME_HEADER, 0);
-        let (width, height, top, rows) = f.picture(&mut self.message, !fast);
-        drop(f);
+        let (width, height, top, rows) = s.frontend.picture(&mut self.message, !fast);
+        drop(guard);
 
         let samples = if fast { 0 } else { self.audio.len() / 2 };
         self.message.reserve(samples * 8);

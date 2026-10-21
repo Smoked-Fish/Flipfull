@@ -15,20 +15,23 @@ window.FlipfullRetro = {
     stream() {
         return retro.call((svc) => svc.stream(), QUICK);
     },
-    load(rom, save) {
-        return retro.call((svc) => svc.load(rom, save), SLOW);
+    games() {
+        return retro.call((svc) => svc.games(), SLOW);
+    },
+    load(path) {
+        return retro.call((svc) => svc.load(path), SLOW);
     },
     reset() {
         return retro.call((svc) => svc.reset(), QUICK);
     },
-    saveState() {
-        return retro.call((svc) => svc.saveState(), SLOW);
+    states() {
+        return retro.call((svc) => svc.states(), QUICK);
     },
-    loadState(state) {
-        return retro.call((svc) => svc.loadState(state), SLOW);
+    saveState(slot) {
+        return retro.call((svc) => svc.saveState(slot), SLOW);
     },
-    save() {
-        return retro.call((svc) => svc.save(), QUICK);
+    loadState(slot) {
+        return retro.call((svc) => svc.loadState(slot), SLOW);
     },
     unload() {
         return retro.call((svc) => svc.unload(), QUICK);

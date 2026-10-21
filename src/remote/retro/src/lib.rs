@@ -1,4 +1,5 @@
 pub mod cpu;
+pub mod files;
 pub mod generated;
 pub mod keypad;
 pub mod libretro;
