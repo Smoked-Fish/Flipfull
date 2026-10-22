@@ -72,6 +72,12 @@ extern "C" {
     fn retro_unserialize(data: *const c_void, size: usize) -> bool;
     fn retro_get_memory_data(id: c_uint) -> *mut c_void;
     fn retro_get_memory_size(id: c_uint) -> usize;
+    fn flipfull_state_size() -> usize;
+    fn flipfull_save_state(state: *mut c_void) -> bool;
+    fn flipfull_load_state(state: *const c_void) -> bool;
+    fn flipfull_draw_next(draw: bool);
+    fn flipfull_drain_audio();
+    fn flipfull_platform() -> i32;
 }
 
 #[derive(Default)]
@@ -222,21 +228,17 @@ fn run(keys: u16, slot: Option<usize>) {
         out.keys = keys;
         out.slot = slot;
     }
-    unsafe { retro_run() };
+    unsafe {
+        flipfull_draw_next(slot.is_some());
+        retro_run();
+        flipfull_drain_audio();
+    }
 }
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Platform {
     Gba,
     Gb,
-}
-
-fn platform_of(rom: &[u8]) -> Platform {
-    if rom.get(0xb2) == Some(&0x96) {
-        Platform::Gba
-    } else {
-        Platform::Gb
-    }
 }
 
 pub struct Game {
@@ -253,6 +255,7 @@ pub struct Frontend {
     platform: Option<Platform>,
     timing: (f64, f64),
     before: Vec<u8>,
+    ram_before: Vec<u8>,
     video: Video,
 }
 
@@ -293,7 +296,7 @@ impl Frontend {
             return Err("the core can't play this file".into());
         }
         self.loaded = true;
-        self.platform = Some(platform_of(rom));
+        self.platform = Some(if unsafe { flipfull_platform() } == 1 { Platform::Gba } else { Platform::Gb });
         let memory = save_memory();
         let n = save.len().min(memory.len());
         memory[..n].copy_from_slice(&save[..n]);
@@ -320,14 +323,20 @@ impl Frontend {
         if !self.loaded {
             return false;
         }
-        let size = unsafe { retro_serialize_size() };
+        let size = unsafe { flipfull_state_size() };
         self.before.resize(size, 0);
-        size > 0 && unsafe { retro_serialize(self.before.as_mut_ptr() as *mut c_void, size) }
+        self.ram_before.clear();
+        self.ram_before.extend_from_slice(save_memory());
+        size > 0 && unsafe { flipfull_save_state(self.before.as_mut_ptr() as *mut c_void) }
     }
 
     pub fn back(&mut self) {
-        unsafe { retro_unserialize(self.before.as_ptr() as *const c_void, self.before.len()) };
+        unsafe { flipfull_load_state(self.before.as_ptr() as *const c_void) };
         output().audio.clear();
+        let ram = save_memory();
+        if ram.len() == self.ram_before.len() && *ram != *self.ram_before {
+            ram.copy_from_slice(&self.ram_before);
+        }
     }
 
     pub fn picture(&mut self, into: &mut Vec<u8>, mix: bool) -> (usize, usize, usize, usize) {

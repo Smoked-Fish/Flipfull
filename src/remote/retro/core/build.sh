@@ -20,6 +20,17 @@ if [ "$(git -C "$MG" rev-parse HEAD 2>/dev/null)" != "$MGBA_COMMIT" ]; then
   git -C "$MG" checkout -q --force FETCH_HEAD
 fi
 
+HERE="$(cd "$(dirname "$0")" && pwd)"
+add() {
+  local line="#include \"$HERE/$2\""
+  if [ "$(tail -n 1 "$MG/$1")" != "$line" ]; then
+    git -C "$MG" checkout -q -- "$1"
+    printf '\n%s\n' "$line" >> "$MG/$1"
+  fi
+}
+add src/platform/libretro/libretro.c flipfull.c
+add src/third-party/blip_buf/blip_buf.c flipfull_blip.c
+
 # built for the a78s, the game thread stays on them
 CPU="-target aarch64-linux-musl -mcpu=cortex_a78"
 ZIG="$(command -v "$ZIG")"

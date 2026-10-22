@@ -36,7 +36,7 @@ const DEFS: &[Def] = &[
         about: "Shows the game that many frames ahead, which hides the frames a game takes to answer \
                 a key. Each one costs a frame of emulation.",
         choices: AHEAD,
-        default: "0",
+        default: "1",
     },
     Def {
         key: "ahead_gb",
@@ -44,7 +44,7 @@ const DEFS: &[Def] = &[
         name: "Run-ahead, Game Boy",
         about: "The same for Game Boy and Game Boy Color games.",
         choices: AHEAD,
-        default: "0",
+        default: "1",
     },
     Def {
         key: "fps",
