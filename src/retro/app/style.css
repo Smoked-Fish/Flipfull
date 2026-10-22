@@ -2,6 +2,7 @@
     --gs60: #272730;
     --muted: #b2b2c2;
     --purple: #8000ff;
+    --purple-light: #b366ff;
     --amber: #ffc36b;
 }
 
@@ -213,6 +214,32 @@ body[data-view="slots"] #play {
     background: rgba(0, 0, 0, 0.88);
     overflow-y: auto;
     max-height: 100%;
+}
+
+body[data-view="settings"] #settings {
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+#setting-items {
+    flex: 1;
+    overflow-y: auto;
+}
+
+#setting-about {
+    flex: none;
+    max-height: 9.1rem;
+    overflow: hidden;
+    border-top: 0.1rem solid var(--gs60);
+}
+
+.section {
+    margin: 0;
+    padding: 0.7rem 1rem 0.2rem;
+    font-size: 1.2rem;
+    line-height: 1.6rem;
+    color: var(--purple-light);
 }
 
 #toast {

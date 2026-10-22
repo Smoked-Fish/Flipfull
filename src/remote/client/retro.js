@@ -33,6 +33,12 @@ window.FlipfullRetro = {
     loadState(slot) {
         return retro.call((svc) => svc.loadState(slot), SLOW);
     },
+    settings() {
+        return retro.call((svc) => svc.settings(), QUICK);
+    },
+    set(key, value) {
+        return retro.call((svc) => svc.set(key, value), QUICK);
+    },
     unload() {
         return retro.call((svc) => svc.unload(), QUICK);
     },

@@ -15,7 +15,6 @@
     let session = 0;
     let playing = false;
     let pausing = false;
-    let options = {};
     let grid = null;
     let monitor = false;
     let c = counts();
@@ -74,7 +73,7 @@
     function start() {
         session++;
         const s = session;
-        const asked = Object.assign({ session }, options, grid);
+        const asked = Object.assign({ session }, grid);
         c = counts();
         since = performance.now();
         screen.postMessage({ playing: true });
@@ -230,7 +229,6 @@
                 sound.postMessage({ flush: true });
             }
         } else if (m.play) {
-            options = m.play;
             playing = true;
             pausing = false;
             if (socket && socket.readyState === WebSocket.OPEN) {

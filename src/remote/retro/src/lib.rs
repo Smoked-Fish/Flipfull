@@ -5,6 +5,7 @@ pub mod keypad;
 pub mod libretro;
 pub mod panel;
 pub mod service;
+pub mod settings;
 pub mod stream;
 pub mod video;
 pub mod ws;

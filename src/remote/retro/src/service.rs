@@ -2,6 +2,7 @@ use crate::files::{self, SaveFile, SLOTS};
 use crate::generated::common::*;
 use crate::generated::service::*;
 use crate::libretro::{self, Frontend};
+use crate::settings;
 use crate::stream;
 use common::core::BaseMessage;
 use common::traits::{
@@ -172,6 +173,17 @@ impl RetroMethods for Retro {
         match loaded {
             Ok(()) => responder.resolve(),
             Err(why) => responder.reject(why),
+        }
+    }
+
+    fn settings(&mut self, responder: RetroSettingsResponder) {
+        responder.resolve(JsonValue::from(settings::describe()));
+    }
+
+    fn set(&mut self, responder: RetroSetResponder, key: String, value: JsonValue) {
+        match settings::set(&key, &value) {
+            Ok(()) => responder.resolve(JsonValue::from(settings::describe())),
+            Err(why) => responder.reject(failure(why)),
         }
     }
 

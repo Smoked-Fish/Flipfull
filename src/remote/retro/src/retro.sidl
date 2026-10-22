@@ -28,6 +28,10 @@ interface Retro {
 
   fn load_state(slot: int) -> void, Failure
 
+  fn settings() -> json
+
+  fn set(key: str, value: json) -> json, Failure
+
   fn unload()
 }
 

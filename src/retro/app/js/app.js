@@ -4,9 +4,11 @@
     const $ = (id) => document.getElementById(id);
     const el = {
         body: document.body, bar: $('bar'), barTitle: $('bar-title'), barCount: $('bar-count'),
-        loadingText: $('loading-text'), offlineWhy: $('offline-why'), list: $('list'), scanning: $('scanning'),
-        games: $('games'), screen: $('screen'), fps: $('fps'), status: $('status'), menuItems: $('menu-items'),
-        slotItems: $('slot-items'), keyItems: $('key-items'), keysHint: $('keys-hint'), toast: $('toast'),
+        loadingText: $('loading-text'), offlineWhy: $('offline-why'),
+        list: $('list'), scanning: $('scanning'), games: $('games'),
+        screen: $('screen'), fps: $('fps'), status: $('status'), menuItems: $('menu-items'), slotItems: $('slot-items'),
+        settingItems: $('setting-items'), settingAbout: $('setting-about'), keyItems: $('key-items'),
+        keysHint: $('keys-hint'), toast: $('toast'),
         softkeys: $('softkeys'), left: $('sk-left'), center: $('sk-center'), right: $('sk-right'),
     };
     const STATUS_HEIGHT = 22;
@@ -15,49 +17,6 @@
     const KEY_NAMES = {
         ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→', Enter: 'OK', Call: 'Call',
         Backspace: 'Back', FavoriteContacts: 'Fav', Message: 'Msg',
-    };
-    const BUTTONS = [
-        { id: 'up', name: 'Up', bit: 4 },
-        { id: 'down', name: 'Down', bit: 5 },
-        { id: 'left', name: 'Left', bit: 6 },
-        { id: 'right', name: 'Right', bit: 7 },
-        { id: 'a', name: 'A', bit: 8 },
-        { id: 'b', name: 'B', bit: 0 },
-        { id: 'l', name: 'L', bit: 10 },
-        { id: 'r', name: 'R', bit: 11 },
-        { id: 'start', name: 'Start', bit: 3 },
-        { id: 'select', name: 'Select', bit: 2 },
-    ];
-    const PRESETS = [
-        {
-            id: 'standard',
-            name: 'Standard',
-            defaults: {
-                up: ['ArrowUp', '2'], down: ['ArrowDown', '8'], left: ['ArrowLeft', '4'], right: ['ArrowRight', '6'],
-                a: ['Enter', '5', '9'], b: ['7', '0', 'Backspace'], l: ['1'], r: ['3'], start: ['#'], select: ['*'],
-            },
-        },
-        {
-            id: 'keypad',
-            name: 'Keypad',
-            defaults: {
-                up: ['2', 'ArrowUp'], down: ['8', 'ArrowDown'], left: ['4', 'ArrowLeft'], right: ['6', 'ArrowRight'],
-                a: ['5', 'Enter'], b: ['3'], l: ['Backspace'], r: ['FavoriteContacts'], start: ['9'], select: ['7'],
-            },
-        },
-        {
-            id: 'custom',
-            name: 'Custom',
-            defaults: {
-                up: ['ArrowUp', '2'], down: ['ArrowDown', '8'], left: ['ArrowLeft', '4'], right: ['ArrowRight', '6'],
-                a: ['Enter', '5'], b: ['0', 'Backspace'], l: ['1'], r: ['3'], start: ['#'], select: ['*'],
-            },
-        },
-    ];
-    const KEY_CODES = {
-        1: 2, 2: 3, 3: 4, 4: 5, 5: 6, 6: 7, 7: 8, 8: 9, 9: 10, 0: 11, '*': 522, '#': 523,
-        ArrowUp: 103, ArrowDown: 108, ArrowLeft: 105, ArrowRight: 106, Enter: 352, Call: 231,
-        Backspace: 48, FavoriteContacts: 138, Message: 30,
     };
 
     const copy = (o) => JSON.parse(JSON.stringify(o));
@@ -70,32 +29,62 @@
     let scanned = false;
     let folder = '';
     const folderFocus = {};
-    const focus = { list: 0, menu: 0, slots: 0, keys: 0 };
+    const focus = { list: 0, menu: 0, slots: 0, settings: 0, keys: 0 };
     let current = null;
     let player = null;
     const held = new Set();
-    let presets = null;
+    let settings = null;
     let keyBits = {};
     let waitingKey = false;
+    let settingsFrom = 'list';
+    let keysFrom = 'settings';
+    let menu = [];
     let slots = [];
     let saving = false;
 
-    function stored(key) {
-        try {
-            return localStorage.getItem(key);
-        } catch (e) {
-            return null;
-        }
-    }
-
-    function store(key, value) {
-        try {
-            localStorage.setItem(key, value);
-        } catch (e) {}
-    }
-
     function keyName(k) {
         return KEY_NAMES[k] || k;
+    }
+
+    function setting(key) {
+        for (const section of settings ? settings.sections : []) {
+            const item = section.items.find((i) => i.key === key);
+            if (item) {
+                return item;
+            }
+        }
+        return null;
+    }
+
+    function choiceName(item) {
+        const c = item.choices.find(([v]) => v === item.value);
+        return c ? c[1] : item.value;
+    }
+
+    function updateKeys() {
+        keyBits = {};
+        const k = settings.keys;
+        const map = k.maps[k.active];
+        k.buttons.forEach((b) => (map[b.id] || []).forEach((key) => {
+            keyBits[key] = (keyBits[key] || 0) | (1 << b.bit);
+        }));
+    }
+
+    function took(s) {
+        settings = s;
+        updateKeys();
+        player.monitor = setting('fps') && setting('fps').value === 'on' ? monitor : null;
+        el.fps.classList.toggle('show', !!(setting('fps') && setting('fps').value === 'on'));
+    }
+
+    async function change(key, value) {
+        try {
+            took(await window.FlipfullRetro.set(key, value));
+            return true;
+        } catch (e) {
+            toast(`Not changed: ${(e && e.message) || e}`);
+            return false;
+        }
     }
 
     function softkeys(left, center, right) {
@@ -163,6 +152,7 @@
             case 'play': return renderPlay();
             case 'menu': return renderMenu();
             case 'slots': return renderSlots();
+            case 'settings': return renderSettings();
             case 'keys': return renderKeys();
             case 'offline':
                 el.barTitle.textContent = 'GBA';
@@ -172,16 +162,6 @@
                 el.barTitle.textContent = 'GBA';
                 keys = {};
                 return softkeys('', '', '');
-        }
-    }
-
-    function failed(e) {
-        if (e && e.offline) {
-            el.offlineWhy.textContent = e.message;
-            show('offline');
-        } else {
-            toast((e && e.message) || String(e));
-            show(current ? 'menu' : 'list');
         }
     }
 
@@ -227,6 +207,7 @@
         });
         moveFocus('list', el.games, 0);
         keys = {
+            left: () => openSettings('list'),
             center: () => {
                 const item = items[focus.list];
                 if (item && item.folder) {
@@ -243,16 +224,23 @@
 
     function listSoftkeys(items) {
         const item = items[focus.list];
-        softkeys('', item ? (item.folder ? 'Open' : 'Play') : '', 'Rescan');
+        softkeys('Settings', item ? (item.folder ? 'Open' : 'Play') : '', 'Rescan');
     }
 
     function rescan() {
+        const last = (() => {
+            try {
+                return localStorage.getItem('last');
+            } catch (e) {
+                return null;
+            }
+        })();
         scanned = false;
         show('list');
         window.FlipfullRetro.games().then((found) => {
             games = found;
             scanned = true;
-            const game = games.find((g) => g.path === stored('last'));
+            const game = games.find((g) => g.path === last);
             if (game) {
                 folder = game.folder;
                 focus.list = Math.max(0, entries().indexOf(game));
@@ -276,6 +264,22 @@
         });
     }
 
+    function renderPlay() {
+        el.barTitle.textContent = current ? current.title : 'GBA';
+        keys = {};
+        softkeys('Pause', '', 'Fast');
+    }
+
+    function failed(e) {
+        if (e && e.offline) {
+            el.offlineWhy.textContent = e.message;
+            show('offline');
+        } else {
+            toast((e && e.message) || String(e));
+            show(current ? 'menu' : 'list');
+        }
+    }
+
     function fit(width, height) {
         const room = window.innerHeight - el.bar.offsetHeight - el.softkeys.offsetHeight - STATUS_HEIGHT;
         const scale = Math.max(1, Math.min(window.innerWidth / width, room / height));
@@ -286,7 +290,11 @@
         show('loading', `Loading ${game.title}…`);
         try {
             const info = await window.FlipfullRetro.load(game.path);
-            store('last', game.path);
+            player.connect(await window.FlipfullRetro.stream());
+            took(await window.FlipfullRetro.settings());
+            try {
+                localStorage.setItem('last', game.path);
+            } catch (e) {}
             current = game;
             fit(info.width, info.height);
             status('');
@@ -297,17 +305,11 @@
         }
     }
 
-    function renderPlay() {
-        el.barTitle.textContent = current ? current.title : 'GBA';
-        keys = {};
-        softkeys('Pause', '', 'Fast');
-    }
-
     function play() {
         held.clear();
         player.keys = 0;
         show('play');
-        player.play({ keymap: keymap(), ahead: ahead() });
+        player.play();
     }
 
     function resume() {
@@ -329,39 +331,19 @@
             { name: 'Save state', detail: '›', run: () => openSlots(true) },
             { name: 'Load state', detail: '›', run: () => openSlots(false) },
             { name: 'Reset', run: reset },
-            { name: 'Keys', detail: preset().name, run: () => openKeys() },
-            { name: 'Run-ahead', detail: aheadName(), run: nextAhead },
-            { name: 'FPS monitor', detail: stored('fps') === 'on' ? 'On' : 'Off', run: toggleMonitor },
+            { name: 'Settings', detail: '›', run: () => openSettings('menu') },
+            { name: 'Keys', detail: settings ? presetName() : '', run: () => openKeys('menu') },
             { name: 'Quit game', run: quit },
         ];
     }
 
-    function aheadKey() {
-        return current && current.system === 'GBA' ? 'ahead-gba' : 'ahead-gb';
-    }
-
-    function ahead() {
-        return Number(stored(aheadKey())) || 0;
-    }
-
-    function aheadName() {
-        const n = ahead();
-        return n ? `${n} frame${n > 1 ? 's' : ''}` : 'Off';
-    }
-
-    function nextAhead() {
-        store(aheadKey(), String((ahead() + 1) % 3));
-        renderMenu();
-    }
-
     function renderMenu() {
-        const menu = menuItems();
         el.barTitle.textContent = current ? current.title : 'GBA';
         el.menuItems.textContent = '';
-        menu.forEach((m) => el.menuItems.appendChild(row(m.name, m.detail)));
+        menu.forEach((m) => el.menuItems.appendChild(row(m.name, m.detail || '')));
         moveFocus('menu', el.menuItems, 0);
         keys = {
-            center: () => menu[focus.menu].run(),
+            center: () => menu[focus.menu] && menu[focus.menu].run(),
             back: resume,
         };
         softkeys('', 'Select', '');
@@ -376,10 +358,22 @@
         if (playing) {
             focus.menu = 0;
         }
+        menu = menuItems();
         show('menu');
         if (playing) {
             await pause();
         }
+    }
+
+    function monitor(m) {
+        const one = (n) => n.toFixed(1);
+        const lines = [
+            `${one(m.fps)} fps  shown ${Math.round(m.shown)}  held ${Math.round(m.held)}  late ${Math.round(m.late)}`,
+            `core ${one(m.work)}  lead ${m.lead === null ? '-' : one(m.lead)}`,
+        ];
+        el.fps.textContent = lines.join('\n');
+        console.log(`[retro] ${lines.join(' | ')} | trip jitter ${one(m.jitter)} ms | refresh ${one(m.refresh)} (${m.hz.toFixed(3)} Hz), ` +
+            `screen js ${Math.round(m.busy)} ms/s`);
     }
 
     function stamp(secs) {
@@ -421,7 +415,10 @@
                     loadState(s.slot);
                 }
             },
-            back: () => show('menu'),
+            back: () => {
+                menu = menuItems();
+                show('menu');
+            },
         };
         softkeys('', slots.length ? (saving ? 'Save' : 'Load') : '', '');
     }
@@ -452,6 +449,7 @@
         try {
             await window.FlipfullRetro.reset();
             play();
+            status('');
         } catch (e) {
             failed(e);
         }
@@ -467,78 +465,88 @@
         show('list');
     }
 
-    function monitor(m) {
-        const one = (n) => n.toFixed(1);
-        const lines = [
-            `${one(m.fps)} fps  shown ${Math.round(m.shown)}  held ${Math.round(m.held)}  late ${Math.round(m.late)}`,
-            `core ${one(m.work)}  lead ${m.lead === null ? '-' : one(m.lead)}`,
-        ];
-        el.fps.textContent = lines.join('\n');
-        console.log(`[retro] ${lines.join(' | ')} | trip jitter ${one(m.jitter)} ms | refresh ${one(m.refresh)} (${m.hz.toFixed(3)} Hz), ` +
-            `screen js ${Math.round(m.busy)} ms/s`);
+    const KEYS_ROW = { key: 'keys', about: 'Which key is which button, in three presets.' };
+
+    function settingRows() {
+        const rows = [KEYS_ROW];
+        settings.sections.forEach((section) => section.items.forEach((item) => rows.push(item)));
+        return rows;
     }
 
-    function useMonitor() {
-        const on = stored('fps') === 'on';
-        player.monitor = on ? monitor : null;
-        el.fps.classList.toggle('show', on);
-    }
-
-    function toggleMonitor() {
-        store('fps', stored('fps') === 'on' ? 'off' : 'on');
-        useMonitor();
-        renderMenu();
-    }
-
-    function loadPresets() {
-        let saved = null;
-        try {
-            saved = JSON.parse(stored('presets'));
-        } catch (e) {}
-        presets = { active: PRESETS[0].id, maps: {} };
-        PRESETS.forEach((p) => {
-            presets.maps[p.id] = copy(p.defaults);
+    function renderSettings() {
+        el.barTitle.textContent = 'Settings';
+        el.settingItems.textContent = '';
+        el.settingItems.appendChild(row('Keys', `${presetName()} ›`));
+        settings.sections.forEach((section) => {
+            const h = document.createElement('p');
+            h.className = 'section';
+            h.textContent = section.name;
+            el.settingItems.appendChild(h);
+            section.items.forEach((item) => el.settingItems.appendChild(row(item.name, choiceName(item))));
         });
-        if (saved && saved.maps && PRESETS.some((p) => p.id === saved.active)) {
-            presets.active = saved.active;
-            PRESETS.forEach((p) => {
-                if (saved.maps[p.id]) {
-                    presets.maps[p.id] = saved.maps[p.id];
-                }
-            });
+        moveFocus('settings', el.settingItems, 0);
+        keys = {
+            center: () => step(1),
+            back: () => (settingsFrom === 'menu' ? openMenu() : show('list')),
+        };
+        settingAbout();
+    }
+
+    function settingAbout() {
+        const item = settingRows()[focus.settings];
+        if (!item) {
+            el.settingAbout.textContent = '';
+            return;
         }
-        updateKeys();
+        el.settingAbout.textContent = item.about;
+        softkeys('', item === KEYS_ROW ? 'Open' : 'Change', '');
     }
 
-    function savePresets() {
-        store('presets', JSON.stringify(presets));
-        updateKeys();
+    async function step(by) {
+        const item = settingRows()[focus.settings];
+        if (item === KEYS_ROW) {
+            openKeys('settings');
+            return;
+        }
+        if (!item) {
+            return;
+        }
+        const at = item.choices.findIndex(([v]) => v === item.value);
+        const next = item.choices[(at + by + item.choices.length) % item.choices.length][0];
+        if (await change(item.key, next) && view === 'settings') {
+            renderSettings();
+        }
     }
 
-    function keymap() {
-        return Object.keys(keyBits).filter((key) => key in KEY_CODES).map((key) => [KEY_CODES[key], keyBits[key]]);
-    }
-
-    function updateKeys() {
-        keyBits = {};
-        const map = presets.maps[presets.active];
-        BUTTONS.forEach((b) => (map[b.id] || []).forEach((key) => {
-            keyBits[key] = (keyBits[key] || 0) | (1 << b.bit);
-        }));
+    async function openSettings(from) {
+        settingsFrom = from;
+        focus.settings = from === 'list' ? focus.settings : 0;
+        try {
+            took(await window.FlipfullRetro.settings());
+        } catch (e) {
+            return failed(e);
+        }
+        show('settings');
     }
 
     function preset() {
-        return PRESETS.find((p) => p.id === presets.active) || PRESETS[0];
+        const k = settings.keys;
+        return k.presets.find((p) => p.id === k.active) || k.presets[0];
+    }
+
+    function presetName() {
+        return preset().name;
     }
 
     function renderKeys() {
-        const map = presets.maps[presets.active];
+        const k = settings.keys;
+        const map = k.maps[k.active];
         el.barTitle.textContent = 'Keys';
         el.keysHint.textContent = waitingKey ? 'Press the key for the button, or Cancel.' :
             'The left soft key pauses; holding the right soft key fast forwards.';
         el.keyItems.textContent = '';
-        el.keyItems.appendChild(row('Preset', preset().name));
-        BUTTONS.forEach((b, i) => {
+        el.keyItems.appendChild(row('Preset', presetName()));
+        k.buttons.forEach((b, i) => {
             const waiting = waitingKey && i + 1 === focus.keys;
             el.keyItems.appendChild(row(b.name, waiting ? 'press a key' : (map[b.id] || []).map(keyName).join('  ') || 'none',
                 waiting ? 'waiting' : ''));
@@ -550,51 +558,60 @@
             return;
         }
         keys = {
-            left: () => {
-                presets.maps[presets.active] = copy(preset().defaults);
-                savePresets();
-                renderKeys();
-                toast(`${preset().name} has its own keys again.`);
+            left: async () => {
+                const changed = copy(k);
+                changed.maps[k.active] = copy(preset().defaults);
+                if (await change('keys', { active: changed.active, maps: changed.maps })) {
+                    renderKeys();
+                    toast(`${presetName()} has its own keys again.`);
+                }
             },
-            center: () => {
+            center: async () => {
                 if (focus.keys === 0) {
-                    const at = PRESETS.indexOf(preset());
-                    presets.active = PRESETS[(at + 1) % PRESETS.length].id;
-                    savePresets();
+                    const at = k.presets.indexOf(preset());
+                    await change('keys', { active: k.presets[(at + 1) % k.presets.length].id, maps: k.maps });
                 } else {
                     waitingKey = true;
                 }
                 renderKeys();
             },
-            back: () => show('menu'),
+            back: () => (keysFrom === 'menu' ? openMenu() : show('settings')),
         };
         softkeys('Defaults', focus.keys === 0 ? 'Switch' : 'Change', '');
     }
 
     // the phone sends a MicrophoneToggle after other keys, ignore keys that aren't on the keypad
-    function setKey(key) {
+    async function setKey(key) {
+        const k = settings.keys;
         if (key === FAST_KEY) {
             waitingKey = false;
-        } else if (!(key in KEY_CODES)) {
+        } else if (!(key in k.codes)) {
             if (key === MENU_KEY) {
                 toast('The left soft key pauses. Press another key.');
             }
             return;
         } else {
-            const map = presets.maps[presets.active];
-            BUTTONS.forEach((b) => {
+            const maps = copy(k.maps);
+            const map = maps[k.active];
+            const button = k.buttons[focus.keys - 1];
+            k.buttons.forEach((b) => {
                 map[b.id] = (map[b.id] || []).filter((x) => x !== key);
             });
-            map[BUTTONS[focus.keys - 1].id] = [key];
+            map[button.id] = [key];
             waitingKey = false;
-            savePresets();
+            await change('keys', { active: k.active, maps });
         }
         renderKeys();
     }
 
-    function openKeys() {
+    async function openKeys(from) {
+        keysFrom = from;
         waitingKey = false;
-        focus.keys = 0;
+        try {
+            took(await window.FlipfullRetro.settings());
+        } catch (e) {
+            return failed(e);
+        }
         show('keys');
     }
 
@@ -657,18 +674,29 @@
                     moveFocus('menu', el.menuItems, by);
                 } else if (view === 'slots') {
                     moveFocus('slots', el.slotItems, by);
+                } else if (view === 'settings') {
+                    moveFocus('settings', el.settingItems, by);
+                    settingAbout();
                 } else if (view === 'keys') {
                     moveFocus('keys', el.keyItems, by);
                     softkeys('Defaults', focus.keys === 0 ? 'Switch' : 'Change', '');
                 }
                 break;
             }
+            case 'ArrowLeft':
+            case 'ArrowRight':
+                if (view === 'settings' && settingRows()[focus.settings] !== KEYS_ROW) {
+                    step(e.key === 'ArrowLeft' ? -1 : 1);
+                } else {
+                    handled = false;
+                }
+                break;
             case 'Backspace':
             case 'GoBack':
                 if (keys.back) {
                     keys.back();
                 } else {
-                    handled = false;
+                    handled = view === 'loading';
                 }
                 break;
             default:
@@ -685,23 +713,6 @@
         }
     }
 
-    async function connect() {
-        if (!window.FlipfullRetro) {
-            el.offlineWhy.textContent = "Flipfull's retro.js didn't load from api-daemon.";
-            show('offline');
-            return;
-        }
-        show('loading');
-        try {
-            await window.FlipfullRetro.info();
-            player.connect(await window.FlipfullRetro.stream());
-            rescan();
-        } catch (e) {
-            el.offlineWhy.textContent = e.message;
-            show('offline');
-        }
-    }
-
     function begin() {
         player = new window.RetroPlayer(el.screen, {
             failed: (e) => {
@@ -711,9 +722,62 @@
                 failed(e);
             },
         });
-        loadPresets();
-        useMonitor();
         connect();
+    }
+
+    async function migrate(s) {
+        const old = (k) => {
+            try {
+                return localStorage.getItem(k);
+            } catch (e) {
+                return null;
+            }
+        };
+        const changes = [];
+        try {
+            const presets = JSON.parse(old('presets'));
+            if (presets) {
+                changes.push(['keys', presets]);
+            }
+        } catch (e) {}
+        ['gba', 'gb'].forEach((f) => {
+            const ahead = old(`ahead-${f}`);
+            if (ahead !== null) {
+                changes.push([`ahead_${f}`, ahead]);
+            }
+        });
+        if (old('fps') !== null) {
+            changes.push(['fps', old('fps')]);
+        }
+        for (const [key, value] of changes) {
+            try {
+                s = await window.FlipfullRetro.set(key, value);
+            } catch (e) {}
+        }
+        ['presets', 'keys', 'ahead-gba', 'ahead-gb', 'fps'].forEach((k) => {
+            try {
+                localStorage.removeItem(k);
+            } catch (e) {}
+        });
+        return s;
+    }
+
+    function connect() {
+        if (!window.FlipfullRetro) {
+            el.offlineWhy.textContent = "Flipfull's retro.js didn't load from api-daemon.";
+            show('offline');
+            return;
+        }
+        show('loading');
+        const r = window.FlipfullRetro;
+        r.info().then(() => Promise.all([r.stream(), r.settings().then(migrate)])).then(([url, s]) => {
+            took(s);
+            player.connect(url);
+            rescan();
+        }, (e) => {
+            el.offlineWhy.textContent = e.message;
+            show('offline');
+        });
     }
 
     window.addEventListener('keydown', onKeyDown);

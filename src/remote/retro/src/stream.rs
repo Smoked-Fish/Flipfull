@@ -1,8 +1,9 @@
 use crate::cpu;
 use crate::keypad::Keypad;
-use crate::libretro::Frontend;
+use crate::libretro::{Frontend, Platform};
 use crate::panel::Panel;
 use crate::service::state;
+use crate::settings;
 use crate::ws;
 use log::{info, warn};
 use serde_json::Value;
@@ -183,11 +184,6 @@ fn buttons(keypad: &mut Keypad, map: &[(u16, u16)]) -> u16 {
     map.iter().filter(|(code, _)| keypad.held(*code)).fold(0, |b, (_, bits)| b | bits)
 }
 
-fn keymap(m: &Value) -> Vec<(u16, u16)> {
-    let pairs = m["keymap"].as_array().map(|a| a.iter().filter_map(Value::as_array)).into_iter().flatten();
-    pairs.filter_map(|p| Some((p.first()?.as_u64()? as u16, p.get(1)?.as_u64()? as u16))).collect()
-}
-
 fn shift(at: Instant, secs: f64) -> Instant {
     let by = Duration::from_secs_f64(secs.abs());
     if secs >= 0.0 {
@@ -261,6 +257,7 @@ struct Player {
     keypad: Option<Keypad>,
     map: Vec<(u16, u16)>,
     ahead: u32,
+    mix: bool,
     panel: Option<Panel>,
     per: u32,
     grid: Option<(Instant, f64)>,
@@ -290,6 +287,7 @@ impl Player {
             keypad: None,
             map: Vec::new(),
             ahead: 0,
+            mix: true,
             panel: None,
             per: 1,
             grid: None,
@@ -396,15 +394,26 @@ impl Player {
     }
 
     fn play(&mut self, m: &Value) {
-        self.fps = match state().frontend.timing() {
-            Some((fps, _)) => fps,
-            None => return self.pause(),
+        let platform = {
+            let s = state();
+            match (s.frontend.timing(), s.frontend.platform()) {
+                (Some((fps, _)), Some(platform)) => {
+                    self.fps = fps;
+                    platform
+                }
+                _ => {
+                    drop(s);
+                    return self.pause();
+                }
+            }
         };
         if let Some(g) = grid(m) {
             self.grid = Some(g);
         }
-        self.map = keymap(m);
-        self.ahead = (m["ahead"].as_u64().unwrap_or(0) as u32).min(AHEAD_MAX);
+        let ahead = settings::get(if platform == Platform::Gba { "ahead_gba" } else { "ahead_gb" });
+        self.ahead = ahead.parse::<u32>().unwrap_or(0).min(AHEAD_MAX);
+        self.mix = settings::on("blend");
+        self.map = settings::keymap();
         self.keypad = match Keypad::open() {
             Ok(k) => Some(k),
             Err(e) => {
@@ -572,11 +581,11 @@ impl Player {
             self.audio.clear();
             return frames;
         }
-        let total = self.per + self.ahead;
+        let (total, mix) = (self.per + self.ahead, self.mix);
         let slot = move |i: u32| {
             if i + 1 == total {
                 Some(1)
-            } else if i + 2 == total {
+            } else if i + 2 == total && mix {
                 Some(0)
             } else {
                 None
@@ -623,7 +632,7 @@ impl Player {
 
         self.message.clear();
         self.message.resize(PREFIX + FRAME_HEADER, 0);
-        let (width, height, top, rows) = s.frontend.picture(&mut self.message, !fast);
+        let (width, height, top, rows) = s.frontend.picture(&mut self.message, self.mix && !fast);
         drop(guard);
 
         let samples = if fast { 0 } else { self.audio.len() / 2 };
@@ -701,13 +710,14 @@ impl Player {
             };
             info!(
                 "{} frames in {:.1} s ({:.2} a second) in {} pictures, {:.2} ms of emulation a frame with {} \
-                 of run-ahead, keys from {}, {}, compositor {:.3} Hz, woke up to {:.1} ms late",
+                 of run-ahead{}, keys from {}, {}, compositor {:.3} Hz, woke up to {:.1} ms late",
                 st.frames,
                 secs,
                 st.frames as f64 / secs,
                 st.messages,
                 st.busy.as_secs_f64() * 1000.0 / st.frames as f64,
                 self.ahead,
+                if self.mix { ", frames mixed" } else { "" },
                 if self.keypad.is_some() { "the keypad" } else { "the app" },
                 panel,
                 self.grid.map_or(0.0, |(_, t)| 1.0 / t),
