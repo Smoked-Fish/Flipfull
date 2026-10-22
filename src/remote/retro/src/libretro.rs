@@ -77,6 +77,7 @@ extern "C" {
     fn flipfull_load_state(state: *const c_void) -> bool;
     fn flipfull_draw_next(draw: bool);
     fn flipfull_drain_audio();
+    fn flipfull_set_audio_rate(rate: f64);
     fn flipfull_platform() -> i32;
 }
 
@@ -336,6 +337,12 @@ impl Frontend {
         let ram = save_memory();
         if ram.len() == self.ram_before.len() && *ram != *self.ram_before {
             ram.copy_from_slice(&self.ram_before);
+        }
+    }
+
+    pub fn set_audio_rate(&mut self, rate: f64) {
+        if self.loaded && rate > 0.0 {
+            unsafe { flipfull_set_audio_rate(rate) };
         }
     }
 

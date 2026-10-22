@@ -1,8 +1,8 @@
 use crate::cpu;
 use crate::keypad::Keypad;
-use crate::libretro::{Frontend, Platform};
+use crate::libretro::Platform;
 use crate::panel::Panel;
-use crate::service::state;
+use crate::service::{state, State};
 use crate::settings;
 use crate::ws;
 use log::{info, warn};
@@ -40,6 +40,11 @@ const MARGIN_MAX: f64 = 0.027;
 const MARGIN_STEP: f64 = 0.001;
 const MARGIN_DECAY: f64 = 0.00002;
 const SEEN: Duration = Duration::from_millis(3);
+// 0.6% is about a tenth of a semitone
+const SKEW: f64 = 0.006;
+const SKEW_P: f64 = 0.008;
+const SKEW_I: f64 = 0.0001;
+const SKEW_I_MAX: f64 = 0.004;
 const FAST_MAX: u32 = 20;
 const FAST_SHARE: f64 = 0.75;
 const FAST_KEY: u16 = 158;
@@ -232,6 +237,7 @@ fn refresh_before(grid: Option<(Instant, f64)>, at: Instant) -> Option<Instant> 
 struct Stats {
     since: Option<Instant>,
     wake: Duration,
+    samples: usize,
     frames: u32,
     messages: u32,
     busy: Duration,
@@ -268,6 +274,12 @@ struct Player {
     flight: VecDeque<(Instant, bool)>,
     hold: bool,
     fps: f64,
+    rate: f64,
+    out_rate: f64,
+    sound_target: f64,
+    buffered: f64,
+    skew: f64,
+    skew_sum: f64,
     played: Instant,
     stats: Stats,
     message: Vec<u8>,
@@ -298,6 +310,12 @@ impl Player {
             flight: VecDeque::new(),
             hold: false,
             fps: 59.7275,
+            rate: 32768.0,
+            out_rate: 0.0,
+            sound_target: 0.1,
+            buffered: 0.0,
+            skew: 0.0,
+            skew_sum: 0.0,
             played: Instant::now(),
             stats: Stats::default(),
             message: Vec::new(),
@@ -397,8 +415,9 @@ impl Player {
         let platform = {
             let s = state();
             match (s.frontend.timing(), s.frontend.platform()) {
-                (Some((fps, _)), Some(platform)) => {
+                (Some((fps, rate)), Some(platform)) => {
                     self.fps = fps;
+                    self.rate = rate;
                     platform
                 }
                 _ => {
@@ -407,12 +426,14 @@ impl Player {
                 }
             }
         };
+        self.out_rate = m["rate"].as_f64().unwrap_or(0.0);
         if let Some(g) = grid(m) {
             self.grid = Some(g);
         }
         let ahead = settings::get(if platform == Platform::Gba { "ahead_gba" } else { "ahead_gb" });
         self.ahead = ahead.parse::<u32>().unwrap_or(0).min(AHEAD_MAX);
         self.mix = settings::on("blend");
+        self.sound_target = settings::get("latency").parse::<f64>().unwrap_or(100.0) / 1000.0;
         self.map = settings::keymap();
         self.keypad = match Keypad::open() {
             Ok(k) => Some(k),
@@ -441,6 +462,8 @@ impl Player {
         };
         self.flight.clear();
         self.hold = false;
+        self.buffered = self.sound_target * self.out_rate;
+        self.skew = self.skew_sum;
         self.played = Instant::now();
         self.stats = Stats::default();
         self.running = true;
@@ -469,7 +492,19 @@ impl Player {
         if let Some(g) = grid(sync) {
             self.grid = Some(g);
         }
-        if !self.running || self.fasting {
+        if !self.running {
+            return;
+        }
+        if let (Some(s), false) = (sync["sound"].as_f64(), self.fasting) {
+            self.buffered = s;
+            if self.out_rate > 0.0 {
+                let short = (self.sound_target - s / self.out_rate) / self.sound_target;
+                let short = short.max(-1.0).min(1.0);
+                self.skew_sum = (self.skew_sum + short * SKEW_I).max(-SKEW_I_MAX).min(SKEW_I_MAX);
+                self.skew = (short * SKEW_P + self.skew_sum).max(-SKEW).min(SKEW);
+            }
+        }
+        if self.fasting {
             return;
         }
         let leads = sync["leads"].as_array().map(|l| l.iter().filter_map(Value::as_f64)).into_iter().flatten();
@@ -558,7 +593,15 @@ impl Player {
         }
     }
 
-    fn frames(&mut self, f: &mut Frontend, fast: bool, started: Instant) -> u32 {
+    fn sound_rate(&self, period: f64) -> f64 {
+        if self.out_rate > 0.0 {
+            self.out_rate * self.fps * period * (1.0 + self.skew)
+        } else {
+            self.rate
+        }
+    }
+
+    fn frames(&mut self, s: &mut State, fast: bool, started: Instant) -> u32 {
         let period = self.period();
         self.audio.clear();
         if fast {
@@ -570,17 +613,18 @@ impl Player {
                 let at = Instant::now();
                 let last = frames + 1 >= FAST_MAX || at + each * 2 >= until;
                 let keys = self.held();
-                f.frame(keys, if last { Some(1) } else { None });
+                s.frontend.frame(keys, if last { Some(1) } else { None });
                 frames += 1;
                 each = at.elapsed();
                 if last {
                     break;
                 }
             }
-            f.audio(&mut self.audio);
+            s.frontend.audio(&mut self.audio);
             self.audio.clear();
             return frames;
         }
+        s.frontend.set_audio_rate(self.sound_rate(period));
         let (total, mix) = (self.per + self.ahead, self.mix);
         let slot = move |i: u32| {
             if i + 1 == total {
@@ -593,16 +637,16 @@ impl Player {
         };
         for i in 0..self.per {
             let keys = self.held();
-            f.frame(keys, slot(i));
+            s.frontend.frame(keys, slot(i));
         }
-        f.audio(&mut self.audio);
+        s.frontend.audio(&mut self.audio);
         if self.ahead > 0 {
             let keys = self.held();
-            if f.ahead() {
+            if s.frontend.ahead() {
                 for i in self.per..total {
-                    f.frame(keys, slot(i));
+                    s.frontend.frame(keys, slot(i));
                 }
-                f.back();
+                s.frontend.back();
             } else {
                 warn!("no run-ahead: the core didn't save its state");
                 self.ahead = 0;
@@ -627,7 +671,7 @@ impl Player {
             self.stop();
             return;
         }
-        let frames = self.frames(&mut s.frontend, fast, started);
+        let frames = self.frames(s, fast, started);
         self.fasting = fast;
 
         self.message.clear();
@@ -635,13 +679,14 @@ impl Player {
         let (width, height, top, rows) = s.frontend.picture(&mut self.message, self.mix && !fast);
         drop(guard);
 
-        let samples = if fast { 0 } else { self.audio.len() / 2 };
+        let samples = if self.out_rate > 0.0 && !fast { self.audio.len() / 2 } else { 0 };
         self.message.reserve(samples * 8);
         for c in 0..2 {
             for frame in self.audio.chunks_exact(2).take(samples) {
                 self.message.extend_from_slice(&(frame[c] as f32 / 32768.0).to_le_bytes());
             }
         }
+        self.stats.samples += samples;
         let work = started.elapsed();
         if !fast {
             self.work += (work.as_secs_f64() - self.work) / 16.0;
@@ -710,7 +755,8 @@ impl Player {
             };
             info!(
                 "{} frames in {:.1} s ({:.2} a second) in {} pictures, {:.2} ms of emulation a frame with {} \
-                 of run-ahead{}, keys from {}, {}, compositor {:.3} Hz, woke up to {:.1} ms late",
+                 of run-ahead{}, keys from {}, {}, compositor {:.3} Hz, sound {:.0} ms ({:.0} samples a second, \
+                 rate {:+.2}%), woke up to {:.1} ms late",
                 st.frames,
                 secs,
                 st.frames as f64 / secs,
@@ -721,6 +767,9 @@ impl Player {
                 if self.keypad.is_some() { "the keypad" } else { "the app" },
                 panel,
                 self.grid.map_or(0.0, |(_, t)| 1.0 / t),
+                if self.out_rate > 0.0 { self.buffered * 1000.0 / self.out_rate } else { 0.0 },
+                st.samples as f64 / secs,
+                self.skew * 100.0,
                 st.wake.as_secs_f64() * 1000.0
             );
             self.stats = Stats { since: Some(now), ..Stats::default() };

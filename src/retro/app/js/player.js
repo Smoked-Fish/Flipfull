@@ -75,9 +75,9 @@
             this.worker.postMessage({ open: { width, height, outWidth, outHeight } });
         }
 
-        play() {
+        play(options) {
             this.sounding();
-            this.worker.postMessage({ play: true });
+            this.worker.postMessage({ play: options });
         }
 
         pause() {

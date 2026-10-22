@@ -30,6 +30,14 @@ const DEFS: &[Def] = &[
         default: "off",
     },
     Def {
+        key: "latency",
+        section: "Sound",
+        name: "Sound buffer",
+        about: "How much sound waits to be played",
+        choices: &[("60", "60 ms"), ("80", "80 ms"), ("100", "100 ms"), ("120", "120 ms"), ("160", "160 ms")],
+        default: "100",
+    },
+    Def {
         key: "ahead_gba",
         section: "Play",
         name: "Run-ahead, GBA",

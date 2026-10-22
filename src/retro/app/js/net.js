@@ -7,15 +7,20 @@
     // buffers go back and forth with the screen worker so there's no garbage
     const BUFFER = 128 * 1024;
     const CHUNK = 64 * 1024;
+    const STATS_EVERY = 1000;
 
     let socket = null;
     let url = null;
     let screen = null;
     let sound = null;
+    let rate = 0;
     let session = 0;
     let playing = false;
     let pausing = false;
+    let options = {};
     let grid = null;
+    let buffered = 0;
+    let dry = 0;
     let monitor = false;
     let c = counts();
     let since = 0;
@@ -73,11 +78,12 @@
     function start() {
         session++;
         const s = session;
-        const asked = Object.assign({ session }, grid);
+        const asked = Object.assign({ session, rate }, grid);
         c = counts();
         since = performance.now();
         screen.postMessage({ playing: true });
         if (sound) {
+            sound.postMessage({ start: (options.latency || 100) / 1000 });
             sound.postMessage({ hold: false });
         }
         fetch(`${url.replace(/^ws:/, 'http:')}/play?o=${encodeURIComponent(JSON.stringify(asked))}`, { cache: 'no-store' })
@@ -187,7 +193,7 @@
             grid = m.grid;
         } else if (m.sync) {
             if (playing) {
-                send({ sync: m.sync });
+                send({ sync: Object.assign(m.sync, { sound: buffered }) });
             }
         } else if (m.stats) {
             if (monitor) {
@@ -198,6 +204,8 @@
                         fps: c.frames / secs,
                         work: c.frames ? c.work / c.frames / 1000 : 0,
                         jitter: c.tripMax - c.tripMin,
+                        sound: rate ? (buffered * 1000) / rate : -1,
+                        dry,
                     }),
                 });
                 c = counts();
@@ -215,6 +223,11 @@
             screen.postMessage({ canvas: m.canvas }, [m.canvas]);
         } else if (m.sound) {
             sound = m.sound;
+            rate = m.rate;
+            sound.onmessage = (r) => {
+                buffered = r.data.buffered;
+                dry = r.data.dry;
+            };
         } else if (m.connect) {
             if (m.connect !== url && socket) {
                 const old = socket;
@@ -229,6 +242,7 @@
                 sound.postMessage({ flush: true });
             }
         } else if (m.play) {
+            options = m.play;
             playing = true;
             pausing = false;
             if (socket && socket.readyState === WebSocket.OPEN) {
@@ -252,6 +266,9 @@
             send({ keys: m.keys });
         } else if (m.fast !== undefined) {
             send({ fast: m.fast });
+            if (sound) {
+                sound.postMessage({ quiet: m.fast });
+            }
         } else if (m.monitor !== undefined) {
             monitor = m.monitor;
             c = counts();

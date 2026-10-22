@@ -164,6 +164,11 @@ void flipfull_drain_audio(void) {
 		avail = blip_samples_avail(left);
 	}
 }
+void flipfull_set_audio_rate(double rate) {
+	double clock = core->frequency(core);
+	blip_set_rates(core->getAudioChannel(core, 0), clock, rate);
+	blip_set_rates(core->getAudioChannel(core, 1), clock, rate);
+}
 
 int flipfull_platform(void) {
 	switch (core->platform(core)) {

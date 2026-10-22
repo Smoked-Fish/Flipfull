@@ -309,7 +309,8 @@
         held.clear();
         player.keys = 0;
         show('play');
-        player.play();
+        const latency = setting('latency');
+        player.play({ latency: latency ? Number(latency.value) : 100 });
     }
 
     function resume() {
@@ -367,9 +368,10 @@
 
     function monitor(m) {
         const one = (n) => n.toFixed(1);
+        const sound = m.sound < 0 ? 'no sound' : `snd ${Math.round(m.sound)}` + (m.dry ? ` gap ${m.dry}` : '');
         const lines = [
             `${one(m.fps)} fps  shown ${Math.round(m.shown)}  held ${Math.round(m.held)}  late ${Math.round(m.late)}`,
-            `core ${one(m.work)}  lead ${m.lead === null ? '-' : one(m.lead)}`,
+            `core ${one(m.work)}  lead ${m.lead === null ? '-' : one(m.lead)}  ${sound}`,
         ];
         el.fps.textContent = lines.join('\n');
         console.log(`[retro] ${lines.join(' | ')} | trip jitter ${one(m.jitter)} ms | refresh ${one(m.refresh)} (${m.hz.toFixed(3)} Hz), ` +
