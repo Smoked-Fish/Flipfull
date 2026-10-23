@@ -500,7 +500,8 @@
             el.settingAbout.textContent = '';
             return;
         }
-        el.settingAbout.textContent = item.about;
+        const later = item.load && current ? ' From the next game you start.' : '';
+        el.settingAbout.textContent = `${item.about}${later}`;
         softkeys('', item === KEYS_ROW ? 'Open' : 'Change', '');
     }
 

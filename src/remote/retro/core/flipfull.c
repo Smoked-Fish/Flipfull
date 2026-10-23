@@ -231,6 +231,17 @@ void flipfull_flush_save(void) {
 #endif
 }
 
+const char* flipfull_gb_palette(size_t i) {
+#ifdef M_CORE_GB
+	const struct GBColorPreset* presets;
+	size_t count = GBColorPresetList(&presets);
+	return i < count ? presets[i].name : NULL;
+#else
+	UNUSED(i);
+	return NULL;
+#endif
+}
+
 int flipfull_platform(void) {
 	switch (core->platform(core)) {
 	case mPLATFORM_GBA:

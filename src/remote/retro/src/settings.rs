@@ -1,8 +1,11 @@
+use crate::libretro;
 use flipfull_remote::own_dir;
 use log::warn;
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
+use std::ffi::{CStr, CString};
 use std::fs;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
 const FILE: &str = "settings.json";
@@ -14,6 +17,7 @@ struct Def {
     about: &'static str,
     choices: &'static [(&'static str, &'static str)],
     default: &'static str,
+    load: bool,
 }
 
 const OFF_ON: &[(&str, &str)] = &[("off", "Off"), ("on", "On")];
@@ -27,15 +31,65 @@ const DEFS: &[Def] = &[
         about: "The screen shows 30 pictures a second, one for every two of the game's frames. Mixed, \
                 the shadows and see-through things games draw by flickering show instead of vanishing.",
         choices: &[("on", "Both frames"), ("off", "Last frame only")],
+        default: "on",
+        load: false,
+    },
+    Def {
+        key: "colors",
+        section: "Screen",
+        name: "Colors",
+        about: "Like the handheld: the softer colors the games were made for on the GBA's and the Game \
+                Boy Color's screens.",
+        choices: &[("vivid", "Vivid"), ("lcd", "Like the handheld")],
+        default: "vivid",
+        load: false,
+    },
+    Def {
+        key: "gb_colors",
+        section: "Screen",
+        name: "Game Boy colors",
+        about: "Game Boy games in the colors a Game Boy Color or Super Game Boy has for them; the \
+                others in the palette below.",
+        choices: &[("3", "GBC or SGB"), ("1", "GBC"), ("2", "SGB"), ("0", "Palette only")],
+        default: "3",
+        load: true,
+    },
+    Def {
+        key: "gb_palette",
+        section: "Screen",
+        name: "Game Boy palette",
+        about: "The colors of Game Boy games that have none of their own.",
+        choices: &[],
+        default: "Grayscale",
+        load: false,
+    },
+    Def {
+        key: "sgb_borders",
+        section: "Screen",
+        name: "Super Game Boy borders",
+        about: "The picture around Super Game Boy games. The game is drawn smaller with it.",
+        choices: OFF_ON,
         default: "off",
+        load: true,
     },
     Def {
         key: "latency",
         section: "Sound",
         name: "Sound buffer",
-        about: "How much sound waits to be played",
+        about: "How much sound waits to be played. More rides through the moments the phone is busy; \
+                less is heard sooner.",
         choices: &[("60", "60 ms"), ("80", "80 ms"), ("100", "100 ms"), ("120", "120 ms"), ("160", "160 ms")],
         default: "100",
+        load: false,
+    },
+    Def {
+        key: "filter",
+        section: "Sound",
+        name: "Soften the sound",
+        about: "Takes the edge off the GBA's harsh high notes.",
+        choices: &[("off", "Off"), ("40", "A little"), ("60", "More"), ("80", "Much more")],
+        default: "off",
+        load: false,
     },
     Def {
         key: "ahead_gba",
@@ -45,6 +99,7 @@ const DEFS: &[Def] = &[
                 a key. Each one costs a frame of emulation.",
         choices: AHEAD,
         default: "1",
+        load: false,
     },
     Def {
         key: "ahead_gb",
@@ -53,6 +108,46 @@ const DEFS: &[Def] = &[
         about: "The same for Game Boy and Game Boy Color games.",
         choices: AHEAD,
         default: "1",
+        load: false,
+    },
+    Def {
+        key: "fast",
+        section: "Play",
+        name: "Fast forward",
+        about: "How fast the game runs while the right soft key is held.",
+        choices: &[("max", "As fast as it goes"), ("2", "2×"), ("3", "3×"), ("4", "4×")],
+        default: "max",
+        load: false,
+    },
+    Def {
+        key: "opposing",
+        section: "Play",
+        name: "Opposite directions",
+        about: "Lets left and right, or up and down, be held at once. Some games break with it.",
+        choices: &[("no", "Not at once"), ("yes", "Allowed")],
+        default: "no",
+        load: false,
+    },
+    Def {
+        key: "solar",
+        section: "Play",
+        name: "Sunlight (Boktai)",
+        about: "The light the solar sensor of the Boktai games sees.",
+        choices: &[
+            ("0", "0"),
+            ("1", "1"),
+            ("2", "2"),
+            ("3", "3"),
+            ("4", "4"),
+            ("5", "5"),
+            ("6", "6"),
+            ("7", "7"),
+            ("8", "8"),
+            ("9", "9"),
+            ("10", "10"),
+        ],
+        default: "0",
+        load: false,
     },
     Def {
         key: "fps",
@@ -61,6 +156,54 @@ const DEFS: &[Def] = &[
         about: "The frames, pictures and sound over the game, once a second.",
         choices: OFF_ON,
         default: "off",
+        load: false,
+    },
+    Def {
+        key: "gb_model",
+        section: "System",
+        name: "Game Boy model",
+        about: "The Game Boy that plays Game Boy and Game Boy Color games.",
+        choices: &[
+            ("Autodetect", "The game's own"),
+            ("Game Boy", "Game Boy"),
+            ("Super Game Boy", "Super Game Boy"),
+            ("Game Boy Color", "Game Boy Color"),
+            ("Game Boy Advance", "Game Boy Advance"),
+        ],
+        default: "Autodetect",
+        load: true,
+    },
+    Def {
+        key: "bios",
+        section: "System",
+        name: "BIOS",
+        about: "gba_bios.bin, gb_bios.bin, gbc_bios.bin or sgb_bios.bin from a roms folder, when one is \
+                there; otherwise mGBA's own.",
+        choices: &[("on", "From the roms folder"), ("off", "mGBA's own")],
+        default: "on",
+        load: true,
+    },
+    Def {
+        key: "skip_bios",
+        section: "System",
+        name: "BIOS intro",
+        about: "The logo a BIOS shows before the game.",
+        choices: &[("off", "Show it"), ("on", "Skip it")],
+        default: "off",
+        load: true,
+    },
+    Def {
+        key: "idle",
+        section: "System",
+        name: "Idle loops",
+        about: "Skips the loops games wait in, which saves battery.",
+        choices: &[
+            ("Remove Known", "Skip known ones"),
+            ("Detect and Remove", "Find and skip"),
+            ("Don't Remove", "Run them"),
+        ],
+        default: "Remove Known",
+        load: true,
     },
 ];
 
@@ -160,13 +303,19 @@ struct Settings {
     keys: Value,
 }
 
+static UPDATED: AtomicBool = AtomicBool::new(false);
+
 fn settings() -> MutexGuard<'static, Settings> {
     static SETTINGS: OnceLock<Mutex<Settings>> = OnceLock::new();
     SETTINGS.get_or_init(|| Mutex::new(load())).lock().unwrap()
 }
 
 fn choices(def: &Def) -> Vec<(String, String)> {
-    def.choices.iter().map(|&(v, n)| (v.to_string(), n.to_string())).collect()
+    if def.choices.is_empty() {
+        libretro::gb_palettes().into_iter().map(|p| (p.clone(), p)).collect()
+    } else {
+        def.choices.iter().map(|&(v, n)| (v.to_string(), n.to_string())).collect()
+    }
 }
 
 fn default_keys() -> Value {
@@ -215,7 +364,7 @@ fn load() -> Settings {
     };
     for def in DEFS {
         if let Some(v) = saved[def.key].as_str() {
-            if def.choices.iter().any(|(c, _)| *c == v) {
+            if def.choices.is_empty() || def.choices.iter().any(|(c, _)| *c == v) {
                 s.values.insert(def.key.to_string(), v.to_string());
             }
         }
@@ -264,6 +413,7 @@ pub fn describe() -> Value {
             "about": d.about,
             "value": get(d.key),
             "choices": choices(d).into_iter().map(|(v, n)| json!([v, n])).collect::<Vec<_>>(),
+            "load": d.load,
         });
         match sections.iter_mut().find(|(name, _)| *name == d.section) {
             Some((_, items)) => items.push(item),
@@ -295,6 +445,7 @@ pub fn set(key: &str, value: &Value) -> Result<(), String> {
             return Err(format!("{} can't be {}", d.name, v));
         }
         s.values.insert(key.to_string(), v.to_string());
+        UPDATED.store(true, Ordering::Relaxed);
     }
     store(&s);
     Ok(())
@@ -316,4 +467,41 @@ pub fn keymap() -> Vec<(u16, u16)> {
         }
     }
     out
+}
+
+pub fn take_update() -> bool {
+    UPDATED.swap(false, Ordering::Relaxed)
+}
+
+// the core holds on to the pointer, so each value is made once
+fn interned(value: &str) -> &'static CStr {
+    static VALUES: OnceLock<Mutex<HashMap<String, &'static CStr>>> = OnceLock::new();
+    let mut values = VALUES.get_or_init(Mutex::default).lock().unwrap();
+    if let Some(v) = values.get(value) {
+        return v;
+    }
+    let v: &'static CStr = Box::leak(CString::new(value).unwrap_or_default().into_boxed_c_str());
+    values.insert(value.to_string(), v);
+    v
+}
+
+pub fn core_option(key: &CStr) -> Option<&'static CStr> {
+    let on_off = |k: &str| if on(k) { "ON" } else { "OFF" }.to_string();
+    let value = match key.to_str().ok()? {
+        "mgba_gb_model" => get("gb_model"),
+        "mgba_use_bios" => on_off("bios"),
+        "mgba_skip_bios" => on_off("skip_bios"),
+        "mgba_gb_colors" => get("gb_palette"),
+        "mgba_gb_colors_preset" => get("gb_colors"),
+        "mgba_sgb_borders" => on_off("sgb_borders"),
+        "mgba_audio_low_pass_filter" => if get("filter") == "off" { "disabled" } else { "enabled" }.into(),
+        "mgba_audio_low_pass_range" => Some(get("filter")).filter(|f| f != "off").unwrap_or_else(|| "60".into()),
+        "mgba_allow_opposing_directions" => get("opposing"),
+        "mgba_solar_sensor_level" => get("solar"),
+        "mgba_idle_optimization" => get("idle"),
+        "mgba_force_gbp" => "OFF".into(),
+        "mgba_frameskip" => "0".into(),
+        _ => return None,
+    };
+    Some(interned(&value))
 }

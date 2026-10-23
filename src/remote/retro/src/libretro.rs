@@ -1,11 +1,16 @@
-use crate::video::Video;
+use crate::settings;
+use crate::video::{Colors, Video};
+use flipfull_remote::own_dir;
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_uint, c_void};
 use std::ptr;
 use std::sync::{Mutex, MutexGuard, Once, OnceLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+const ENV_GET_SYSTEM_DIRECTORY: c_uint = 9;
 const ENV_SET_PIXEL_FORMAT: c_uint = 10;
+const ENV_GET_VARIABLE: c_uint = 15;
+const ENV_GET_VARIABLE_UPDATE: c_uint = 17;
 const ENV_GET_INPUT_BITMASKS: c_uint = 51 | 0x10000;
 const DEVICE_JOYPAD: c_uint = 1;
 const JOYPAD_MASK: c_uint = 256;
@@ -56,6 +61,12 @@ struct AvInfo {
     timing: Timing,
 }
 
+#[repr(C)]
+struct Variable {
+    key: *const c_char,
+    value: *const c_char,
+}
+
 extern "C" {
     fn retro_set_environment(cb: extern "C" fn(c_uint, *mut c_void) -> bool);
     fn retro_set_video_refresh(cb: extern "C" fn(*const c_void, c_uint, c_uint, usize));
@@ -84,6 +95,7 @@ extern "C" {
     fn flipfull_set_utc_offset(seconds: i64);
     fn flipfull_save_size() -> usize;
     fn flipfull_flush_save();
+    fn flipfull_gb_palette(i: usize) -> *const c_char;
     fn flipfull_platform() -> i32;
 }
 
@@ -103,6 +115,11 @@ fn output() -> MutexGuard<'static, Output> {
     OUTPUT.get_or_init(Mutex::default).lock().unwrap()
 }
 
+fn system_dir() -> &'static CString {
+    static DIR: OnceLock<CString> = OnceLock::new();
+    DIR.get_or_init(|| CString::new(own_dir().to_string_lossy().into_owned()).unwrap_or_default())
+}
+
 extern "C" fn environment(cmd: c_uint, data: *mut c_void) -> bool {
     match cmd {
         ENV_SET_PIXEL_FORMAT if !data.is_null() => {
@@ -111,6 +128,27 @@ extern "C" fn environment(cmd: c_uint, data: *mut c_void) -> bool {
                 return false;
             }
             output().format = format;
+            true
+        }
+        ENV_GET_SYSTEM_DIRECTORY if !data.is_null() => {
+            unsafe { *(data as *mut *const c_char) = system_dir().as_ptr() };
+            true
+        }
+        ENV_GET_VARIABLE if !data.is_null() => {
+            let var = unsafe { &mut *(data as *mut Variable) };
+            if var.key.is_null() {
+                return false;
+            }
+            match settings::core_option(unsafe { CStr::from_ptr(var.key) }) {
+                Some(value) => {
+                    var.value = value.as_ptr();
+                    true
+                }
+                None => false,
+            }
+        }
+        ENV_GET_VARIABLE_UPDATE if !data.is_null() => {
+            unsafe { *(data as *mut bool) = settings::take_update() };
             true
         }
         ENV_GET_INPUT_BITMASKS => true,
@@ -215,6 +253,10 @@ pub fn info() -> (String, String, String) {
     };
     unsafe { retro_get_system_info(&mut i) };
     (text(i.library_name), text(i.library_version), text(i.valid_extensions))
+}
+
+pub fn gb_palettes() -> Vec<String> {
+    (0..).map(|i| unsafe { flipfull_gb_palette(i) }).take_while(|p| !p.is_null()).map(text).collect()
 }
 
 fn save_memory() -> &'static mut [u8] {
@@ -372,11 +414,16 @@ impl Frontend {
         }
     }
 
-    pub fn picture(&mut self, into: &mut Vec<u8>, mix: bool) -> (usize, usize, usize, usize) {
+    pub fn picture(&mut self, into: &mut Vec<u8>, mix: bool, lcd: bool) -> (usize, usize, usize, usize) {
+        let colors = match (lcd, self.platform) {
+            (false, _) | (_, None) => Colors::Vivid,
+            (true, Some(Platform::Gba)) => Colors::Gba,
+            (true, Some(Platform::Gb)) => Colors::Gbc,
+        };
         {
             let out = output();
             let before = if mix { Some(&out.frames[0][..]) } else { None };
-            self.video.compose(before, &out.frames[1], out.width, out.height);
+            self.video.compose(before, &out.frames[1], out.width, out.height, colors);
         }
         self.video.band(into)
     }

@@ -1,7 +1,8 @@
-use flipfull_remote::{retro_list, retro_open, retro_write};
-use log::warn;
+use flipfull_remote::{own_dir, retro_list, retro_open, retro_write};
+use log::{info, warn};
 use serde::Serialize;
 use std::collections::VecDeque;
+use std::fs;
 use std::io::Read;
 use std::os::unix::fs::MetadataExt;
 use std::os::unix::io::AsRawFd;
@@ -10,6 +11,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 const GAMES: &[(&str, &str)] = &[("gba", "GBA"), ("gbc", "GBC"), ("gb", "GB")];
+pub const BIOS: &[&str] = &["gba_bios.bin", "gb_bios.bin", "gbc_bios.bin", "sgb_bios.bin"];
 pub const SLOTS: u32 = 4;
 const QUIET: Duration = Duration::from_secs(1);
 const AT_MOST: Duration = Duration::from_secs(10);
@@ -24,16 +26,21 @@ pub struct Game {
     pub sd: bool,
 }
 
-pub fn games() -> Result<Vec<Game>, String> {
+pub fn games() -> Result<(Vec<Game>, Vec<String>), String> {
     let listing = retro_list()?;
     let mut roots: Vec<(String, bool)> = Vec::new();
     let mut games = Vec::new();
+    let mut bios = Vec::new();
     for line in listing.lines() {
         let f: Vec<&str> = line.split('\t').collect();
         match f.as_slice() {
             ["root", path, kind] => roots.push((format!("{}/", path.trim_end_matches('/')), *kind == "sd")),
             ["file", path, _size, _mtime] => {
                 let name = path.rsplit('/').next().unwrap_or(path);
+                if BIOS.contains(&name.to_ascii_lowercase().as_str()) {
+                    bios.push(path.to_string());
+                    continue;
+                }
                 let (stem, ext) = match name.rsplit_once('.') {
                     Some(s) => s,
                     None => continue,
@@ -53,7 +60,7 @@ pub fn games() -> Result<Vec<Game>, String> {
             _ => {}
         }
     }
-    Ok(games)
+    Ok((games, bios))
 }
 
 pub fn sibling(game: &str, ext: &str) -> String {
@@ -106,6 +113,27 @@ impl Rom {
 impl Drop for Rom {
     fn drop(&mut self) {
         unsafe { libc::munmap(self.ptr, self.len) };
+    }
+}
+
+pub fn copy_bios(found: &[String]) {
+    for name in BIOS {
+        let own = own_dir().join(name);
+        let theirs = found.iter().find(|p| p.rsplit('/').next().map_or(false, |n| n.eq_ignore_ascii_case(name)));
+        match theirs.map(|p| read(p)) {
+            Some(Ok(data)) => {
+                if fs::read(&own).ok().as_deref() != Some(&data[..]) {
+                    match fs::write(&own, &data) {
+                        Ok(()) => info!("BIOS {} from {}", name, theirs.unwrap()),
+                        Err(e) => warn!("BIOS {}: {}", name, e),
+                    }
+                }
+            }
+            Some(Err(e)) => warn!("BIOS {}: {}", name, e),
+            None => {
+                let _ = fs::remove_file(&own);
+            }
+        }
     }
 }
 

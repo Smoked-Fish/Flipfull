@@ -266,6 +266,8 @@ struct Player {
     map: Vec<(u16, u16)>,
     ahead: u32,
     mix: bool,
+    lcd: bool,
+    fast_speed: u32,
     panel: Option<Panel>,
     per: u32,
     grid: Option<(Instant, f64)>,
@@ -303,6 +305,8 @@ impl Player {
             map: Vec::new(),
             ahead: 0,
             mix: true,
+            lcd: false,
+            fast_speed: 0,
             panel: None,
             per: 1,
             grid: None,
@@ -437,6 +441,8 @@ impl Player {
         let ahead = settings::get(if platform == Platform::Gba { "ahead_gba" } else { "ahead_gb" });
         self.ahead = ahead.parse::<u32>().unwrap_or(0).min(AHEAD_MAX);
         self.mix = settings::on("blend");
+        self.lcd = settings::get("colors") == "lcd";
+        self.fast_speed = settings::get("fast").parse().unwrap_or(0);
         self.sound_target = settings::get("latency").parse::<f64>().unwrap_or(100.0) / 1000.0;
         self.map = settings::keymap();
         self.keypad = match Keypad::open() {
@@ -612,11 +618,12 @@ impl Player {
         if fast {
             let budget = Duration::from_secs_f64(period * self.per as f64 * FAST_SHARE);
             let until = self.target.tick.map_or(started + budget, |t| shift(t, self.work - self.early));
+            let most = if self.fast_speed > 0 { self.per * self.fast_speed } else { FAST_MAX };
             let mut each = Duration::from_secs_f64(self.work / (self.per + self.ahead) as f64);
             let mut frames = 0;
             loop {
                 let at = Instant::now();
-                let last = frames + 1 >= FAST_MAX || at + each * 2 >= until;
+                let last = frames + 1 >= most || at + each * 2 >= until;
                 let keys = self.held();
                 s.frontend.frame(keys, if last { Some(1) } else { None });
                 frames += 1;
@@ -686,7 +693,7 @@ impl Player {
 
         self.message.clear();
         self.message.resize(PREFIX + FRAME_HEADER, 0);
-        let (width, height, top, rows) = s.frontend.picture(&mut self.message, self.mix && !fast);
+        let (width, height, top, rows) = s.frontend.picture(&mut self.message, self.mix && !fast, self.lcd);
         let State { frontend, game, .. } = s;
         if let Some(g) = game.as_mut() {
             g.save.check(frontend.save_data(false), started);

@@ -8,6 +8,7 @@ use std::path::{Component, Path, PathBuf};
 
 const STORAGE: &str = "/data/media";
 const GAMES: &[&str] = &["gba", "gbc", "gb"];
+const BIOS: &[&str] = &["gba_bios.bin", "gb_bios.bin", "gbc_bios.bin", "sgb_bios.bin"];
 const WRITTEN: &[&str] = &["sav", "state", "state1", "state2", "state3", "state4", "state5", "state6", "state7", "state8", "state9"];
 const MAX_WRITE: usize = 8 * 1024 * 1024;
 const MAX_DEPTH: usize = 6;
@@ -72,7 +73,7 @@ fn extension(name: &str) -> String {
 }
 
 fn listed(name: &str) -> bool {
-    GAMES.contains(&extension(name).as_str())
+    GAMES.contains(&extension(name).as_str()) || BIOS.contains(&name.to_ascii_lowercase().as_str())
 }
 
 fn readable(name: &str) -> bool {
