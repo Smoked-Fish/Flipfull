@@ -5,7 +5,7 @@ use common::traits::{
     EmptyConfig, EmptyState, OriginAttributes, Service, SessionSupport, Shared, SharedServiceState,
     SharedSessionContext,
 };
-use flipfull_remote::{feature_on, own_dir, record};
+use flipfull_remote::{feature_on, own_dir};
 use log::info;
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
@@ -15,6 +15,7 @@ use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::thread;
 use std::time::Duration;
+use toolbox::Request;
 
 const START_TIMEOUT: Duration = Duration::from_secs(20);
 const STOP_TIMEOUT: Duration = Duration::from_secs(30);
@@ -76,7 +77,9 @@ fn start() -> Result<(), Failure> {
     }
     state.last = None;
     let file = new_file().map_err(|e| failure(format!("can't make the recording's file: {}", e)))?;
-    let stream = record(&file).map_err(|why| Failure { message: why, offline: true })?;
+    let stream = flipfull_remote::ask(&Request::Record(file), None)
+        .and_then(|answer| answer.handed_over())
+        .map_err(|why| Failure { message: why, offline: true })?;
     let read = stream.try_clone().map_err(|e| failure(e.to_string()))?;
     read.set_read_timeout(Some(START_TIMEOUT)).map_err(|e| failure(e.to_string()))?;
     let mut lines = BufReader::new(read);

@@ -1,13 +1,11 @@
 use log::{LevelFilter, Log, Metadata, Record};
-use nix::sys::socket::{sendmsg, ControlMessage, MsgFlags};
-use nix::sys::uio::IoVec;
-use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Write};
-use std::os::unix::io::AsRawFd;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use toolbox::{Answer, Request};
 
 pub const USERINIT: &str = "/data/local/userinit";
 
@@ -58,7 +56,7 @@ pub fn feature_on(id: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn toolbox(timeout: Option<Duration>) -> Result<UnixStream, String> {
+fn connect(timeout: Option<Duration>) -> Result<UnixStream, String> {
     let stream = UnixStream::connect(format!("{}/run/toolbox.sock", USERINIT))
         .map_err(|_| "Flipfull's toolbox service isn't running".to_string())?;
     stream
@@ -68,29 +66,6 @@ fn toolbox(timeout: Option<Duration>) -> Result<UnixStream, String> {
     Ok(stream)
 }
 
-pub fn run(words: &str, timeout: Duration) -> Result<(bool, String), String> {
-    let mut stream = toolbox(Some(timeout))?;
-    let mut answer = String::new();
-    stream
-        .write_all(format!("{}\n", words).as_bytes())
-        .and_then(|_| stream.read_to_string(&mut answer))
-        .map_err(|e| e.to_string())?;
-    match answer.split_once('\n') {
-        Some(("ok", text)) => Ok((true, text.to_string())),
-        Some(("error", text)) => Ok((false, text.to_string())),
-        _ => Err("toolboxd's answer made no sense".into()),
-    }
-}
-
-pub fn record(file: &File) -> Result<UnixStream, String> {
-    let stream = toolbox(None)?;
-    sendmsg(
-        stream.as_raw_fd(),
-        &[IoVec::from_slice(b"record\n")],
-        &[ControlMessage::ScmRights(&[file.as_raw_fd()])],
-        MsgFlags::empty(),
-        None,
-    )
-    .map_err(|e| e.to_string())?;
-    Ok(stream)
+pub fn ask(request: &Request, timeout: Option<Duration>) -> Result<Answer, String> {
+    toolbox::ask(connect(timeout)?, request)
 }

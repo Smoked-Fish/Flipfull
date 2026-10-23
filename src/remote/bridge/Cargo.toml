@@ -19,6 +19,7 @@ log = "0.4"
 nix = "0.19"
 parking_lot = "0.12"
 serde = { version = "1.0", features = ["derive"] }
+toolbox = { path = "../toolbox" }
 
 [build-dependencies]
 common = { path = "../api-daemon/common" }
