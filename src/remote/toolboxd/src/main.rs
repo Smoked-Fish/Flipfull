@@ -1,11 +1,11 @@
 
-use std::fs;
-use std::io::Write;
+use std::fs::{self, File};
+use std::io::{Read, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::io::{AsRawFd, FromRawFd, OwnedFd, RawFd};
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::os::unix::process::CommandExt;
-use std::process::{Command, Stdio};
+use std::process::{Command, ExitStatus, Stdio};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
@@ -135,6 +135,27 @@ fn answer(stream: &mut UnixStream, ok: bool, text: &[u8]) {
     let _ = stream.write_all(text);
 }
 
+fn output(path: &str, args: &[&str]) -> std::io::Result<(ExitStatus, Vec<u8>)> {
+    let mut fds = [0 as RawFd; 2];
+    if unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC) } < 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    let (mut read, write) = unsafe { (File::from_raw_fd(fds[0]), OwnedFd::from_raw_fd(fds[1])) };
+    // the Command and its copy of the write end drop here, otherwise the read never ends
+    let mut child = Command::new("/system/bin/sh")
+        .arg(path)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::from(write.try_clone()?))
+        .stderr(Stdio::from(write))
+        .spawn()?;
+    let mut text = Vec::new();
+    let read_out = read.read_to_end(&mut text);
+    let status = child.wait()?;
+    read_out?;
+    Ok((status, text))
+}
+
 fn run_script(stream: &mut UnixStream, words: &[&str]) {
     let script = match SCRIPTS.iter().find(|s| s.name == words[0]) {
         Some(s) => s,
@@ -150,23 +171,14 @@ fn run_script(stream: &mut UnixStream, words: &[&str]) {
         None => return answer(stream, false, b"No command\n"),
     }
     let path = format!("{}/{}", USERINIT, script.path);
-    let out = Command::new("/system/bin/sh")
-        .arg("-c")
-        .arg("exec sh \"$0\" \"$@\" 2>&1")
-        .arg(&path)
-        .args(args)
-        .stdin(Stdio::null())
-        .stderr(Stdio::null())
-        .output();
-    match out {
-        Ok(out) => {
-            log(&format!("{} {} -> {}", script.name, args[0], out.status.code().unwrap_or(-1)));
-            let mut text = out.stdout;
+    match output(&path, args) {
+        Ok((status, mut text)) => {
+            log(&format!("{} {} -> {}", script.name, args[0], status.code().unwrap_or(-1)));
             while text.last() == Some(&b'\n') {
                 text.pop();
             }
             text.push(b'\n');
-            answer(stream, out.status.success(), &text)
+            answer(stream, status.success(), &text)
         }
         Err(e) => {
             log(&format!("{} {}: {}", script.name, args[0], e));
