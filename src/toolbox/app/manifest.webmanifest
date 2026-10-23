@@ -13,9 +13,9 @@
     { "src": "/img/flipfull_112.png", "type": "image/png", "sizes": "112x112" }
   ],
   "b2g_features": {
-    "version": "1.0.0",
+    "version": "2.1.0",
     "origin": "flipfull",
     "focus_color": "#8000ff",
-    "developer": { "name": "local" }
+    "developer": { "name": "Smoked-Fish", "url": "https://github.com/Smoked-Fish/Flipfull" }
   }
 }
