@@ -110,7 +110,7 @@ function print_plan(    i, id, c, items, j, seen) {
     }
 }
 
-function print_state(    line, w, i, id, c, items, j, b, now, pend, bad, total, why, any, sp, r) {
+function work_out_state(    line, w, i, id, c, items, j, b, pend, bad, total, why, sp, r) {
     while ((getline line < boot) > 0) {
         split(line, w, " ")
         if (w[1] == "feature")
@@ -128,14 +128,14 @@ function print_state(    line, w, i, id, c, items, j, b, now, pend, bad, total, 
     }
     close(avail)
 
-    any = pending
+    reboot_any = pending
     for (i = 1; i <= n; i++) {
         id = ids[i]
-        now = on[id] ? "on" : "off"
+        st_now[i] = on[id] ? "on" : "off"
         b = (id in at_boot) ? at_boot[id] : "-"
         c = needs(id, items)
         pend = 0
-        if (now != (b == "-" ? "off" : b)) {
+        if (st_now[i] != (b == "-" ? "off" : b)) {
             if (val[id, "reboot"] == "yes")
                 pend = 1
             for (j = 1; j <= c; j++) {
@@ -161,13 +161,33 @@ function print_state(    line, w, i, id, c, items, j, b, now, pend, bad, total, 
                     why = r
             }
         }
-        any = any || pend
-        state[i] = id "\t" now "\t" b "\t" (pend ? "yes" : "no") "\t" \
-                   (bad == 0 ? "yes" : bad == total ? "no" : "partly") "\t" why
+        reboot_any = reboot_any || pend
+        st_boot[i] = b
+        st_pend[i] = pend
+        st_usable[i] = bad == 0 ? "yes" : bad == total ? "no" : "partly"
+        st_why[i] = why
     }
-    print "reboot\t" (any ? "yes" : "no")
+}
+
+function print_state(    i) {
+    print "reboot\t" (reboot_any ? "yes" : "no")
     for (i = 1; i <= n; i++)
-        print "feature\t" state[i]
+        print "feature\t" ids[i] "\t" st_now[i] "\t" st_boot[i] "\t" (st_pend[i] ? "yes" : "no") "\t" \
+              st_usable[i] "\t" st_why[i]
+}
+
+function print_list(    i, id, note) {
+    for (i = 1; i <= n; i++) {
+        id = ids[i]
+        if (val[id, "section"] != "")
+            print "\n" val[id, "section"]
+        note = st_pend[i] ? "  (after a reboot)" : ""
+        if (st_usable[i] != "yes")
+            note = note "  - " (st_usable[i] == "no" ? "unusable" : "partly") ": " st_why[i]
+        printf "  [%s] %-20s %s%s\n", st_now[i] == "on" ? "x" : " ", id, val[id, "title"], note
+    }
+    if (reboot_any)
+        print "\nSome changes wait for a reboot."
 }
 
 BEGIN {
@@ -221,9 +241,13 @@ END {
         for (i = 1; i <= n; i++)
             if ((ids[i] in also) && !(ids[i] in asked))
                 print "also", ids[i], also[ids[i]]
-    } else if (mode == "state") {
+    } else if (mode == "state" || mode == "list") {
         make_plan()
-        print_state()
+        work_out_state()
+        if (mode == "state")
+            print_state()
+        else
+            print_list()
     } else {
         resolve()
         print_plan()

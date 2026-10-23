@@ -6,7 +6,8 @@ flipfull - turns Flipfull's features on and off, and installs, updates and
 removes Flipfull.
 
   flipfull features               the feature list (features.ini)
-  flipfull state                  each feature: on / off, at the last boot, usable on this phone; what waits for a reboot
+  flipfull state                  each feature: on / off, at the last boot, usable on this phone, what waits for a reboot
+  flipfull list                   each feature in its section, with its title
   flipfull set ID on|off ...      turn features on / off
   flipfull plan                   what the features that are on need
   flipfull publish [--remove]     write (or delete) features.js for the overlays and
@@ -93,19 +94,23 @@ cached_availability() {
     { echo "$key"; availability; } > "$STATE/avail.tmp" && mv -f "$STATE/avail.tmp" "$STATE/avail"
 }
 
-cmd_state() {
+plan_state() {
     mkdir -p "$STATE"
     cached_availability
     pending=0
     removable_pending && pending=1
-    printf 'version\t%s\n' "$(version)"
-    printf 'hook\t%s\n' "$(hook_file >/dev/null && echo yes || echo no)"
-    printf 'removable\t%s\n' "$([ $pending = 1 ] && echo pending || echo saved)"
-    printf 'google-client\t%s\n' "$(google_client_id)"
-    printf 'release-repo\t%s\n' "$RELEASE_REPO"
-    awk -f "$PLAN_AWK" -v mode=state -v choices="$CHOICES" -v boot="$BOOT_PLAN" \
+    if [ "$1" = state ]; then
+        printf 'version\t%s\n' "$(version)"
+        printf 'hook\t%s\n' "$(hook_file >/dev/null && echo yes || echo no)"
+        printf 'removable\t%s\n' "$([ $pending = 1 ] && echo pending || echo saved)"
+        printf 'google-client\t%s\n' "$(google_client_id)"
+        printf 'release-repo\t%s\n' "$RELEASE_REPO"
+    fi
+    awk -f "$PLAN_AWK" -v mode="$1" -v choices="$CHOICES" -v boot="$BOOT_PLAN" \
         -v avail="$STATE/avail" -v pending=$pending -v reboot_overlays="$OVERLAYS_AT_BOOT" "$REGISTRY"
 }
+
+cmd_state() { plan_state state; }
 
 cmd_set() {
     [ $# -gt 0 ] && [ $(($# % 2)) -eq 0 ] || die "usage: flipfull set ID on|off ..."
@@ -555,17 +560,12 @@ cmd_status() {
         echo "boot hook: MISSING - nothing here runs at boot (src/boot-hook/README.md)"
     [ -e "$USERINIT/uninstall" ] && echo "uninstall pending: the next boot removes everything"
     echo
-    cmd_state | awk -F '\t' '
-        $1 == "reboot" && $2 == "yes" { waiting = 1 }
-        $1 == "removable" && $2 == "pending" { print "removable apps: changed, the next boot applies it" }
-        $1 == "google-client" { print "Google sign-in client: " ($2 == "-" ? "none" : $2) }
-        $1 == "feature" {
-            line = sprintf("  [%s] %s", $3 == "on" ? "x" : " ", $2)
-            if ($5 == "yes") line = line "  (after a reboot)"
-            if ($6 != "yes") line = line "  - " ($6 == "no" ? "unusable" : "partly") ": " $7
-            features = features line "\n"
-        }
-        END { printf "\nfeatures%s:\n%s", waiting ? " (some wait for a reboot)" : "", features }'
+    removable_pending && echo "removable apps: changed, the next boot applies it"
+    id=$(google_client_id)
+    echo "Google sign-in client: $([ "$id" = - ] && echo none || echo "$id")"
+    echo
+    echo "features:"
+    plan_state list
     echo
     echo "mounted:"
     awk '$4 ~ /userinit\/(overlays|media|state|etc)/ { print "  " $5 "  <-  " $4 }' /proc/self/mountinfo
@@ -592,6 +592,7 @@ esac
 case $cmd in
     features) cat "$REGISTRY" ;;
     state) cmd_state ;;
+    list) plan_state list ;;
     set) cmd_set "$@" ;;
     plan) plan ;;
     publish)

@@ -58,15 +58,14 @@
   function parseRemovable(text) {
     return text.split('\n').filter((line) => line.startsWith('app\t')).map((line) => {
       const f = line.replace(/\r$/, '').split('\t');
-      const core = f[5] || '';
       return {
         name: f[1],
         removable: f[2] === '1',
         chosen: f[3] === '1',
         title: f[4] || f[1],
-        core,
-        rank: Number(f[6]) in RANKS ? Number(f[6]) : (core ? 4 : 3),
-        about: f[7] || '',
+        core: f[5],
+        rank: Number(f[6]),
+        about: f[7],
       };
     }).sort((a, b) => a.rank - b.rank || a.title.localeCompare(b.title));
   }
