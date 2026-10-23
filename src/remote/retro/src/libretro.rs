@@ -3,6 +3,7 @@ use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_uint, c_void};
 use std::ptr;
 use std::sync::{Mutex, MutexGuard, Once, OnceLock};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 const ENV_SET_PIXEL_FORMAT: c_uint = 10;
 const ENV_GET_INPUT_BITMASKS: c_uint = 51 | 0x10000;
@@ -11,6 +12,8 @@ const JOYPAD_MASK: c_uint = 256;
 const MEMORY_SAVE_RAM: c_uint = 0;
 const PIXEL_XRGB8888: u32 = 1;
 const PIXEL_RGB565: u32 = 2;
+const MBC3_CLOCK: usize = 48;
+const MBC3_CLOCK_TIME: usize = 40;
 
 #[repr(C)]
 struct GameInfo {
@@ -78,6 +81,9 @@ extern "C" {
     fn flipfull_draw_next(draw: bool);
     fn flipfull_drain_audio();
     fn flipfull_set_audio_rate(rate: f64);
+    fn flipfull_set_utc_offset(seconds: i64);
+    fn flipfull_save_size() -> usize;
+    fn flipfull_flush_save();
     fn flipfull_platform() -> i32;
 }
 
@@ -214,7 +220,7 @@ pub fn info() -> (String, String, String) {
 fn save_memory() -> &'static mut [u8] {
     unsafe {
         let data = retro_get_memory_data(MEMORY_SAVE_RAM) as *mut u8;
-        let size = retro_get_memory_size(MEMORY_SAVE_RAM);
+        let size = flipfull_save_size();
         if data.is_null() || size == 0 {
             &mut []
         } else {
@@ -301,6 +307,14 @@ impl Frontend {
         let memory = save_memory();
         let n = save.len().min(memory.len());
         memory[..n].copy_from_slice(&save[..n]);
+        let ram = unsafe { retro_get_memory_size(MEMORY_SAVE_RAM) };
+        if memory.len() == ram + MBC3_CLOCK && n < memory.len() {
+            // no saved time, start from now instead of the 0xff bytes
+            let clock = &mut memory[ram..];
+            clock.iter_mut().for_each(|b| *b = 0);
+            let now = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+            clock[MBC3_CLOCK_TIME..MBC3_CLOCK_TIME + 8].copy_from_slice(&now.to_le_bytes());
+        }
         self.video.forget();
         let mut av = AvInfo::default();
         unsafe { retro_get_system_av_info(&mut av) };
@@ -340,9 +354,21 @@ impl Frontend {
         }
     }
 
+    pub fn audio(&mut self, into: &mut Vec<i16>) {
+        let mut out = output();
+        into.extend_from_slice(&out.audio);
+        out.audio.clear();
+    }
+
     pub fn set_audio_rate(&mut self, rate: f64) {
         if self.loaded && rate > 0.0 {
             unsafe { flipfull_set_audio_rate(rate) };
+        }
+    }
+
+    pub fn set_utc_offset(&mut self, seconds: i64) {
+        if self.loaded {
+            unsafe { flipfull_set_utc_offset(seconds) };
         }
     }
 
@@ -359,15 +385,12 @@ impl Frontend {
         self.video.forget();
     }
 
-    pub fn audio(&mut self, into: &mut Vec<i16>) {
-        let mut out = output();
-        into.extend_from_slice(&out.audio);
-        out.audio.clear();
-    }
-
-    pub fn save_data(&self) -> &[u8] {
+    pub fn save_data(&mut self, flush: bool) -> &[u8] {
         if !self.loaded {
             return &[];
+        }
+        if flush {
+            unsafe { flipfull_flush_save() };
         }
         save_memory()
     }

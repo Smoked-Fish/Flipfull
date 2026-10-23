@@ -1,3 +1,7 @@
+#ifdef M_CORE_GB
+#include <mgba/internal/gb/mbc.h>
+#endif
+
 size_t blip_state_size(const blip_t*);
 void blip_save_state(const blip_t*, void*);
 void blip_load_state(blip_t*, const void*);
@@ -6,7 +10,6 @@ size_t flipfull_state_size(void) {
 	return core->stateSize(core);
 }
 
-// fix clicking with run ahead
 struct FlipfullSound {
 	uint8_t* blips;
 	size_t blipsSize;
@@ -164,10 +167,68 @@ void flipfull_drain_audio(void) {
 		avail = blip_samples_avail(left);
 	}
 }
+
 void flipfull_set_audio_rate(double rate) {
 	double clock = core->frequency(core);
 	blip_set_rates(core->getAudioChannel(core, 0), clock, rate);
 	blip_set_rates(core->getAudioChannel(core, 1), clock, rate);
+}
+
+// the daemon gets local time as if it was utc
+void flipfull_set_utc_offset(int64_t seconds) {
+	if (core->platform(core) == mPLATFORM_GBA && seconds) {
+		core->rtc.override = RTC_WALLCLOCK_OFFSET;
+		core->rtc.value = seconds * 1000;
+	} else {
+		core->rtc.override = RTC_NO_OVERRIDE;
+		core->rtc.value = 0;
+	}
+}
+
+size_t flipfull_save_size(void) {
+	size_t size = retro_get_memory_size(RETRO_MEMORY_SAVE_RAM);
+#ifdef M_CORE_GB
+	if (core->platform(core) == mPLATFORM_GB) {
+		switch (((struct GB*) core->board)->memory.mbcType) {
+		case GB_MBC3_RTC:
+			size += sizeof(struct GBMBCRTCSaveBuffer);
+			break;
+		case GB_HuC3:
+			size += sizeof(struct GBMBCHuC3SaveBuffer);
+			break;
+		case GB_TAMA5:
+			size += sizeof(struct GBMBCTAMA5SaveBuffer);
+			break;
+		default:
+			break;
+		}
+	}
+#endif
+	return size < SIZE_CART_FLASH1M ? size : SIZE_CART_FLASH1M;
+}
+
+void flipfull_flush_save(void) {
+#ifdef M_CORE_GB
+	if (core->platform(core) == mPLATFORM_GB) {
+		struct GB* gb = core->board;
+		if (!gb->sramVf) {
+			return;
+		}
+		switch (gb->memory.mbcType) {
+		case GB_MBC3_RTC:
+			GBMBCRTCWrite(gb);
+			break;
+		case GB_HuC3:
+			GBMBCHuC3Write(gb);
+			break;
+		case GB_TAMA5:
+			GBMBCTAMA5Write(gb);
+			break;
+		default:
+			break;
+		}
+	}
+#endif
 }
 
 int flipfull_platform(void) {

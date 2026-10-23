@@ -1,11 +1,19 @@
 use flipfull_remote::{retro_list, retro_open, retro_write};
 use log::warn;
 use serde::Serialize;
+use std::collections::VecDeque;
 use std::io::Read;
 use std::os::unix::fs::MetadataExt;
+use std::os::unix::io::AsRawFd;
+use std::sync::{Condvar, Mutex, OnceLock};
+use std::thread;
+use std::time::{Duration, Instant};
 
 const GAMES: &[(&str, &str)] = &[("gba", "GBA"), ("gbc", "GBC"), ("gb", "GB")];
 pub const SLOTS: u32 = 4;
+const QUIET: Duration = Duration::from_secs(1);
+const AT_MOST: Duration = Duration::from_secs(10);
+const RETRIES: u32 = 3;
 
 #[derive(Serialize, Clone)]
 pub struct Game {
@@ -71,6 +79,103 @@ pub fn modified(path: &str) -> Option<i64> {
     retro_open(path).ok()?.metadata().ok().map(|m| m.mtime())
 }
 
+pub struct Rom {
+    ptr: *mut libc::c_void,
+    len: usize,
+}
+
+impl Rom {
+    pub fn open(path: &str) -> Result<Rom, String> {
+        let file = retro_open(path)?;
+        let len = file.metadata().map_err(|e| e.to_string())?.len() as usize;
+        if len == 0 {
+            return Err("the file is empty".into());
+        }
+        let ptr = unsafe { libc::mmap(std::ptr::null_mut(), len, libc::PROT_READ, libc::MAP_PRIVATE, file.as_raw_fd(), 0) };
+        if ptr == libc::MAP_FAILED {
+            return Err(format!("{}: {}", path, std::io::Error::last_os_error()));
+        }
+        Ok(Rom { ptr, len })
+    }
+
+    pub fn bytes(&self) -> &[u8] {
+        unsafe { std::slice::from_raw_parts(self.ptr as *const u8, self.len) }
+    }
+}
+
+impl Drop for Rom {
+    fn drop(&mut self) {
+        unsafe { libc::munmap(self.ptr, self.len) };
+    }
+}
+
+struct Queue {
+    files: VecDeque<(String, Vec<u8>)>,
+    busy: bool,
+}
+
+fn queue() -> &'static (Mutex<Queue>, Condvar) {
+    static QUEUE: OnceLock<(Mutex<Queue>, Condvar)> = OnceLock::new();
+    QUEUE.get_or_init(|| {
+        let _ = thread::Builder::new().name("retro-saves".into()).spawn(writer);
+        (Mutex::new(Queue { files: VecDeque::new(), busy: false }), Condvar::new())
+    })
+}
+
+fn writer() {
+    let (lock, ready) = queue();
+    loop {
+        let (path, data) = {
+            let mut q = lock.lock().unwrap();
+            q.busy = false;
+            ready.notify_all();
+            while q.files.is_empty() {
+                q = ready.wait(q).unwrap();
+            }
+            q.busy = true;
+            q.files.pop_front().unwrap()
+        };
+        let mut tries = 0;
+        loop {
+            match retro_write(&path, &data) {
+                Ok(()) => break,
+                Err(e) if tries + 1 < RETRIES => {
+                    tries += 1;
+                    warn!("{} not written, again: {}", path, e);
+                    thread::sleep(Duration::from_millis(500));
+                }
+                Err(e) => {
+                    warn!("{} not written: {}", path, e);
+                    break;
+                }
+            }
+        }
+    }
+}
+
+pub fn write_later(path: &str, data: Vec<u8>) {
+    let (lock, ready) = queue();
+    let mut q = lock.lock().unwrap();
+    match q.files.iter_mut().find(|(p, _)| p == path) {
+        Some(waiting) => waiting.1 = data,
+        None => q.files.push_back((path.to_string(), data)),
+    }
+    ready.notify_all();
+}
+
+pub fn written(within: Duration) {
+    let (lock, ready) = queue();
+    let mut q = lock.lock().unwrap();
+    let until = Instant::now() + within;
+    while !q.files.is_empty() || q.busy {
+        let left = until.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return;
+        }
+        q = ready.wait_timeout(q, left).unwrap().0;
+    }
+}
+
 pub fn write(path: &str, data: &[u8]) -> Result<(), String> {
     retro_write(path, data)
 }
@@ -78,20 +183,47 @@ pub fn write(path: &str, data: &[u8]) -> Result<(), String> {
 pub struct SaveFile {
     pub path: String,
     written: Vec<u8>,
+    seen: Vec<u8>,
+    changed: Option<Instant>,
+    first: Option<Instant>,
 }
 
 impl SaveFile {
     pub fn new(path: String, data: &[u8]) -> SaveFile {
-        SaveFile { path, written: data.to_vec() }
+        SaveFile { path, written: data.to_vec(), seen: data.to_vec(), changed: None, first: None }
+    }
+
+    fn same(a: &[u8], b: &[u8]) -> bool {
+        a == b || (a.len() != b.len() && (a.starts_with(b) || b.starts_with(a)))
+    }
+
+    pub fn check(&mut self, data: &[u8], now: Instant) {
+        if data != &self.seen[..] {
+            self.seen.clear();
+            self.seen.extend_from_slice(data);
+            if Self::same(data, &self.written) {
+                self.written = self.seen.clone();
+                self.changed = None;
+                self.first = None;
+                return;
+            }
+            self.changed = Some(now);
+            self.first.get_or_insert(now);
+        }
+        if let (Some(changed), Some(first)) = (self.changed, self.first) {
+            if now - changed >= QUIET || now - first >= AT_MOST {
+                self.flush(data);
+            }
+        }
     }
 
     pub fn flush(&mut self, data: &[u8]) {
-        if data == &self.written[..] {
+        self.changed = None;
+        self.first = None;
+        if Self::same(data, &self.written) {
             return;
         }
         self.written = data.to_vec();
-        if let Err(e) = write(&self.path, data) {
-            warn!("{} not written: {}", self.path, e);
-        }
+        write_later(&self.path, self.written.clone());
     }
 }

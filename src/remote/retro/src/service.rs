@@ -1,4 +1,5 @@
-use crate::files::{self, SaveFile, SLOTS};
+use crate::clock;
+use crate::files::{self, Rom, SaveFile, SLOTS};
 use crate::generated::common::*;
 use crate::generated::service::*;
 use crate::libretro::{self, Frontend};
@@ -15,8 +16,10 @@ use log::info;
 use serde_json::{json, Value};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Mutex, MutexGuard, OnceLock};
+use std::time::Duration;
 
 const APP: &str = "http://retro.localhost";
+const WRITTEN_WITHIN: Duration = Duration::from_secs(3);
 
 pub struct Loaded {
     pub path: String,
@@ -34,7 +37,7 @@ impl State {
     pub fn flush_save(&mut self) {
         let State { frontend, game, .. } = self;
         if let Some(g) = game.as_mut() {
-            g.save.flush(frontend.save_data());
+            g.save.flush(frontend.save_data(true));
         }
     }
 
@@ -96,27 +99,29 @@ impl RetroMethods for Retro {
 
     fn load(&mut self, responder: RetroLoadResponder, path: String) {
         stream::stop();
-        let rom = match files::read(&path) {
+        let rom = match Rom::open(&path) {
             Ok(r) => r,
             Err(why) => return responder.reject(failure(why)),
         };
         let save_path = files::sibling(&path, "sav");
         let save = files::read(&save_path).unwrap_or_default();
+        let offset = clock::utc_offset();
         let mut s = state();
         s.unload();
-        match s.frontend.load(&rom, &save) {
+        match s.frontend.load(rom.bytes(), &save) {
             Ok(game) => {
                 info!(
                     "loaded {}: {} bytes, {} of save, {}x{} at {:.4} fps, sound at {}",
                     path,
-                    rom.len(),
+                    rom.bytes().len(),
                     save.len(),
                     game.width,
                     game.height,
                     game.fps,
                     game.rate
                 );
-                let data = s.frontend.save_data().to_vec();
+                s.frontend.set_utc_offset(offset);
+                let data = s.frontend.save_data(false).to_vec();
                 s.game = Some(Loaded { path, save: SaveFile::new(save_path, &data) });
                 s.owner = self.id;
                 responder.resolve(Game {
@@ -168,7 +173,10 @@ impl RetroMethods for Retro {
     fn load_state(&mut self, responder: RetroLoadStateResponder, n: i64) {
         let loaded = slot(n).and_then(|n| {
             let data = files::read(&files::state_path(&loaded_path()?, n)).map_err(failure)?;
-            state().frontend.load_state(&data).map_err(failure)
+            let mut s = state();
+            s.frontend.load_state(&data).map_err(failure)?;
+            s.frontend.set_utc_offset(clock::utc_offset());
+            Ok(())
         });
         match loaded {
             Ok(()) => responder.resolve(),
@@ -190,6 +198,7 @@ impl RetroMethods for Retro {
     fn unload(&mut self, responder: RetroUnloadResponder) {
         stream::stop();
         state().unload();
+        files::written(WRITTEN_WITHIN);
         responder.resolve();
     }
 }

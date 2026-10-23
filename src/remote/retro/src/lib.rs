@@ -1,3 +1,4 @@
+pub mod clock;
 pub mod cpu;
 pub mod files;
 pub mod generated;

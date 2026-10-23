@@ -1,3 +1,4 @@
+use crate::clock;
 use crate::cpu;
 use crate::keypad::Keypad;
 use crate::libretro::Platform;
@@ -50,6 +51,7 @@ const FAST_SHARE: f64 = 0.75;
 const FAST_KEY: u16 = 158;
 const AHEAD_MAX: u32 = 2;
 const BEHIND: u32 = 4;
+const CLOCK_EVERY: u32 = 30;
 const IDLE: Duration = Duration::from_secs(3600);
 const WRITE_TIMEOUT: Duration = Duration::from_secs(2);
 const STATS_EVERY: u32 = 1800;
@@ -280,6 +282,7 @@ struct Player {
     buffered: f64,
     skew: f64,
     skew_sum: f64,
+    clock_in: u32,
     played: Instant,
     stats: Stats,
     message: Vec<u8>,
@@ -316,6 +319,7 @@ impl Player {
             buffered: 0.0,
             skew: 0.0,
             skew_sum: 0.0,
+            clock_in: 0,
             played: Instant::now(),
             stats: Stats::default(),
             message: Vec::new(),
@@ -464,6 +468,7 @@ impl Player {
         self.hold = false;
         self.buffered = self.sound_target * self.out_rate;
         self.skew = self.skew_sum;
+        self.clock_in = 0;
         self.played = Instant::now();
         self.stats = Stats::default();
         self.running = true;
@@ -671,12 +676,21 @@ impl Player {
             self.stop();
             return;
         }
+        if self.clock_in == 0 {
+            self.clock_in = CLOCK_EVERY;
+            s.frontend.set_utc_offset(clock::utc_offset());
+        }
+        self.clock_in -= 1;
         let frames = self.frames(s, fast, started);
         self.fasting = fast;
 
         self.message.clear();
         self.message.resize(PREFIX + FRAME_HEADER, 0);
         let (width, height, top, rows) = s.frontend.picture(&mut self.message, self.mix && !fast);
+        let State { frontend, game, .. } = s;
+        if let Some(g) = game.as_mut() {
+            g.save.check(frontend.save_data(false), started);
+        }
         drop(guard);
 
         let samples = if self.out_rate > 0.0 && !fast { self.audio.len() / 2 } else { 0 };
