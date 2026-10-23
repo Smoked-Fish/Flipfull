@@ -6,35 +6,29 @@ flipfull - turns Flipfull's features on and off, and installs, updates and
 removes Flipfull.
 
   flipfull features               the feature list (features.ini)
-  flipfull state                  each feature: on / off, at the last boot, usable on this phone; what waits for a reboot
+  flipfull state                  state of each feature
   flipfull set ID on|off ...      turn features on / off
   flipfull plan                   what the features that are on need
-  flipfull publish [--remove]     write (or delete) features.js for the overlays and
-                                  the remote services, and the services' JS clients
-  flipfull removable [set NAME...]    preloaded apps that can be uninstalled
-  flipfull google-client [import [FILE] | remove]
-                                  your own Google sign-in client
+  flipfull publish [--remove]     write (or delete) features.js for the overlays and the remote services
+  flipfull removable [set NAME...]                  preloaded apps that can be uninstalled
+  flipfull google-client [import [FILE] | remove]   your own Google sign-in client
   flipfull status                 a summary to read (flip4.py status)
   flipfull log [LINES]            the boot log
   flipfull restart [APP...]       restart the UI, or only those apps
   flipfull reboot
   flipfull install-app ZIP        install an application.zip through api-daemon
-  flipfull setup [--from DIR]     install or update from DIR, a copy of
-                                  userinit/ with .files listing it
+  flipfull setup [--from DIR]     install or update from DIR, a copy of userinit/ with .files listing it
   flipfull update start TAG ASSET SHA256
-                                  download that release asset from
-                                  RELEASE_REPO, check it and install it, in
-                                  the background
-  flipfull update [status]        how the last update went
-  flipfull store stage URL [SHA256] | stage-file  ZIP | install ORIGIN SOURCE
-                                    | install-pwa URL | uninstall NAME | installed
-                                  what OStore asks for (ostore feature)
-  flipfull uninstall [--reboot]   remove Flipfull; the next boot finishes it
+  flipfull update [status]
+  flipfull store stage URL [SHA256] | stage-file  ZIP | install ORIGIN SOURCE | install-pwa URL
+                                    | uninstall NAME  | installed what OStore asks for
+  flipfull uninstall [--reboot]     remove Flipfull, cleanup in next boot
 EOF
 }
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 . "$HERE/lib/common.sh"
+. "$HERE/lib/overlays.sh"
 
 REMOVABLE=$CONFIG/removable-apps
 GOOGLE_CLIENT=$CONFIG/google-client.json
@@ -69,31 +63,11 @@ publish() {
     done
 }
 
-overlay_status() {
-    src=$USERINIT/overlays/$1
-    if [ ! -f "$src/application.zip" ]; then
-        echo "not on the phone"
-        return
-    fi
-    if [ -n "$PRELOADED" ] && ! echo "$PRELOADED" | grep -qx "$1"; then
-        echo ok
-        return
-    fi
-    dst=$(readlink -f "$VROOT/$1" 2>/dev/null)
-    if [ -z "$dst" ] || [ ! -d "$dst" ]; then
-        echo "the phone has no $1 app"
-    elif same_dir "$src" "$dst" || stock_matches "$src" "$dst/application.zip"; then
-        echo ok
-    else
-        echo "made for another version of the phone's $1 app"
-    fi
-}
-
 availability() {
-    PRELOADED=$(preloaded_apps)
+    overlays_read
     needs | awk '{ print $2, $3 }' | sort -u | while read -r kind name; do
         case $kind in
-            overlay) echo "overlay $name $(overlay_status "$name")" ;;
+            overlay) why=$(overlay_check "$name"); echo "overlay $name ${why:-ok}" ;;
             app) [ -f "$USERINIT/apps/$name/application.zip" ] && echo "app $name ok" ||
                      echo "app $name not on the phone" ;;
             service) [ -f "$USERINIT/services/$name/service.sh" ] && echo "service $name ok" ||
@@ -122,7 +96,7 @@ cmd_state() {
     printf 'google-client\t%s\n' "$(google_client_id)"
     printf 'release-repo\t%s\n' "$RELEASE_REPO"
     awk -f "$PLAN_AWK" -v mode=state -v choices="$CHOICES" -v boot="$BOOT_PLAN" \
-        -v avail="$STATE/avail" -v pending=$pending "$REGISTRY"
+        -v avail="$STATE/avail" -v pending=$pending -v reboot_overlays="$OVERLAYS_AT_BOOT" "$REGISTRY"
 }
 
 cmd_set() {
@@ -165,17 +139,20 @@ apps_changed() {
     has_line "$1" 'app ' && return 0
     overlays=$(echo "$1" | awk '$1 == "overlay" { print $2 }')
     [ -n "$overlays" ] || return 1
-    pre=$(preloaded_apps)
-    [ -z "$pre" ] || echo "$overlays" | grep -qvxF "$pre"
+    overlays_read
+    for name in $overlays; do
+        overlay_is_app "$name" && return 0
+    done
+    return 1
 }
 
 restart_changed() {
     changed=$(printf '%s\n%s\n' "$1" "$2" | awk '$1 == "feature"' | sort | uniq -u | awk '{ print $2 }' | sort -u)
     [ -n "$changed" ] || return 0
-    apps=$(needs | awk -v ids=" $(echo $changed) " '
-        $2 == "overlay" && ($3 == "launcher" || $3 == "settings" || $3 == "video") && index(ids, " " $1 " ") { print $3 }' | sort -u)
+    apps=$(needs | awk -v ids=" $(echo $changed) " -v restart=" $OVERLAYS_RESTART " '
+        $2 == "overlay" && index(restart, " " $3 " ") && index(ids, " " $1 " ") { print $3 }' | sort -u)
     for app in $apps; do
-        same_dir "$USERINIT/overlays/$app" "$(readlink -f "$VROOT/$app")" || continue
+        overlay_mounted "$app" || continue
         if sh "$USERINIT/tools/restart.sh" "$app" >/dev/null; then
             echo "restarted $app"
         fi
@@ -246,12 +223,11 @@ reconcile_apps() {
             apps_ok "$(apps_cmd uninstall "$url")" && echo "uninstalled $name" || echo "error: $name didn't uninstall"
         fi
     done
-    pre=$(preloaded_apps)
-    [ -n "$pre" ] || return 0
+    overlays_read
     names=$(installed_names "$list")
     for app in $(echo "$wanted_plan" | awk '$1 == "overlay" { print $2 }'); do
-        echo "$pre" | grep -qx "$app" && continue
-        if ! echo "$names" | grep -qx "$app" || echo " $* " | grep -q " $app "; then
+        overlay_is_app "$app" && overlay_check "$app" >/dev/null || continue
+        if ! is_line "$names" "$app" || echo " $* " | grep -q " $app "; then
             install_zip "$USERINIT/overlays/$app/application.zip" "$app"
         fi
     done
@@ -451,7 +427,7 @@ cmd_setup() {
          -o -name flipfull \) -exec chmod 0755 {} \;
     [ -f "$GOOGLE_CLIENT" ] && chmod 0600 "$GOOGLE_CLIENT"
     for src in "$USERINIT"/overlays/*; do
-        dst=$(readlink -f "$VROOT/${src##*/}" 2>/dev/null)
+        dst=$(overlay_target "${src##*/}")
         [ -f "$src/application.zip" ] && [ -n "$dst" ] && [ -d "$dst" ] || continue
         chmod 0755 "$src" && chmod 0644 "$src"/*
         ctx=$(ls -Zd "$dst" 2>/dev/null | awk '{ print $1 }')

@@ -140,7 +140,7 @@ function print_state(    line, w, i, id, c, items, j, b, now, pend, bad, total, 
                 pend = 1
             for (j = 1; j <= c; j++) {
                 split(items[j], w, " ")
-                if (items[j] == "overlay system")
+                if (w[1] == "overlay" && index(" " reboot_overlays " ", " " w[2] " "))
                     pend = 1
                 else if ((w[1] == "overlay" || w[1] == "hosts" || w[1] == "prefs") &&
                          ((items[j] in planned) != (items[j] in booted)))

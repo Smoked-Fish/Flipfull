@@ -68,11 +68,19 @@ detach_cgroup() {
 pids_of() { pidof "$1" 2>/dev/null; }
 
 preloaded_apps() {
-    "$USERINIT/bin/sqlite3" -init /dev/null /data/local/webapps/db/apps.sqlite \
-        'SELECT name FROM apps WHERE preloaded = 1' 2>/dev/null
+    "$SQLITE" -init /dev/null "$APPS_DB" 'SELECT name FROM apps WHERE preloaded = 1' 2>/dev/null
 }
 
 same_dir() { [ "$(stat -c %d:%i "$1" 2>/dev/null)" = "$(stat -c %d:%i "$2" 2>/dev/null)" ]; }
+
+is_line() {
+    case "
+$1
+" in *"
+$2
+"*) return 0 ;; esac
+    return 1
+}
 
 stock_matches() {
     [ -f "$1/stock.md5" ] || return 0
