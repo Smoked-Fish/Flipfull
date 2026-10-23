@@ -1,3 +1,4 @@
+use crate::services;
 use crate::Request;
 
 pub const REGISTRY: &str = "/data/local/service/api-daemon/remote_services.toml";
@@ -5,24 +6,28 @@ const FIRST_UID: u32 = 10000;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Role {
-    Bridge,
-    Callrec,
+    Scripts,
+    Record,
 }
 
 impl Role {
-    pub fn of_uid(uid: u32, registry: &str) -> Option<Role> {
-        let (name, _) = registry.lines().filter_map(entry).find(|&(_, n)| FIRST_UID + u32::from(n) == uid)?;
+    fn named(name: &str) -> Option<Role> {
         match name {
-            "FlipfullBridge" => Some(Role::Bridge),
-            "FlipfullCallrec" => Some(Role::Callrec),
+            "scripts" => Some(Role::Scripts),
+            "record" => Some(Role::Record),
             _ => None,
         }
     }
 
+    pub fn of_uid(uid: u32, registry: &str) -> Option<Role> {
+        let (name, _) = registry.lines().filter_map(entry).find(|&(_, n)| FIRST_UID + u32::from(n) == uid)?;
+        Role::named(services::value(name, "toolbox")?)
+    }
+
     pub fn allows(self, request: &Request) -> bool {
         match self {
-            Role::Bridge => matches!(request, Request::Script(_)),
-            Role::Callrec => matches!(request, Request::Record(_)),
+            Role::Scripts => matches!(request, Request::Script(_)),
+            Role::Record => matches!(request, Request::Record(_)),
         }
     }
 }

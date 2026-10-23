@@ -1,5 +1,6 @@
 mod fd;
 mod role;
+pub mod services;
 
 pub use role::{Role, REGISTRY};
 

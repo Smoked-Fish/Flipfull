@@ -158,4 +158,4 @@ impl FlipfullCallrec for Callrec {}
 
 common::impl_shared_state!(Callrec, EmptyState, EmptyConfig);
 
-flipfull_remote::remote_service!("FlipfullCallrec", Callrec, |_origin| Callrec);
+flipfull_remote::remote_service!(Callrec, |_origin| Callrec);

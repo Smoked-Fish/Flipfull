@@ -99,4 +99,4 @@ impl FlipfullSpeech for Speech {}
 
 common::impl_shared_state!(Speech, EmptyState, EmptyConfig);
 
-flipfull_remote::remote_service!("FlipfullSpeech", Speech, |_origin| Speech { session: false, clip: Vec::new() });
+flipfull_remote::remote_service!(Speech, |_origin| Speech { session: false, clip: Vec::new() });

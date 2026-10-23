@@ -39,6 +39,6 @@ impl FlipfullBridge for Bridge {}
 
 common::impl_shared_state!(Bridge, EmptyState, EmptyConfig);
 
-flipfull_remote::remote_service!("FlipfullBridge", Bridge, |origin| Bridge {
+flipfull_remote::remote_service!(Bridge, |origin| Bridge {
     script: if origin == "http://ostore.localhost" { "store" } else { "flipfull" },
 });
