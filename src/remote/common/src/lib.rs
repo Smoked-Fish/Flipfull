@@ -7,6 +7,10 @@ use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use toolbox::{Answer, Request};
 
+mod services;
+
+pub use services::admit;
+
 pub const USERINIT: &str = "/data/local/userinit";
 
 const LOG_MAX: u64 = 256 * 1024;

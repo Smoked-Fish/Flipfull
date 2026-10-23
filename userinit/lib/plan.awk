@@ -147,18 +147,21 @@ function print_state(    line, w, i, id, c, items, j, b, now, pend, bad, total, 
                     pend = 1
             }
         }
-        any = any || pend
         total = bad = 0
         why = ""
         for (j = 1; j <= c; j++) {
             total++
             r = usable[items[j]]
-            if (r != "" && r != "ok") {
+            if (r == "reboot") {
+                if (on[id])
+                    pend = 1
+            } else if (r != "" && r != "ok") {
                 bad++
                 if (why == "")
                     why = r
             }
         }
+        any = any || pend
         state[i] = id "\t" now "\t" b "\t" (pend ? "yes" : "no") "\t" \
                    (bad == 0 ? "yes" : bad == total ? "no" : "partly") "\t" why
     }
@@ -168,8 +171,8 @@ function print_state(    line, w, i, id, c, items, j, b, now, pend, bad, total, 
 }
 
 BEGIN {
-    NKINDS = split("overlays hosts prefs services apps", KEY, " ")
-    split("overlay hosts prefs service app", KIND, " ")
+    NKINDS = split("overlays hosts prefs services apps remote", KEY, " ")
+    split("overlay hosts prefs service app remote", KIND, " ")
     if (mode == "")
         mode = "plan"
 }

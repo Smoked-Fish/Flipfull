@@ -6,23 +6,30 @@ flipfull - turns Flipfull's features on and off, and installs, updates and
 removes Flipfull.
 
   flipfull features               the feature list (features.ini)
-  flipfull state                  state of each feature
+  flipfull state                  each feature: on / off, at the last boot, usable on this phone; what waits for a reboot
   flipfull set ID on|off ...      turn features on / off
   flipfull plan                   what the features that are on need
-  flipfull publish [--remove]     write (or delete) features.js for the overlays and the remote services
-  flipfull removable [set NAME...]                  preloaded apps that can be uninstalled
-  flipfull google-client [import [FILE] | remove]   your own Google sign-in client
+  flipfull publish [--remove]     write (or delete) features.js for the overlays and
+                                  the remote services, and the services' JS clients
+  flipfull removable [set NAME...]    preloaded apps that can be uninstalled
+  flipfull google-client [import [FILE] | remove]
+                                  your own Google sign-in client
   flipfull status                 a summary to read (flip4.py status)
   flipfull log [LINES]            the boot log
   flipfull restart [APP...]       restart the UI, or only those apps
   flipfull reboot
   flipfull install-app ZIP        install an application.zip through api-daemon
-  flipfull setup [--from DIR]     install or update from DIR, a copy of userinit/ with .files listing it
+  flipfull setup [--from DIR]     install or update from DIR, a copy of
+                                  userinit/ with .files listing it
   flipfull update start TAG ASSET SHA256
-  flipfull update [status]
-  flipfull store stage URL [SHA256] | stage-file  ZIP | install ORIGIN SOURCE | install-pwa URL
-                                    | uninstall NAME  | installed what OStore asks for
-  flipfull uninstall [--reboot]     remove Flipfull, cleanup in next boot
+                                  download that release asset from
+                                  RELEASE_REPO, check it and install it, in
+                                  the background
+  flipfull update [status]        how the last update went
+  flipfull store stage URL [SHA256] | stage-file  ZIP | install ORIGIN SOURCE
+                                    | install-pwa URL | uninstall NAME | installed
+                                  what OStore asks for (ostore feature)
+  flipfull uninstall [--reboot]   remove Flipfull; the next boot finishes it
 EOF
 }
 
@@ -72,6 +79,7 @@ availability() {
                      echo "app $name not on the phone" ;;
             service) [ -f "$USERINIT/services/$name/service.sh" ] && echo "service $name ok" ||
                          echo "service $name not on the phone" ;;
+            remote) echo "remote $name $(remote_status "$name")" ;;
         esac
     done
 }

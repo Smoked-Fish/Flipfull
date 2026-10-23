@@ -1,11 +1,7 @@
 use crate::generated::common::*;
 use crate::generated::service::*;
-use common::core::BaseMessage;
-use common::traits::{
-    EmptyConfig, EmptyState, OriginAttributes, Service, SessionSupport, Shared, SharedServiceState,
-    SharedSessionContext,
-};
-use flipfull_remote::{feature_on, own_dir};
+use common::traits::{EmptyConfig, EmptyState, Shared, SharedServiceState};
+use flipfull_remote::own_dir;
 use log::info;
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
@@ -162,32 +158,4 @@ impl FlipfullCallrec for Callrec {}
 
 common::impl_shared_state!(Callrec, EmptyState, EmptyConfig);
 
-impl Service<Callrec> for Callrec {
-    fn create(
-        attrs: &OriginAttributes,
-        _context: SharedSessionContext,
-        _helper: SessionSupport,
-    ) -> Result<Callrec, String> {
-        let who = attrs.identity();
-        if who != "http://callscreen.localhost" {
-            info!("refused {}", who);
-            return Err(format!("Only the call screen, not {}", who));
-        }
-        if !feature_on("call-recording") {
-            return Err("Call recording is off in Flipfull".into());
-        }
-        Ok(Callrec)
-    }
-
-    fn format_request(&mut self, _transport: &SessionSupport, _message: &BaseMessage) -> String {
-        "FlipfullCallrec request".into()
-    }
-
-    fn on_request(&mut self, transport: &SessionSupport, message: &BaseMessage) {
-        self.dispatch_request(transport, message);
-    }
-
-    fn release_object(&mut self, _object_id: u32) -> bool {
-        false
-    }
-}
+flipfull_remote::remote_service!("FlipfullCallrec", Callrec, |_origin| Callrec);

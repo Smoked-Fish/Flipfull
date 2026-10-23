@@ -12,6 +12,7 @@ VROOT=/data/local/webapps/vroot
 APPS_SOCK=/data/local/tmp/apps-uds.sock
 APPS_DB=/data/local/webapps/db/apps.sqlite
 SQLITE=$USERINIT/bin/sqlite3
+REMOTE_REGISTRY=/data/local/service/api-daemon/remote_services.toml
 
 # Append
 case ":$PATH:" in
@@ -72,6 +73,16 @@ preloaded_apps() {
 }
 
 same_dir() { [ "$(stat -c %d:%i "$1" 2>/dev/null)" = "$(stat -c %d:%i "$2" 2>/dev/null)" ]; }
+
+remote_status() {
+    if [ ! -f "$USERINIT/remote/$1/daemon" ]; then
+        echo "not on the phone"
+    elif grep -q "^$1 *=" "$REMOTE_REGISTRY" 2>/dev/null; then
+        echo ok
+    else
+        echo reboot
+    fi
+}
 
 is_line() {
     case "

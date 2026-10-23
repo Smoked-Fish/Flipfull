@@ -1,19 +1,11 @@
 use crate::generated::common::*;
 use crate::generated::service::*;
 use crate::recognizer;
-use common::core::BaseMessage;
-use common::traits::{
-    EmptyConfig, EmptyState, OriginAttributes, Service, SessionSupport, Shared, SharedServiceState,
-    SharedSessionContext,
-};
+use common::traits::{EmptyConfig, EmptyState, Shared, SharedServiceState};
 use common::JsonValue;
-use flipfull_remote::feature_on;
-use log::info;
 use serde_json::{json, Value};
 use std::thread;
 
-const KAIVA: &str = "http://kaios-voiceassistant.localhost";
-const SYSTEM: &str = "http://system.localhost";
 const MAX_CLIP: usize = 60 * 16000 * 2 + 1024;
 
 pub struct Speech {
@@ -107,36 +99,4 @@ impl FlipfullSpeech for Speech {}
 
 common::impl_shared_state!(Speech, EmptyState, EmptyConfig);
 
-impl Service<Speech> for Speech {
-    fn create(
-        attrs: &OriginAttributes,
-        _context: SharedSessionContext,
-        _helper: SessionSupport,
-    ) -> Result<Speech, String> {
-        let who = attrs.identity();
-        let feature = match who.as_str() {
-            KAIVA => "kaiva",
-            SYSTEM => "web-speech",
-            _ => {
-                info!("refused {}", who);
-                return Err(format!("Only KaiVA, not {}", who));
-            }
-        };
-        if !feature_on(feature) {
-            return Err(format!("{} is off in Flipfull", feature));
-        }
-        Ok(Speech { session: false, clip: Vec::new() })
-    }
-
-    fn format_request(&mut self, _transport: &SessionSupport, _message: &BaseMessage) -> String {
-        "FlipfullSpeech request".into()
-    }
-
-    fn on_request(&mut self, transport: &SessionSupport, message: &BaseMessage) {
-        self.dispatch_request(transport, message);
-    }
-
-    fn release_object(&mut self, _object_id: u32) -> bool {
-        false
-    }
-}
+flipfull_remote::remote_service!("FlipfullSpeech", Speech, |_origin| Speech { session: false, clip: Vec::new() });

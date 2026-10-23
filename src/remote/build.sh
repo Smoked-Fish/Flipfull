@@ -11,12 +11,32 @@ ARM32=armv7-unknown-linux-musleabihf
 ARM64=aarch64-unknown-linux-musl
 export CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$CACHE/remote-target}"
 
-# service, crate, client, target
-SERVICES=(
-    "FlipfullBridge flipfull_bridge bridge $ARM32"
-    "FlipfullCallrec flipfull_callrec callrec $ARM32"
-    "FlipfullSpeech flipfull_speech speech $ARM64"
-)
+services() {
+    awk -v arm32="$ARM32" -v arm64="$ARM64" '
+        /^[ \t]*(#|$)/ { next }
+        /^\[/ { name = $0; gsub(/[][ \t]/, "", name); next }
+        {
+            key = substr($0, 1, index($0, "=") - 1)
+            value = substr($0, index($0, "=") + 1)
+            gsub(/[ \t]/, "", key)
+            gsub(/^[ \t]+|[ \t]+$/, "", value)
+        }
+        key == "folder" { folder[name] = value; order[++n] = name }
+        key == "chip" { chip[name] = value }
+        END {
+            for (i = 1; i <= n; i++) {
+                s = order[i]
+                t = chip[s] == "arm32" ? arm32 : chip[s] == "arm64" ? arm64 : ""
+                if (t == "") {
+                    print "services.ini: [" s "] needs chip = arm32 or arm64" > "/dev/stderr"
+                    exit 1
+                }
+                print s, "flipfull_" folder[s], folder[s], t
+            }
+        }' "$HERE/services.ini"
+}
+LIST=$(services)
+mapfile -t SERVICES <<< "$LIST"
 
 for tool in cargo zig git python3; do
     command -v "$tool" >/dev/null || { echo "$tool not found" >&2; exit 1; }

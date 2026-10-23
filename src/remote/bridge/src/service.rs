@@ -1,11 +1,7 @@
 use crate::generated::common::*;
 use crate::generated::service::*;
-use common::core::BaseMessage;
-use common::traits::{
-    EmptyConfig, EmptyState, OriginAttributes, Service, SessionSupport, Shared, SharedServiceState,
-    SharedSessionContext,
-};
-use log::{error, info};
+use common::traits::{EmptyConfig, EmptyState, Shared, SharedServiceState};
+use log::error;
 use std::thread;
 use std::time::Duration;
 use toolbox::{Answer, Request};
@@ -43,33 +39,6 @@ impl FlipfullBridge for Bridge {}
 
 common::impl_shared_state!(Bridge, EmptyState, EmptyConfig);
 
-impl Service<Bridge> for Bridge {
-    fn create(
-        attrs: &OriginAttributes,
-        _context: SharedSessionContext,
-        _helper: SessionSupport,
-    ) -> Result<Bridge, String> {
-        let who = attrs.identity();
-        let script = match who.as_str() {
-            "http://flipfull.localhost" => "flipfull",
-            "http://ostore.localhost" => "store",
-            _ => {
-                info!("refused {}", who);
-                return Err(format!("Only the Flipfull app and OStore, not {}", who));
-            }
-        };
-        Ok(Bridge { script })
-    }
-
-    fn format_request(&mut self, _transport: &SessionSupport, _message: &BaseMessage) -> String {
-        "FlipfullBridge request".into()
-    }
-
-    fn on_request(&mut self, transport: &SessionSupport, message: &BaseMessage) {
-        self.dispatch_request(transport, message);
-    }
-
-    fn release_object(&mut self, _object_id: u32) -> bool {
-        false
-    }
-}
+flipfull_remote::remote_service!("FlipfullBridge", Bridge, |origin| Bridge {
+    script: if origin == "http://ostore.localhost" { "store" } else { "flipfull" },
+});
