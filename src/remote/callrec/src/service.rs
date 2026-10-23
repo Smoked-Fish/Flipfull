@@ -1,7 +1,7 @@
 use crate::generated::common::*;
 use crate::generated::service::*;
 use common::traits::{EmptyConfig, EmptyState, Shared, SharedServiceState};
-use flipfull_remote::own_dir;
+use flipfull_remote::{own_dir, settle};
 use log::info;
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
@@ -133,24 +133,15 @@ fn read(offset: u64) -> Result<Vec<u8>, Failure> {
 
 impl CallrecMethods for Callrec {
     fn start(&mut self, responder: CallrecStartResponder) {
-        thread::spawn(move || match start() {
-            Ok(()) => responder.resolve(),
-            Err(f) => responder.reject(f),
-        });
+        thread::spawn(move || settle!(responder, start(), ()));
     }
 
     fn stop(&mut self, responder: CallrecStopResponder) {
-        thread::spawn(move || match stop() {
-            Ok(rec) => responder.resolve(rec),
-            Err(f) => responder.reject(f),
-        });
+        thread::spawn(move || settle!(responder, stop()));
     }
 
     fn read(&mut self, responder: CallrecReadResponder, offset: i64) {
-        match read(offset.max(0) as u64) {
-            Ok(piece) => responder.resolve(piece),
-            Err(f) => responder.reject(f),
-        }
+        settle!(responder, read(offset.max(0) as u64));
     }
 }
 

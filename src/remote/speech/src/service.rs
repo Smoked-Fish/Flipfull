@@ -3,6 +3,7 @@ use crate::generated::service::*;
 use crate::recognizer;
 use common::traits::{EmptyConfig, EmptyState, Shared, SharedServiceState};
 use common::JsonValue;
+use flipfull_remote::settle;
 use serde_json::{json, Value};
 use std::thread;
 
@@ -41,24 +42,15 @@ impl SpeechMethods for Speech {
     }
 
     fn use_model(&mut self, responder: SpeechUseModelResponder, file: String) {
-        match answer(recognizer::use_model(&file)) {
-            Ok(v) => responder.resolve(v),
-            Err(f) => responder.reject(f),
-        }
+        settle!(responder, answer(recognizer::use_model(&file)));
     }
 
     fn download(&mut self, responder: SpeechDownloadResponder, file: String, offset: i64, piece: Vec<u8>) {
-        match answer(recognizer::download(&file, offset.max(0) as u64, &piece)) {
-            Ok(v) => responder.resolve(v),
-            Err(f) => responder.reject(f),
-        }
+        settle!(responder, answer(recognizer::download(&file, offset.max(0) as u64, &piece)));
     }
 
     fn delete_model(&mut self, responder: SpeechDeleteModelResponder, file: String) {
-        match answer(recognizer::delete_model(&file)) {
-            Ok(v) => responder.resolve(v),
-            Err(f) => responder.reject(f),
-        }
+        settle!(responder, answer(recognizer::delete_model(&file)));
     }
 
     fn begin(&mut self, responder: SpeechBeginResponder) {
@@ -79,10 +71,7 @@ impl SpeechMethods for Speech {
         thread::spawn(move || {
             let result = recognizer::transcribe(&clip, None, &|| false)
                 .map(|(text, _, audio_ms, ms)| json!({"text": text, "audio_ms": audio_ms, "ms": ms as u64}));
-            match answer(result) {
-                Ok(v) => responder.resolve(v),
-                Err(f) => responder.reject(f),
-            }
+            settle!(responder, answer(result));
         });
     }
 }

@@ -32,25 +32,11 @@ function transcribe(bytes) {
   }, SLOW);
 }
 
-window.FlipfullSpeech = {
-  open() {
-    return speech.call((svc) => svc.open(), QUICK);
-  },
-  close() {
-    return speech.call((svc) => svc.close(), QUICK);
-  },
-  health() {
-    return speech.call((svc) => svc.health(), QUICK);
-  },
-  models() {
-    return speech.call((svc) => svc.models(), QUICK);
-  },
-  useModel(file) {
-    return speech.call((svc) => svc.useModel(file), QUICK);
-  },
-  deleteModel(file) {
-    return speech.call((svc) => svc.deleteModel(file), QUICK);
-  },
-  download,
-  transcribe,
-};
+window.FlipfullSpeech = Object.assign(speech.methods({
+  open: QUICK,
+  close: QUICK,
+  health: QUICK,
+  models: QUICK,
+  useModel: QUICK,
+  deleteModel: QUICK,
+}), { download, transcribe });

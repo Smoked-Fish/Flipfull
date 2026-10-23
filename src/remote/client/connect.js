@@ -93,5 +93,13 @@ export function service(name, lib) {
     }));
   }
 
-  return { call };
+  function methods(timeouts) {
+    const out = {};
+    Object.keys(timeouts).forEach((name) => {
+      out[name] = (...args) => call((svc) => svc[name](...args), timeouts[name]);
+    });
+    return out;
+  }
+
+  return { call, methods };
 }

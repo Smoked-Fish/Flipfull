@@ -58,3 +58,19 @@ macro_rules! remote_service {
         }
     };
 }
+
+#[macro_export]
+macro_rules! settle {
+    ($responder:expr, $result:expr) => {
+        match $result {
+            Ok(value) => $responder.resolve(value),
+            Err(failure) => $responder.reject(failure),
+        }
+    };
+    ($responder:expr, $result:expr, ()) => {
+        match $result {
+            Ok(()) => $responder.resolve(),
+            Err(failure) => $responder.reject(failure),
+        }
+    };
+}
