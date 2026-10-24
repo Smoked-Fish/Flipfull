@@ -75,7 +75,7 @@ availability() {
     overlays_read
     needs | awk '{ print $2, $3 }' | sort -u | while read -r kind name; do
         case $kind in
-            overlay) why=$(overlay_check "$name") && why=ok; echo "overlay $name $why" ;;
+            overlay) echo "overlay $name $(overlay_shows "$name")" ;;
             app) [ -f "$USERINIT/apps/$name/application.zip" ] && echo "app $name ok" ||
                      echo "app $name not on the phone" ;;
             service) [ -f "$USERINIT/services/$name/service.sh" ] && echo "service $name ok" ||
@@ -94,6 +94,11 @@ cached_availability() {
     { echo "$key"; availability; } > "$STATE/avail.tmp" && mv -f "$STATE/avail.tmp" "$STATE/avail"
 }
 
+overlays_showing() {
+    cached_availability
+    awk -v word="$1" '$1 == "overlay" && $3 == word && NF == 3 { print $2 }' "$STATE/avail"
+}
+
 plan_state() {
     mkdir -p "$STATE"
     cached_availability
@@ -107,7 +112,7 @@ plan_state() {
         printf 'release-repo\t%s\n' "$RELEASE_REPO"
     fi
     awk -f "$PLAN_AWK" -v mode="$1" -v choices="$CHOICES" -v boot="$BOOT_PLAN" \
-        -v avail="$STATE/avail" -v pending=$pending -v reboot_overlays="$OVERLAYS_AT_BOOT" "$REGISTRY"
+        -v avail="$STATE/avail" -v pending=$pending "$REGISTRY"
 }
 
 cmd_state() { plan_state state; }
@@ -144,9 +149,9 @@ apps_changed() {
     has_line "$1" 'app *' && return 0
     overlays=$(echo "$1" | awk '$1 == "overlay" { print $2 }')
     [ -n "$overlays" ] || return 1
-    overlays_read
+    now=$(overlays_showing now)
     for name in $overlays; do
-        overlay_is_app "$name" && return 0
+        has_line "$now" "$name" && return 0
     done
     return 1
 }
@@ -154,10 +159,9 @@ apps_changed() {
 restart_changed() {
     changed=$(printf '%s\n%s\n' "$1" "$2" | awk '$1 == "feature"' | sort | uniq -u | awk '{ print $2 }' | sort -u)
     [ -n "$changed" ] || return 0
-    apps=$(needs | awk -v ids=" $(echo $changed) " -v restart=" $OVERLAYS_RESTART " '
+    apps=$(needs | awk -v ids=" $(echo $changed) " -v restart=" $(echo $(overlays_showing restart)) " '
         $2 == "overlay" && index(restart, " " $3 " ") && index(ids, " " $1 " ") { print $3 }' | sort -u)
     for app in $apps; do
-        overlay_mounted "$app" || continue
         if sh "$USERINIT/tools/restart.sh" "$app" >/dev/null; then
             echo "restarted $app"
         fi

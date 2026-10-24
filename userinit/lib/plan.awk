@@ -110,7 +110,11 @@ function print_plan(    i, id, c, items, j, seen) {
     }
 }
 
-function work_out_state(    line, w, i, id, c, items, j, b, pend, bad, total, why, sp, r) {
+function works(r) {
+    return r == "" || r == "ok" || r == "now" || r == "restart" || r == "reopen" || r == "boot"
+}
+
+function work_out_state(    line, w, i, id, c, items, j, b, changed, pend, bad, total, why, sp, r) {
     while ((getline line < boot) > 0) {
         split(line, w, " ")
         if (w[1] == "feature")
@@ -134,31 +138,28 @@ function work_out_state(    line, w, i, id, c, items, j, b, pend, bad, total, wh
         st_now[i] = on[id] ? "on" : "off"
         b = (id in at_boot) ? at_boot[id] : "-"
         c = needs(id, items)
-        pend = 0
-        if (st_now[i] != (b == "-" ? "off" : b)) {
-            if (val[id, "reboot"] == "yes")
-                pend = 1
-            for (j = 1; j <= c; j++) {
-                split(items[j], w, " ")
-                if (w[1] == "overlay" && index(" " reboot_overlays " ", " " w[2] " "))
-                    pend = 1
-                else if ((w[1] == "overlay" || w[1] == "hosts" || w[1] == "prefs") &&
-                         ((items[j] in planned) != (items[j] in booted)))
-                    pend = 1
-            }
-        }
+        changed = (st_now[i] != (b == "-" ? "off" : b))
+        pend = (changed && val[id, "reboot"] == "yes")
         total = bad = 0
         why = ""
         for (j = 1; j <= c; j++) {
             total++
+            split(items[j], w, " ")
             r = usable[items[j]]
             if (r == "reboot") {
                 if (on[id])
                     pend = 1
-            } else if (r != "" && r != "ok") {
+            } else if (!works(r)) {
                 bad++
                 if (why == "")
                     why = r
+            } else if (changed && w[1] == "overlay") {
+                if (r == "boot" || ((r == "restart" || r == "reopen") &&
+                                    (items[j] in booted) && !(items[j] in planned)))
+                    pend = 1
+            } else if (changed && (w[1] == "hosts" || w[1] == "prefs") &&
+                       ((items[j] in planned) != (items[j] in booted))) {
+                pend = 1
             }
         }
         reboot_any = reboot_any || pend
@@ -184,7 +185,7 @@ function print_list(    i, id, note) {
         note = st_pend[i] ? "  (after a reboot)" : ""
         if (st_usable[i] != "yes")
             note = note "  - " (st_usable[i] == "no" ? "unusable" : "partly") ": " st_why[i]
-        printf "  [%s] %-20s %s%s\n", st_now[i] == "on" ? "x" : " ", id, val[id, "title"], note
+        printf "  [%s] %-20s %s%s\n", (st_now[i] == "on" ? "x" : " "), id, val[id, "title"], note
     }
     if (reboot_any)
         print "\nSome changes wait for a reboot."

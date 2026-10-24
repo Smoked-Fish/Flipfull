@@ -10,8 +10,6 @@ overlay_target() { readlink -f "$VROOT/$1" 2>/dev/null; }
 
 overlay_is_app() { [ -n "$PRELOADED" ] && ! has_line "$PRELOADED" "$1"; }
 
-overlay_mounted() { same_dir "$USERINIT/overlays/$1" "$(overlay_target "$1")"; }
-
 overlay_check() {
     _src=$USERINIT/overlays/$1
     if [ -e "$_src/disabled" ]; then
@@ -46,4 +44,20 @@ overlay_check() {
     fi
     echo "made for another version of the phone's $1 app"
     return 1
+}
+
+overlay_shows() {
+    _how=$(overlay_check "$1") || { echo "$_how"; return 1; }
+    case $_how in
+        app) echo now ;;
+        mount) echo reboot ;;
+        *)
+            if has_word "$OVERLAYS_AT_BOOT" "$1"; then
+                echo boot
+            elif has_word "$OVERLAYS_RESTART" "$1"; then
+                echo restart
+            else
+                echo reopen
+            fi ;;
+    esac
 }
