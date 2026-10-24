@@ -97,7 +97,9 @@ impl Video {
                 None => (0, 0),
             }
         };
-        for p in &self.picture[first * w..end * w] {
+        let band = &self.picture[first * w..end * w];
+        into.reserve(band.len() * 2);
+        for p in band {
             into.extend_from_slice(&p.to_le_bytes());
         }
         (w, self.height, first, end - first)

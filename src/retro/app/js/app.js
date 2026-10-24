@@ -8,9 +8,10 @@
         list: $('list'), scanning: $('scanning'), games: $('games'),
         screen: $('screen'), fps: $('fps'), status: $('status'), menuItems: $('menu-items'), slotItems: $('slot-items'),
         settingItems: $('setting-items'), settingAbout: $('setting-about'), keyItems: $('key-items'),
-        keysHint: $('keys-hint'), toast: $('toast'),
+        keysHint: $('keys-hint'), toast: $('toast'), dialog: $('dialog'), dialogText: $('dialog-text'),
         softkeys: $('softkeys'), left: $('sk-left'), center: $('sk-center'), right: $('sk-right'),
     };
+    const SCROLL = 40;
     const STATUS_HEIGHT = 22;
     const MENU_KEY = 'SoftLeft';
     const FAST_KEY = 'SoftRight';
@@ -20,14 +21,18 @@
     };
 
     const copy = (o) => JSON.parse(JSON.stringify(o));
+    // localeCompare with options makes a collator every call, slow with a few hundred games
+    const named = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' }).compare;
 
     let view = 'loading';
     let keys = {};
+    let dialogKeys = null;
     let toastTimer = null;
     let statusTimer = null;
     let games = [];
     let scanned = false;
     let folder = '';
+    let listItems = [];
     const folderFocus = {};
     const focus = { list: 0, menu: 0, slots: 0, settings: 0, keys: 0 };
     let current = null;
@@ -38,6 +43,7 @@
     let waitingKey = false;
     let settingsFrom = 'list';
     let keysFrom = 'settings';
+    let wakeLock = null;
     let menu = [];
     let slots = [];
     let saving = false;
@@ -82,7 +88,7 @@
             took(await window.FlipfullRetro.set(key, value));
             return true;
         } catch (e) {
-            toast(`Not changed: ${(e && e.message) || e}`);
+            toast(`Not changed: ${(e && e.message) || e}`, true);
             return false;
         }
     }
@@ -93,8 +99,9 @@
         el.right.textContent = right || '';
     }
 
-    function toast(text) {
+    function toast(text, isError) {
         el.toast.textContent = text;
+        el.toast.classList.toggle('error', !!isError);
         el.toast.classList.add('show');
         clearTimeout(toastTimer);
         toastTimer = setTimeout(() => el.toast.classList.remove('show'), 3000);
@@ -108,6 +115,23 @@
                 el.status.textContent = '';
             }, 3000);
         }
+    }
+
+    function message(text, then) {
+        el.dialogText.textContent = text;
+        el.dialog.classList.add('show');
+        el.dialog.scrollTop = 0;
+        const close = () => {
+            el.dialog.classList.remove('show');
+            dialogKeys = null;
+            if (then) {
+                then();
+            } else {
+                render();
+            }
+        };
+        dialogKeys = { center: close, back: close };
+        softkeys('', 'OK', '');
     }
 
     function row(name, detail, extra) {
@@ -127,13 +151,20 @@
     }
 
     function moveFocus(name, box, step) {
-        const rows = Array.from(box.querySelectorAll('.row'));
+        const rows = box.getElementsByClassName('row');
         if (!rows.length) {
             return;
         }
         focus[name] = step ? (focus[name] + step + rows.length) % rows.length : Math.min(focus[name], rows.length - 1);
-        rows.forEach((r, i) => r.classList.toggle('focus', i === focus[name]));
-        rows[focus[name]].scrollIntoView({ block: 'nearest' });
+        const r = rows[focus[name]];
+        const old = box.querySelector('.row.focus');
+        if (old !== r) {
+            if (old) {
+                old.classList.remove('focus');
+            }
+            r.classList.add('focus');
+        }
+        r.scrollIntoView({ block: 'nearest' });
     }
 
     function show(name, text) {
@@ -179,7 +210,6 @@
                 here.push(g);
             }
         });
-        const named = (a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
         return [...[...folders].sort(named).map((name) => ({ folder: `${folder}${name}/`, name })),
             ...here.sort((a, b) => named(a.title, b.title))];
     }
@@ -193,6 +223,7 @@
 
     function renderList() {
         const items = entries();
+        listItems = items;
         el.barTitle.textContent = folder ? folder.slice(0, -1).replace(/^.*\//, '') : 'GBA';
         el.barCount.textContent = items.length ? String(items.length) : '';
         el.scanning.textContent = scanned ? '' : 'Looking for games…';
@@ -256,7 +287,7 @@
                 failed(e);
             } else {
                 games = [];
-                toast(`The games couldn't be listed: ${(e && e.message) || e}`);
+                toast(`The games couldn't be listed: ${(e && e.message) || e}`, true);
                 if (view === 'list') {
                     renderList();
                 }
@@ -275,8 +306,7 @@
             el.offlineWhy.textContent = e.message;
             show('offline');
         } else {
-            toast((e && e.message) || String(e));
-            show(current ? 'menu' : 'list');
+            message((e && e.message) || String(e));
         }
     }
 
@@ -290,8 +320,9 @@
         show('loading', `Loading ${game.title}…`);
         try {
             const info = await window.FlipfullRetro.load(game.path);
-            player.connect(await window.FlipfullRetro.stream());
-            took(await window.FlipfullRetro.settings());
+            const [url, s] = await Promise.all([window.FlipfullRetro.stream(), window.FlipfullRetro.settings()]);
+            player.connect(url);
+            took(s);
             try {
                 localStorage.setItem('last', game.path);
             } catch (e) {}
@@ -301,7 +332,11 @@
             play();
         } catch (e) {
             current = null;
-            failed(e);
+            if (e && e.offline) {
+                failed(e);
+            } else {
+                message(`${game.title} didn't start: ${(e && (e.message || e.name)) || e}`, () => show('list'));
+            }
         }
     }
 
@@ -311,6 +346,23 @@
         show('play');
         const latency = setting('latency');
         player.play({ latency: latency ? Number(latency.value) : 100 });
+        if (!wakeLock) {
+            try {
+                const b2g = navigator.b2g;
+                wakeLock = b2g && b2g.requestWakeLock ? b2g.requestWakeLock('screen') : null;
+            } catch (e) {
+                wakeLock = null;
+            }
+        }
+    }
+
+    function stopped() {
+        if (wakeLock) {
+            try {
+                wakeLock.unlock();
+            } catch (e) {}
+            wakeLock = null;
+        }
     }
 
     function resume() {
@@ -320,6 +372,7 @@
     }
 
     async function pause() {
+        stopped();
         status('');
         held.clear();
         await player.pause();
@@ -396,7 +449,7 @@
                 focus.slots = newest;
             }
         } catch (e) {
-            toast(`The states couldn't be listed: ${(e && e.message) || e}`);
+            toast(`The states couldn't be listed: ${(e && e.message) || e}`, true);
         }
         if (view === 'slots') {
             renderSlots();
@@ -432,7 +485,7 @@
             play();
             status(`State saved to slot ${slot + 1}`);
         } catch (e) {
-            failed(e);
+            message(`The state wasn't saved: ${(e && (e.message || e.name)) || e}`, openMenu);
         }
     }
 
@@ -443,7 +496,7 @@
             play();
             status(`State ${slot + 1} loaded`);
         } catch (e) {
-            failed(e);
+            message(`The state didn't load: ${(e && (e.message || e.name)) || e}`, openMenu);
         }
     }
 
@@ -590,7 +643,7 @@
             waitingKey = false;
         } else if (!(key in k.codes)) {
             if (key === MENU_KEY) {
-                toast('The left soft key pauses. Press another key.');
+                toast('The left soft key pauses. Press another key.', true);
             }
             return;
         } else {
@@ -645,34 +698,37 @@
     }
 
     function onKeyDown(e) {
-        if (view === 'play') {
+        if (view === 'play' && !dialogKeys) {
             if (gameKey(e, true)) {
                 e.preventDefault();
             }
             return;
         }
-        if (view === 'keys' && waitingKey) {
+        if (view === 'keys' && waitingKey && !dialogKeys) {
             e.preventDefault();
             setKey(e.key);
             return;
         }
+        const k = dialogKeys || keys;
         let handled = true;
         switch (e.key) {
             case 'SoftLeft':
-                if (keys.left) keys.left();
+                if (k.left) k.left();
                 break;
             case 'SoftRight':
-                if (keys.right) keys.right();
+                if (k.right) k.right();
                 break;
             case 'Enter':
-                if (keys.center) keys.center();
+                if (k.center) k.center();
                 break;
             case 'ArrowUp':
             case 'ArrowDown': {
                 const by = e.key === 'ArrowUp' ? -1 : 1;
-                if (view === 'list') {
+                if (dialogKeys) {
+                    el.dialog.scrollTop += by * SCROLL;
+                } else if (view === 'list') {
                     moveFocus('list', el.games, by);
-                    listSoftkeys(entries());
+                    listSoftkeys(listItems);
                 } else if (view === 'menu') {
                     moveFocus('menu', el.menuItems, by);
                 } else if (view === 'slots') {
@@ -688,7 +744,7 @@
             }
             case 'ArrowLeft':
             case 'ArrowRight':
-                if (view === 'settings' && settingRows()[focus.settings] !== KEYS_ROW) {
+                if (view === 'settings' && !dialogKeys && settingRows()[focus.settings] !== KEYS_ROW) {
                     step(e.key === 'ArrowLeft' ? -1 : 1);
                 } else {
                     handled = false;
@@ -696,8 +752,8 @@
                 break;
             case 'Backspace':
             case 'GoBack':
-                if (keys.back) {
-                    keys.back();
+                if (k.back) {
+                    k.back();
                 } else {
                     handled = view === 'loading';
                 }
@@ -711,7 +767,7 @@
     }
 
     function onKeyUp(e) {
-        if (view === 'play' && gameKey(e, false)) {
+        if (view === 'play' && !dialogKeys && gameKey(e, false)) {
             e.preventDefault();
         }
     }
@@ -719,10 +775,13 @@
     function begin() {
         player = new window.RetroPlayer(el.screen, {
             failed: (e) => {
+                stopped();
                 if (e && e.offline) {
                     current = null;
+                    failed(e);
+                } else {
+                    message(`The game stopped: ${(e && e.message) || e}`, openMenu);
                 }
-                failed(e);
             },
         });
         connect();
@@ -773,7 +832,7 @@
         }
         show('loading');
         const r = window.FlipfullRetro;
-        r.info().then(() => Promise.all([r.stream(), r.settings().then(migrate)])).then(([url, s]) => {
+        Promise.all([r.stream(), r.settings().then(migrate)]).then(([url, s]) => {
             took(s);
             player.connect(url);
             rescan();

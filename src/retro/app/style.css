@@ -4,6 +4,7 @@
     --purple: #8000ff;
     --purple-light: #b366ff;
     --amber: #ffc36b;
+    --error: #ff6b81;
 }
 
 * {
@@ -258,6 +259,33 @@ body[data-view="settings"] #settings {
 
 #toast.show {
     display: block;
+}
+
+#toast.error {
+    color: var(--error);
+}
+
+#dialog {
+    display: none;
+    position: absolute;
+    top: 2.4rem;
+    bottom: 2.8rem;
+    left: 0;
+    right: 0;
+    padding: 1rem;
+    overflow-y: auto;
+    background: #000;
+}
+
+#dialog.show {
+    display: block;
+}
+
+#dialog-text {
+    margin: 0;
+    font-size: 1.45rem;
+    line-height: 2rem;
+    white-space: pre-wrap;
 }
 
 #softkeys {

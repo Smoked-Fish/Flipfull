@@ -75,12 +75,18 @@ pub struct Request {
 
 pub fn request(stream: &mut TcpStream) -> io::Result<Request> {
     let mut head = Vec::new();
-    let mut byte = [0u8; 1];
+    let mut buf = [0u8; 1024];
     while !head.ends_with(b"\r\n\r\n") {
-        if head.len() >= MAX_REQUEST || stream.read(&mut byte)? == 0 {
+        let n = if head.len() >= MAX_REQUEST { 0 } else { stream.peek(&mut buf)? };
+        if n == 0 {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "no request"));
         }
-        head.push(byte[0]);
+        let kept = head.len().min(3);
+        let mut seen = head[head.len() - kept..].to_vec();
+        seen.extend_from_slice(&buf[..n]);
+        let take = seen.windows(4).position(|w| w == b"\r\n\r\n").map_or(n, |at| at + 4 - kept);
+        stream.read_exact(&mut buf[..take])?;
+        head.extend_from_slice(&buf[..take]);
     }
     let head = String::from_utf8_lossy(&head);
     let mut lines = head.split("\r\n");
