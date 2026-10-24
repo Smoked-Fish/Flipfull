@@ -1,4 +1,3 @@
-
 use std::fs::{self, File};
 use std::io::Read;
 use std::os::unix::fs::PermissionsExt;
@@ -63,17 +62,12 @@ fn role(stream: &UnixStream) -> Result<Role, Option<u32>> {
     uid.and_then(|u| Role::of_uid(u, &registry)).ok_or(uid)
 }
 
-fn answer(stream: &mut UnixStream, ok: bool, text: impl Into<String>) {
-    let _ = Answer::Text { ok, text: text.into() }.send(stream);
-}
-
 fn output(path: &str, args: &[String]) -> std::io::Result<(ExitStatus, Vec<u8>)> {
     let mut fds = [0 as RawFd; 2];
     if unsafe { libc::pipe2(fds.as_mut_ptr(), libc::O_CLOEXEC) } < 0 {
         return Err(std::io::Error::last_os_error());
     }
     let (mut read, write) = unsafe { (File::from_raw_fd(fds[0]), OwnedFd::from_raw_fd(fds[1])) };
-    // the Command and its copy of the write end drop here, otherwise the read never ends
     let mut child = Command::new("/system/bin/sh")
         .arg(path)
         .args(args)
@@ -88,7 +82,7 @@ fn output(path: &str, args: &[String]) -> std::io::Result<(ExitStatus, Vec<u8>)>
     Ok((status, text))
 }
 
-fn run_script(stream: &mut UnixStream, script: &Script) {
+fn run_script(script: &Script) -> Answer {
     let path = format!("{}/{}", USERINIT, script.file());
     let args = script.words();
     match output(&path, args) {
@@ -98,11 +92,11 @@ fn run_script(stream: &mut UnixStream, script: &Script) {
                 text.pop();
             }
             text.push(b'\n');
-            answer(stream, status.success(), String::from_utf8_lossy(&text))
+            Answer::Text { ok: status.success(), text: String::from_utf8_lossy(&text).into_owned() }
         }
         Err(e) => {
             log(&format!("{} {}: {}", script.name(), args[0], e));
-            answer(stream, false, format!("couldn't run {}: {}\n", path, e))
+            Answer::error(format!("couldn't run {}: {}", path, e))
         }
     }
 }
@@ -119,7 +113,6 @@ fn record(stream: UnixStream, file: File) {
             .stdin(Stdio::from(OwnedFd::from(input)))
             .stdout(Stdio::from(OwnedFd::from(output)))
             .pre_exec(move || {
-                // dup2 onto itself keeps FD_CLOEXEC
                 let r = if fd == 3 { libc::fcntl(3, libc::F_SETFD, 0) } else { libc::dup2(fd, 3) };
                 if r < 0 {
                     return Err(std::io::Error::last_os_error());
@@ -140,28 +133,31 @@ fn record(stream: UnixStream, file: File) {
     }
 }
 
+fn request(stream: &mut UnixStream) -> Result<Request, String> {
+    let role = role(stream).map_err(|uid| {
+        log(&format!("refused uid {:?}", uid));
+        "Only Flipfull's services".to_string()
+    })?;
+    let request = Request::read(stream)?;
+    if role.allows(&request) {
+        Ok(request)
+    } else {
+        Err("Not a command".into())
+    }
+}
+
 fn handle(mut stream: UnixStream) {
     let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
-    let role = match role(&stream) {
-        Ok(role) => role,
-        Err(uid) => {
-            log(&format!("refused uid {:?}", uid));
-            return answer(&mut stream, false, "Only Flipfull's services\n");
-        }
-    };
-    let request = match Request::read(&mut stream) {
-        Ok(r) => r,
-        Err(why) => return answer(&mut stream, false, format!("{}\n", why)),
-    };
-    if !role.allows(&request) {
-        return answer(&mut stream, false, "Not a command\n");
-    }
-    match request {
-        Request::Script(script) => run_script(&mut stream, &script),
-        Request::Record(file) => {
+    let answer = match request(&mut stream) {
+        Ok(Request::Record(file)) => {
             let _ = stream.set_read_timeout(None);
-            record(stream, file)
+            return record(stream, file);
         }
+        Ok(Request::Script(script)) => Ok(run_script(&script)),
+        Err(why) => Err(why),
+    };
+    if let Err(e) = answer.unwrap_or_else(Answer::error).send(&mut stream) {
+        log(&format!("answer: {}", e));
     }
 }
 

@@ -150,6 +150,14 @@ fn decode(line: &str, fd: Option<OwnedFd>) -> Result<Request, String> {
 }
 
 impl Answer {
+    pub fn ok(text: impl Into<String>) -> Answer {
+        Answer::Text { ok: true, text: text.into() }
+    }
+
+    pub fn error(why: impl std::fmt::Display) -> Answer {
+        Answer::Text { ok: false, text: format!("{}\n", why) }
+    }
+
     pub fn send(&self, stream: &mut UnixStream) -> io::Result<()> {
         match self {
             Answer::Text { ok, text } => {
