@@ -9,7 +9,7 @@ MOUNTED="$USERINIT/state/overlays-mounted"
 overlays_read
 
 PLANNED=$(awk '$1 == "overlay" { print $2 }' "$BOOT_PLAN" 2>/dev/null)
-is_line "$PLANNED" system && PLANNED="system $PLANNED"
+has_line "$PLANNED" system && PLANNED="system $PLANNED"
 
 TODO=""
 NOW=""

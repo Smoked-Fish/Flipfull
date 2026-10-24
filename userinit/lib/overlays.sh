@@ -8,7 +8,7 @@ overlays_read() {
 
 overlay_target() { readlink -f "$VROOT/$1" 2>/dev/null; }
 
-overlay_is_app() { [ -n "$PRELOADED" ] && ! is_line "$PRELOADED" "$1"; }
+overlay_is_app() { [ -n "$PRELOADED" ] && ! has_line "$PRELOADED" "$1"; }
 
 overlay_mounted() { same_dir "$USERINIT/overlays/$1" "$(overlay_target "$1")"; }
 

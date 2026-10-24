@@ -62,7 +62,7 @@ detach_cgroup() {
     if echo "$2" > "$cg/cgroup.procs" 2>/dev/null; then
         log "pid $2 moved to $cg so init won't reap it"
     else
-        log "WARNING: could not move pid $2 out of the userinit cgroup - init will kill it at the end of the stage"
+        log "WARNING: could not move pid $2 out of the userinit cgroup, init will kill it at the end of the stage"
     fi
 }
 
@@ -84,12 +84,18 @@ remote_status() {
     fi
 }
 
-is_line() {
+# whether a line of $1 matches the case pattern $2, without starting a grep, ugly
+has_line() {
     case "
 $1
 " in *"
-$2
+"$2"
 "*) return 0 ;; esac
+    return 1
+}
+
+has_word() {
+    case " $1 " in *" $2 "*) return 0 ;; esac
     return 1
 }
 

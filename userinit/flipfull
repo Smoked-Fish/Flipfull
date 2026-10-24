@@ -128,28 +128,20 @@ cmd_set() {
     after=$(plan)
     publish "$after" || echo "error: couldn't write features.js in $(http_root)"
     changed=$(printf '%s\n%s\n' "$before" "$after" | sort | uniq -u)
-    if has_line "$changed" 'service '; then
+    if has_line "$changed" 'service *'; then
         reconcile_services "$after"
     fi
     if apps_changed "$changed"; then
         reconcile_apps "$after"
     fi
-    if has_line "$changed" 'feature ostore '; then
+    if has_line "$changed" 'feature ostore *'; then
         reconcile_store "$after"
     fi
     restart_changed "$before" "$after"
 }
 
-# whether a line of $1 starts with $2, without starting a grep, ugly
-has_line() {
-    case "
-$1" in *"
-$2"*) return 0 ;; esac
-    return 1
-}
-
 apps_changed() {
-    has_line "$1" 'app ' && return 0
+    has_line "$1" 'app *' && return 0
     overlays=$(echo "$1" | awk '$1 == "overlay" { print $2 }')
     [ -n "$overlays" ] || return 1
     overlays_read
@@ -182,7 +174,7 @@ reconcile_services() {
         d=${s%/service.sh}
         name=${d##*/}
         want=0
-        if [ "$name" = toolbox ] || echo "$wanted_plan" | grep -qx "service $name"; then
+        if [ "$name" = toolbox ] || has_line "$wanted_plan" "service $name"; then
             want=1
         fi
         [ -e "$d/disabled" ] && want=0
@@ -190,7 +182,7 @@ reconcile_services() {
             if [ $want = 0 ]; then
                 sh "$s" stop >/dev/null 2>&1
                 echo "stopped $name"
-            elif echo " $* " | grep -q " $name "; then
+            elif has_word "$*" "$name"; then
                 sh "$s" restart >/dev/null 2>&1 && echo "restarted $name" || echo "error: $name didn't start again"
             fi
         elif [ $want = 1 ]; then
@@ -227,10 +219,10 @@ reconcile_apps() {
         installed=0
         case $list in *"$url"*) installed=1 ;; esac
         want=0
-        if [ "$name" = flipfull ] || echo "$wanted_plan" | grep -qx "app $name"; then
+        if [ "$name" = flipfull ] || has_line "$wanted_plan" "app $name"; then
             want=1
         fi
-        if [ $want = 1 ] && { [ $installed = 0 ] || echo " $* " | grep -q " $name "; }; then
+        if [ $want = 1 ] && { [ $installed = 0 ] || has_word "$*" "$name"; }; then
             app_install "$name"
         elif [ $want = 0 ] && [ $installed = 1 ]; then
             apps_ok "$(apps_cmd uninstall "$url")" && echo "uninstalled $name" || echo "error: $name didn't uninstall"
@@ -240,7 +232,7 @@ reconcile_apps() {
     names=$(installed_names "$list")
     for app in $(echo "$wanted_plan" | awk '$1 == "overlay" { print $2 }'); do
         [ "$(overlay_check "$app")" = app ] || continue
-        if ! is_line "$names" "$app" || echo " $* " | grep -q " $app "; then
+        if ! has_line "$names" "$app" || has_word "$*" "$app"; then
             install_zip "$USERINIT/overlays/$app/application.zip" "$app"
         fi
     done
