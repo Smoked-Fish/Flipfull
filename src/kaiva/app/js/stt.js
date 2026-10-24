@@ -130,9 +130,7 @@
     out.setUint16(34, 16, true);
     tag(36, 'data');
     out.setUint32(40, pcm.length * 2, true);
-    for (let i = 0; i < pcm.length; i++) {
-      out.setInt16(44 + i * 2, pcm[i], true);
-    }
+    new Int16Array(out.buffer, 44).set(pcm); // copy the samples as they are
     return new Blob([out.buffer], { type: 'audio/wav' });
   }
 

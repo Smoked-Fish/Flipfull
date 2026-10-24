@@ -1,86 +1,85 @@
 <!DOCTYPE html>
 <html lang="en-US" dir="ltr">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1">
-  <meta name="theme-color" content="#000000">
-  <title>Flipfull</title>
-  <link rel="stylesheet" href="style.css">
-  <script defer src="http://127.0.0.1/api/v1/shared/core.js"></script>
-  <script defer src="http://127.0.0.1/api/v1/shared/session.js"></script>
-  <script defer src="http://127.0.0.1/flipfull/bridge.js"></script>
-  <script defer src="js/model.js"></script>
-  <script defer src="js/app.js"></script>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, user-scalable=no, initial-scale=1">
+    <meta name="theme-color" content="#000000">
+    <title>Flipfull</title>
+    <link rel="stylesheet" href="style.css">
+    <script defer src="js/model.js"></script>
+    <script defer src="js/app.js"></script>
+    <script defer src="http://127.0.0.1/api/v1/shared/core.js"></script>
+    <script defer src="http://127.0.0.1/api/v1/shared/session.js"></script>
+    <script defer src="http://127.0.0.1/flipfull/bridge.js"></script>
 </head>
 <body data-view="loading">
-  <header id="bar"><span id="bar-title"></span><span id="bar-count"></span></header>
-  <main>
+<header id="bar"><span id="bar-title"></span><span id="bar-count"></span></header>
+<main>
     <section id="loading"><p class="text">Loading…</p></section>
 
     <section id="offline">
-      <p class="text">Flipfull's service on the phone isn't answering. It starts
-        when the phone starts: reboot, and if that doesn't help, install
-        Flipfull again.</p>
-      <p class="text muted" id="offline-why"></p>
+        <p class="text">Flipfull's service on the phone isn't answering.
+            It starts when the phone starts: reboot, and if that doesn't help, install Flipfull again.</p>
+        <p class="text muted" id="offline-why"></p>
     </section>
 
     <section id="list">
-      <p class="notice" id="notice"></p>
-      <div id="features"></div>
+        <p class="notice" id="notice"></p>
+        <div id="features"></div>
     </section>
 
-    <section id="menu"><div id="menu-items"></div></section>
+    <section id="menu">
+        <div id="menu-items"></div>
+    </section>
 
     <section id="removable">
-      <p class="hint">The apps the phone came with. Turn one on to make it
-        uninstallable: after the next reboot, uninstall it from the app list's
-        Options.</p>
-      <div id="removable-items"></div>
+        <p class="hint">The apps the phone came with. Requires a restart before they can be uninstalled.</p>
+        <div id="removable-items"></div>
     </section>
 
     <section id="google">
-      <p class="text">Google blocks KaiOS's own sign-in. With a sign-in client
-        of your own, Settings &gt; Accounts can add a Google account again.</p>
-      <p class="text" id="google-client"></p>
-      <ol class="text muted">
-        <li>In a Google Cloud project, turn on the People, Calendar and Gmail
-          APIs and add the scopes userinfo.email, contacts, calendar and
-          https://mail.google.com/. Publish the app.</li>
-        <li>Create an OAuth client of the type Web application, with the
-          redirect URI http://localhost/redirect/loginpages/redirect.html, and
-          download its JSON.</li>
-        <li>Copy the client_secret…json file to the phone's storage or SD card
-          and press Import.</li>
-        <li>Turn on Google accounts and reboot. When adding the account, go on
-          past "Google hasn't verified this app".</li>
-      </ol>
+        <p class="text">Google blocks signing in from KaiOS. You can fix this by adding your own client.</p>
+        <p class="text" id="google-client"></p>
+        <ol class="text muted">
+            <li>In a Google Cloud project, turn on the People, Calendar and Gmail APIs and add the scopes
+                userinfo.email,
+                contacts, calendar and https://mail.google.com/. Publish the app.
+            </li>
+            <li>Create an OAuth client of the type Web application, with the redirect URI
+                http://localhost/redirect/loginpages/redirect.html, and download its JSON.
+            </li>
+            <li>Copy the client_secret…json file to the phone's storage or SD card and press Import.</li>
+        </ol>
     </section>
 
-    <section id="log"><pre id="log-text"></pre></section>
+    <section id="log">
+        <pre id="log-text"></pre>
+    </section>
 
     <section id="update">
-      <p class="text" id="update-text"></p>
-      <p class="text muted" id="update-notes"></p>
-      <pre id="update-log"></pre>
+        <p class="text" id="update-text"></p>
+        <p class="text muted" id="update-notes"></p>
+        <pre id="update-log"></pre>
     </section>
 
     <section id="about">
-      <p class="text">Flipfull customizes this phone. Each feature can be
-        turned on and off here; the ones that change the system apply when
-        the phone restarts.</p>
-      <p class="text muted" id="about-version"></p>
-      <p class="text muted" id="about-hook"></p>
+        <p class="text">Flipfull is a collection of changes I've made for my own phone.
+            Each feature can be turned on and off here.</p>
+        <p class="text muted" id="about-version"></p>
+        <p class="text muted">By Espy: github.com/Smoked-Fish/Flipfull</p>
+        <p class="text muted" id="about-hook"></p>
     </section>
-  </main>
+</main>
 
-  <div id="toast" role="status"></div>
-  <div id="dialog" role="alertdialog"><h1 id="dialog-title"></h1><p id="dialog-text"></p></div>
+<div id="toast" role="status"></div>
+<div id="dialog" role="alertdialog"><h1 id="dialog-title"></h1>
+    <p id="dialog-text"></p></div>
 
-  <footer id="softkeys">
+<footer id="softkeys">
     <span id="sk-left"></span>
     <span id="sk-center"></span>
     <span id="busy"></span>
     <span id="sk-right"></span>
-  </footer>
+</footer>
 </body>
 </html>

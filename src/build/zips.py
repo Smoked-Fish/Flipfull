@@ -1,6 +1,8 @@
 import fnmatch
 import hashlib
+import re
 import shutil
+import subprocess
 import zipfile
 
 from .errors import BuildError, PatchError
@@ -86,14 +88,36 @@ def apply_edits(name, path, text, edits):
     return text
 
 
-def build_app(name, folder):
+def release_version():
+    try:
+        tag = subprocess.run(["git", "-C", str(ROOT), "describe", "--tags", "--abbrev=0"],
+                             capture_output=True, text=True, encoding="utf-8", errors="replace").stdout.strip()
+    except OSError:
+        return None
+    m = re.fullmatch(r"v?(\d+(?:\.\d+)*)", tag)
+    return m.group(1) if m else None
+
+
+def with_version(manifest, version):
+    text, n = re.subn(r'("version"\s*:\s*")[^"]*(")', rf"\g<1>{version}\g<2>", manifest.decode("utf-8"), count=1)
+    if not n:
+        raise BuildError("the manifest has no version")
+    return text.encode("utf-8")
+
+
+def build_app(name, folder, released=False):
     out = USERINIT / "apps" / name
     out.mkdir(parents=True, exist_ok=True)
     zip_out = out / "application.zip"
+    manifest = (folder / "manifest.webmanifest").read_bytes()
+    version = release_version() if released else None
+    if version:
+        manifest = with_version(manifest, version)
     with zipfile.ZipFile(zip_out, "w", zipfile.ZIP_DEFLATED) as z:
         for path in sorted(folder.rglob("*")):
             if path.is_file():
-                z.writestr(zip_entry(path.relative_to(folder).as_posix()), path.read_bytes(),
-                           compress_type=zipfile.ZIP_DEFLATED)
-    shutil.copyfile(folder / "manifest.webmanifest", out / "manifest.webmanifest")
-    print(f"{name:10} -> {zip_out.relative_to(ROOT)}")
+                rel = path.relative_to(folder).as_posix()
+                data = manifest if rel == "manifest.webmanifest" else path.read_bytes()
+                z.writestr(zip_entry(rel), data, compress_type=zipfile.ZIP_DEFLATED)
+    (out / "manifest.webmanifest").write_bytes(manifest)
+    print(f"{name:10} -> {zip_out.relative_to(ROOT)}{f' (version {version})' if version else ''}")

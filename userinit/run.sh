@@ -9,14 +9,19 @@ STAGE="$1"
 
 log() { echo "$*" >> "$LOG"; }
 
-uptime_s() { cut -d' ' -f1 /proc/uptime; }
+uptime_s() { read -r _up _ < /proc/uptime; echo "$_up"; }
 
 log_duration() {
     # $1 = script name, $2 = start uptime seconds
-    _start=$2
     _end=$(uptime_s)
-    _dur=$(awk -v a="$_start" -v b="$_end" 'BEGIN { printf "%.2f", b - a }')
-    log "-- $1 took ${_dur}s"
+    _s=$((${_end%.*} - ${2%.*}))
+    _c=$((1${_end#*.} - 1${2#*.}))
+    if [ "$_c" -lt 0 ]; then
+        _c=$((_c + 100))
+        _s=$((_s - 1))
+    fi
+    [ "$_c" -lt 10 ] && _c=0$_c
+    log "-- $1 took ${_s}.${_c}s"
 }
 
 if [ -f "$LOG" ]; then

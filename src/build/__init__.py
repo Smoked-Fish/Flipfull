@@ -34,7 +34,7 @@ APPS = {
 
 TARGETS = {
     **{name: partial(zips.build_overlay, name, overlay) for name, overlay in OVERLAYS.items()},
-    **{name: partial(zips.build_app, name, folder) for name, folder in APPS.items()},
+    **{name: partial(zips.build_app, name, folder, released=name == "flipfull") for name, folder in APPS.items()},
 }
 
 

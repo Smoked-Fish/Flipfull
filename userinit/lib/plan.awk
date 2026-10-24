@@ -110,7 +110,11 @@ function print_plan(    i, id, c, items, j, seen) {
     }
 }
 
-function print_state(    line, w, i, id, c, items, j, b, now, pend, bad, total, why, any, sp, r) {
+function works(r) {
+    return r == "" || r == "ok" || r == "now" || r == "restart" || r == "reopen" || r == "boot"
+}
+
+function work_out_state(    line, w, i, id, c, items, j, b, changed, pend, bad, total, why, sp, r) {
     while ((getline line < boot) > 0) {
         split(line, w, " ")
         if (w[1] == "feature")
@@ -128,48 +132,68 @@ function print_state(    line, w, i, id, c, items, j, b, now, pend, bad, total, 
     }
     close(avail)
 
-    any = pending
+    reboot_any = pending
     for (i = 1; i <= n; i++) {
         id = ids[i]
-        now = on[id] ? "on" : "off"
+        st_now[i] = on[id] ? "on" : "off"
         b = (id in at_boot) ? at_boot[id] : "-"
         c = needs(id, items)
-        pend = 0
-        if (now != (b == "-" ? "off" : b)) {
-            if (val[id, "reboot"] == "yes")
-                pend = 1
-            for (j = 1; j <= c; j++) {
-                split(items[j], w, " ")
-                if (items[j] == "overlay system")
-                    pend = 1
-                else if ((w[1] == "overlay" || w[1] == "hosts" || w[1] == "prefs") &&
-                         ((items[j] in planned) != (items[j] in booted)))
-                    pend = 1
-            }
-        }
-        any = any || pend
+        changed = (st_now[i] != (b == "-" ? "off" : b))
+        pend = (changed && val[id, "reboot"] == "yes")
         total = bad = 0
         why = ""
         for (j = 1; j <= c; j++) {
             total++
+            split(items[j], w, " ")
             r = usable[items[j]]
-            if (r != "" && r != "ok") {
+            if (r == "reboot") {
+                if (on[id])
+                    pend = 1
+            } else if (!works(r)) {
                 bad++
                 if (why == "")
                     why = r
+            } else if (changed && w[1] == "overlay") {
+                if (r == "boot" || ((r == "restart" || r == "reopen") &&
+                                    (items[j] in booted) && !(items[j] in planned)))
+                    pend = 1
+            } else if (changed && (w[1] == "hosts" || w[1] == "prefs") &&
+                       ((items[j] in planned) != (items[j] in booted))) {
+                pend = 1
             }
         }
-        state[i] = id "\t" now "\t" b "\t" (pend ? "yes" : "no") "\t" \
-                   (bad == 0 ? "yes" : bad == total ? "no" : "partly") "\t" why
+        reboot_any = reboot_any || pend
+        st_boot[i] = b
+        st_pend[i] = pend
+        st_usable[i] = bad == 0 ? "yes" : bad == total ? "no" : "partly"
+        st_why[i] = why
     }
-    print "reboot\t" (any ? "yes" : "no")
+}
+
+function print_state(    i) {
+    print "reboot\t" (reboot_any ? "yes" : "no")
     for (i = 1; i <= n; i++)
-        print "feature\t" state[i]
+        print "feature\t" ids[i] "\t" st_now[i] "\t" st_boot[i] "\t" (st_pend[i] ? "yes" : "no") "\t" \
+              st_usable[i] "\t" st_why[i]
+}
+
+function print_list(    i, id, note) {
+    for (i = 1; i <= n; i++) {
+        id = ids[i]
+        if (val[id, "section"] != "")
+            print "\n" val[id, "section"]
+        note = st_pend[i] ? "  (after a reboot)" : ""
+        if (st_usable[i] != "yes")
+            note = note "  - " (st_usable[i] == "no" ? "unusable" : "partly") ": " st_why[i]
+        printf "  [%s] %-20s %s%s\n", (st_now[i] == "on" ? "x" : " "), id, val[id, "title"], note
+    }
+    if (reboot_any)
+        print "\nSome changes wait for a reboot."
 }
 
 BEGIN {
-    NKINDS = split("overlays hosts prefs services apps", KEY, " ")
-    split("overlay hosts prefs service app", KIND, " ")
+    NKINDS = split("overlays hosts prefs services apps remote", KEY, " ")
+    split("overlay hosts prefs service app remote", KIND, " ")
     if (mode == "")
         mode = "plan"
 }
@@ -218,9 +242,13 @@ END {
         for (i = 1; i <= n; i++)
             if ((ids[i] in also) && !(ids[i] in asked))
                 print "also", ids[i], also[ids[i]]
-    } else if (mode == "state") {
+    } else if (mode == "state" || mode == "list") {
         make_plan()
-        print_state()
+        work_out_state()
+        if (mode == "state")
+            print_state()
+        else
+            print_list()
     } else {
         resolve()
         print_plan()

@@ -22,12 +22,4 @@ function file(rec) {
   return next(0);
 }
 
-window.FlipfullCallrecService = {
-  start() {
-    return callrec.call((svc) => svc.start(), START);
-  },
-  stop() {
-    return callrec.call((svc) => svc.stop(), STOP);
-  },
-  file,
-};
+window.FlipfullCallrecService = Object.assign(callrec.methods({ start: START, stop: STOP }), { file });

@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["common", "bridge", "callrec", "speech", "retro", "toolboxd"]
+members = ["common", "bridge", "callrec", "speech", "retro", "toolbox", "toolboxd"]
 
 [patch.crates-io]
 actix = {git = "https://github.com/fabricedesre/actix.git", branch = "parking-lot-0.12"}

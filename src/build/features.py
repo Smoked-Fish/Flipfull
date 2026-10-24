@@ -2,20 +2,24 @@ import configparser
 import re
 
 from .errors import BuildError
-from .paths import USERINIT
+from .paths import SRC, USERINIT
 
 
 def check_features(overlays, apps):
     ini = configparser.ConfigParser(interpolation=None)
     ini.read(USERINIT / "features.ini", encoding="utf-8")
+    remote = configparser.ConfigParser(interpolation=None)
+    remote.read(SRC / "remote" / "services.ini", encoding="utf-8")
     exists = {
         "overlays": lambda n: n in overlays,
         "apps": lambda n: n in apps,
         "services": lambda n: (USERINIT / "services" / n / "service.sh").is_file(),
         "hosts": lambda n: (USERINIT / "etc" / "hosts.d" / f"{n}.hosts").is_file(),
         "prefs": lambda n: (USERINIT / "etc" / "prefs.d" / f"{n}.js").is_file(),
+        "remote": remote.has_section,
     }
     bad = [problem for fid in ini.sections() for problem in feature_problems(ini, fid, exists)]
+    bad += remote_problems(ini, remote)
     if not ini.sections():
         bad.append("no features")
     if bad:
@@ -48,6 +52,22 @@ def feature_problems(ini, fid, exists):
         for name in requires:
             if name in ini and is_dev(ini[name]):
                 yield f"[{fid}] requires: {name} is a dev feature, releases leave it out"
+
+
+def remote_problems(ini, remote):
+    admits = {(feature, name)
+              for name in remote.sections()
+              for _, feature in (pair.split() for pair in remote[name].get("admits", "").split(","))
+              if feature != "always"}
+    needs = {(fid, name) for fid in ini.sections() for name in ini[fid].get("remote", "").split()}
+    for feature, name in sorted(admits - needs):
+        if ini.has_section(feature):
+            yield f"[{feature}] remote: services.ini's {name} lets an origin in for it, so it needs {name}"
+        else:
+            yield f"src/remote/services.ini [{name}] admits: there's no feature {feature}"
+    for fid, name in sorted(needs - admits):
+        if remote.has_section(name):
+            yield f"[{fid}] remote: services.ini's {name} lets no origin in for it"
 
 
 def is_dev(feature):

@@ -46,8 +46,6 @@ flipfull_apps() {
 
 store_name_ok() { case $1 in ''|-*|*[!a-z0-9.-]*) return 1 ;; esac; }
 
-# an https URL made of the characters toolboxd passes on; no forks
-# (the charset sits in a variable: & and ; can't appear in a case pattern)
 store_url_ok() {
     bad='*[!A-Za-z0-9._~:/?#@!$&+,;=%-]*'
     case $1 in
@@ -175,7 +173,7 @@ store_install_pwa() {
     rm -rf "$STORE_DIR" && mkdir -p "$STORE_DIR" && chmod 0700 "$STORE_DIR" || die "can't write $STORE_DIR"
     m=$STORE_DIR/pwa.webmanifest
     why=$(store_fetch "$1" "$m" 1048576 60) || die "couldn't download $1: $why"
-    grep -q '\\u' "$m" && die "the manifest has \\u escapes; Flipfull can't check which app it is"
+    grep -q '\\u' "$m" && die "the manifest has \\u escapes. Flipfull can't check which app it is"
     names=$(store_names "$m") || exit 1
     store_names_free "$names" "$STORE_PROTECTED"
     r=$(apps_cmd install-pwa "$1")
@@ -248,12 +246,13 @@ store_installed() {
     return $rc
 }
 
-# cached by the apps database and the records file, both of which change on
-# every install, update and uninstall
 store_installed_cached() {
     mkdir -p "$STATE"
-    key="# $(cat /proc/sys/kernel/random/boot_id) $(stat -c %Y "$APPS_DB" "$APPS_DB-wal" "$STORE_RECORDS" 2>/dev/null | tr '\n' ' ')"
-    if [ "$(head -1 "$STATE/store-inst" 2>/dev/null)" = "$key" ]; then
+    read -r boot < /proc/sys/kernel/random/boot_id
+    key="# $boot $(stat -c %Y "$APPS_DB" "$APPS_DB-wal" "$STORE_RECORDS" 2>/dev/null | tr '\n' ' ')"
+    first=
+    [ -f "$STATE/store-inst" ] && IFS= read -r first < "$STATE/store-inst"
+    if [ "$first" = "$key" ]; then
         tail -n +2 "$STATE/store-inst"
         return 0
     fi
@@ -263,7 +262,6 @@ store_installed_cached() {
     printf '%s\n' "$out"
 }
 
-# is the ostore feature on? plan's lines, matched whole, without a grep
 store_feature_on() {
     case "
 $(plan)

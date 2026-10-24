@@ -1,11 +1,7 @@
 use crate::generated::common::*;
 use crate::generated::service::*;
-use common::core::BaseMessage;
-use common::traits::{
-    EmptyConfig, EmptyState, OriginAttributes, Service, SessionSupport, Shared, SharedServiceState,
-    SharedSessionContext,
-};
-use flipfull_remote::{feature_on, own_dir, record};
+use common::traits::{EmptyConfig, EmptyState, Shared, SharedServiceState};
+use flipfull_remote::{own_dir, settle};
 use log::info;
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
@@ -15,6 +11,7 @@ use std::path::PathBuf;
 use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::thread;
 use std::time::Duration;
+use toolbox::Request;
 
 const START_TIMEOUT: Duration = Duration::from_secs(20);
 const STOP_TIMEOUT: Duration = Duration::from_secs(30);
@@ -76,7 +73,9 @@ fn start() -> Result<(), Failure> {
     }
     state.last = None;
     let file = new_file().map_err(|e| failure(format!("can't make the recording's file: {}", e)))?;
-    let stream = record(&file).map_err(|why| Failure { message: why, offline: true })?;
+    let stream = flipfull_remote::ask(&Request::Record(file), None)
+        .and_then(|answer| answer.handed_over())
+        .map_err(|why| Failure { message: why, offline: true })?;
     let read = stream.try_clone().map_err(|e| failure(e.to_string()))?;
     read.set_read_timeout(Some(START_TIMEOUT)).map_err(|e| failure(e.to_string()))?;
     let mut lines = BufReader::new(read);
@@ -134,24 +133,15 @@ fn read(offset: u64) -> Result<Vec<u8>, Failure> {
 
 impl CallrecMethods for Callrec {
     fn start(&mut self, responder: CallrecStartResponder) {
-        thread::spawn(move || match start() {
-            Ok(()) => responder.resolve(),
-            Err(f) => responder.reject(f),
-        });
+        thread::spawn(move || settle!(responder, start(), ()));
     }
 
     fn stop(&mut self, responder: CallrecStopResponder) {
-        thread::spawn(move || match stop() {
-            Ok(rec) => responder.resolve(rec),
-            Err(f) => responder.reject(f),
-        });
+        thread::spawn(move || settle!(responder, stop()));
     }
 
     fn read(&mut self, responder: CallrecReadResponder, offset: i64) {
-        match read(offset.max(0) as u64) {
-            Ok(piece) => responder.resolve(piece),
-            Err(f) => responder.reject(f),
-        }
+        settle!(responder, read(offset.max(0) as u64));
     }
 }
 
@@ -159,32 +149,4 @@ impl FlipfullCallrec for Callrec {}
 
 common::impl_shared_state!(Callrec, EmptyState, EmptyConfig);
 
-impl Service<Callrec> for Callrec {
-    fn create(
-        attrs: &OriginAttributes,
-        _context: SharedSessionContext,
-        _helper: SessionSupport,
-    ) -> Result<Callrec, String> {
-        let who = attrs.identity();
-        if who != "http://callscreen.localhost" {
-            info!("refused {}", who);
-            return Err(format!("Only the call screen, not {}", who));
-        }
-        if !feature_on("call-recording") {
-            return Err("Call recording is off in Flipfull".into());
-        }
-        Ok(Callrec)
-    }
-
-    fn format_request(&mut self, _transport: &SessionSupport, _message: &BaseMessage) -> String {
-        "FlipfullCallrec request".into()
-    }
-
-    fn on_request(&mut self, transport: &SessionSupport, message: &BaseMessage) {
-        self.dispatch_request(transport, message);
-    }
-
-    fn release_object(&mut self, _object_id: u32) -> bool {
-        false
-    }
-}
+flipfull_remote::remote_service!(Callrec, |_origin| Callrec);

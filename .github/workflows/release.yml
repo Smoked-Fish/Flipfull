@@ -3,6 +3,11 @@ name: release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Existing tag to build a release for"
+        required: true
 
 permissions:
   contents: write
@@ -10,9 +15,12 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+    env:
+      TAG: ${{ github.event.inputs.tag || github.ref_name }}
     steps:
       - uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
           fetch-depth: 0
       - uses: actions/setup-python@v5
         with:
@@ -24,7 +32,10 @@ jobs:
 
       - run: python flip4.py release dist
 
-      - name: Upload files to release
+      - name: Publish release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$GITHUB_REF_NAME" dist/*.zip --clobber
+        run: |
+          gh release create "$TAG" dist/*.zip \
+            --title "$TAG" --generate-notes \
+          || gh release upload "$TAG" dist/*.zip --clobber

@@ -4,6 +4,7 @@ node_modules/
 *.lf
 .installed-files.tmp
 .cache/
+.idea/
 userinit/overlays/
 userinit/apps/
 userinit/media/

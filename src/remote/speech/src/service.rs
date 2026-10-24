@@ -1,19 +1,12 @@
 use crate::generated::common::*;
 use crate::generated::service::*;
 use crate::recognizer;
-use common::core::BaseMessage;
-use common::traits::{
-    EmptyConfig, EmptyState, OriginAttributes, Service, SessionSupport, Shared, SharedServiceState,
-    SharedSessionContext,
-};
+use common::traits::{EmptyConfig, EmptyState, Shared, SharedServiceState};
 use common::JsonValue;
-use flipfull_remote::feature_on;
-use log::info;
+use flipfull_remote::settle;
 use serde_json::{json, Value};
 use std::thread;
 
-const KAIVA: &str = "http://kaios-voiceassistant.localhost";
-const SYSTEM: &str = "http://system.localhost";
 const MAX_CLIP: usize = 60 * 16000 * 2 + 1024;
 
 pub struct Speech {
@@ -49,24 +42,15 @@ impl SpeechMethods for Speech {
     }
 
     fn use_model(&mut self, responder: SpeechUseModelResponder, file: String) {
-        match answer(recognizer::use_model(&file)) {
-            Ok(v) => responder.resolve(v),
-            Err(f) => responder.reject(f),
-        }
+        settle!(responder, answer(recognizer::use_model(&file)));
     }
 
     fn download(&mut self, responder: SpeechDownloadResponder, file: String, offset: i64, piece: Vec<u8>) {
-        match answer(recognizer::download(&file, offset.max(0) as u64, &piece)) {
-            Ok(v) => responder.resolve(v),
-            Err(f) => responder.reject(f),
-        }
+        settle!(responder, answer(recognizer::download(&file, offset.max(0) as u64, &piece)));
     }
 
     fn delete_model(&mut self, responder: SpeechDeleteModelResponder, file: String) {
-        match answer(recognizer::delete_model(&file)) {
-            Ok(v) => responder.resolve(v),
-            Err(f) => responder.reject(f),
-        }
+        settle!(responder, answer(recognizer::delete_model(&file)));
     }
 
     fn begin(&mut self, responder: SpeechBeginResponder) {
@@ -87,10 +71,7 @@ impl SpeechMethods for Speech {
         thread::spawn(move || {
             let result = recognizer::transcribe(&clip, None, &|| false)
                 .map(|(text, _, audio_ms, ms)| json!({"text": text, "audio_ms": audio_ms, "ms": ms as u64}));
-            match answer(result) {
-                Ok(v) => responder.resolve(v),
-                Err(f) => responder.reject(f),
-            }
+            settle!(responder, answer(result));
         });
     }
 }
@@ -107,36 +88,4 @@ impl FlipfullSpeech for Speech {}
 
 common::impl_shared_state!(Speech, EmptyState, EmptyConfig);
 
-impl Service<Speech> for Speech {
-    fn create(
-        attrs: &OriginAttributes,
-        _context: SharedSessionContext,
-        _helper: SessionSupport,
-    ) -> Result<Speech, String> {
-        let who = attrs.identity();
-        let feature = match who.as_str() {
-            KAIVA => "kaiva",
-            SYSTEM => "web-speech",
-            _ => {
-                info!("refused {}", who);
-                return Err(format!("Only KaiVA, not {}", who));
-            }
-        };
-        if !feature_on(feature) {
-            return Err(format!("{} is off in Flipfull", feature));
-        }
-        Ok(Speech { session: false, clip: Vec::new() })
-    }
-
-    fn format_request(&mut self, _transport: &SessionSupport, _message: &BaseMessage) -> String {
-        "FlipfullSpeech request".into()
-    }
-
-    fn on_request(&mut self, transport: &SessionSupport, message: &BaseMessage) {
-        self.dispatch_request(transport, message);
-    }
-
-    fn release_object(&mut self, _object_id: u32) -> bool {
-        false
-    }
-}
+flipfull_remote::remote_service!(Speech, |_origin| Speech { session: false, clip: Vec::new() });

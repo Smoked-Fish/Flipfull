@@ -1,13 +1,15 @@
 use log::{LevelFilter, Log, Metadata, Record};
-use nix::sys::socket::{recvmsg, sendmsg, ControlMessage, ControlMessageOwned, MsgFlags};
-use nix::sys::uio::IoVec;
-use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Write};
-use std::os::unix::io::{AsRawFd, FromRawFd, RawFd};
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use toolbox::{Answer, Request};
+
+mod services;
+
+pub use services::admit;
 
 pub const USERINIT: &str = "/data/local/userinit";
 
@@ -58,7 +60,7 @@ pub fn feature_on(id: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn toolbox(timeout: Option<Duration>) -> Result<UnixStream, String> {
+fn connect(timeout: Option<Duration>) -> Result<UnixStream, String> {
     let stream = UnixStream::connect(format!("{}/run/toolbox.sock", USERINIT))
         .map_err(|_| "Flipfull's toolbox service isn't running".to_string())?;
     stream
@@ -68,82 +70,6 @@ fn toolbox(timeout: Option<Duration>) -> Result<UnixStream, String> {
     Ok(stream)
 }
 
-pub fn run(words: &str, timeout: Duration) -> Result<(bool, String), String> {
-    let mut stream = toolbox(Some(timeout))?;
-    let mut answer = String::new();
-    stream
-        .write_all(format!("{}\n", words).as_bytes())
-        .and_then(|_| stream.read_to_string(&mut answer))
-        .map_err(|e| e.to_string())?;
-    match answer.split_once('\n') {
-        Some(("ok", text)) => Ok((true, text.to_string())),
-        Some(("error", text)) => Ok((false, text.to_string())),
-        _ => Err("toolboxd's answer made no sense".into()),
-    }
-}
-
-pub fn record(file: &File) -> Result<UnixStream, String> {
-    let stream = toolbox(None)?;
-    sendmsg(
-        stream.as_raw_fd(),
-        &[IoVec::from_slice(b"record\n")],
-        &[ControlMessage::ScmRights(&[file.as_raw_fd()])],
-        MsgFlags::empty(),
-        None,
-    )
-        .map_err(|e| e.to_string())?;
-    Ok(stream)
-}
-
-fn receive_file(words: &str, what: &str) -> Result<File, String> {
-    let mut stream = toolbox(Some(Duration::from_secs(10)))?;
-    stream.write_all(format!("{}\n", words).as_bytes()).map_err(|e| e.to_string())?;
-    let mut buf = [0u8; 256];
-    let mut space = nix::cmsg_space!([RawFd; 1]);
-    let iov = [IoVec::from_mut_slice(&mut buf)];
-    let msg = recvmsg(stream.as_raw_fd(), &iov, Some(&mut space), MsgFlags::MSG_CMSG_CLOEXEC)
-        .map_err(|e| e.to_string())?;
-    let fd = msg.cmsgs().find_map(|c| match c {
-        ControlMessageOwned::ScmRights(fds) => fds.first().copied(),
-        _ => None,
-    });
-    let got = msg.bytes;
-    match fd {
-        Some(fd) => Ok(unsafe { File::from_raw_fd(fd) }),
-        None => {
-            let mut answer = String::from_utf8_lossy(&buf[..got]).into_owned();
-            let _ = stream.read_to_string(&mut answer);
-            Err(answer.lines().nth(1).map_or_else(|| format!("toolboxd sent no {}", what), str::to_string))
-        }
-    }
-}
-
-pub fn keypad() -> Result<File, String> {
-    receive_file("keypad", "keypad")
-}
-
-pub fn retro_list() -> Result<String, String> {
-    match run("retro-list", Duration::from_secs(20))? {
-        (true, text) => Ok(text),
-        (false, why) => Err(why.trim().to_string()),
-    }
-}
-
-pub fn retro_open(path: &str) -> Result<File, String> {
-    receive_file(&format!("retro-open {}", path), "file")
-}
-
-pub fn retro_write(path: &str, data: &[u8]) -> Result<(), String> {
-    let mut stream = toolbox(Some(Duration::from_secs(20)))?;
-    let mut answer = String::new();
-    stream
-        .write_all(format!("retro-write {} {}\n", data.len(), path).as_bytes())
-        .and_then(|_| stream.write_all(data))
-        .and_then(|_| stream.read_to_string(&mut answer))
-        .map_err(|e| e.to_string())?;
-    match answer.split_once('\n') {
-        Some(("ok", _)) => Ok(()),
-        Some(("error", why)) => Err(why.trim().to_string()),
-        _ => Err("toolboxd's answer made no sense".into()),
-    }
+pub fn ask(request: &Request, timeout: Option<Duration>) -> Result<Answer, String> {
+    toolbox::ask(connect(timeout)?, request)
 }

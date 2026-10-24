@@ -6,7 +6,8 @@ flipfull - turns Flipfull's features on and off, and installs, updates and
 removes Flipfull.
 
   flipfull features               the feature list (features.ini)
-  flipfull state                  each feature: on / off, at the last boot, usable on this phone; what waits for a reboot
+  flipfull state                  each feature: on / off, at the last boot, usable on this phone, what waits for a reboot
+  flipfull list                   each feature in its section, with its title
   flipfull set ID on|off ...      turn features on / off
   flipfull plan                   what the features that are on need
   flipfull publish [--remove]     write (or delete) features.js for the overlays and
@@ -35,6 +36,7 @@ EOF
 
 HERE=$(cd "$(dirname "$0")" && pwd)
 . "$HERE/lib/common.sh"
+. "$HERE/lib/overlays.sh"
 
 REMOVABLE=$CONFIG/removable-apps
 GOOGLE_CLIENT=$CONFIG/google-client.json
@@ -69,58 +71,51 @@ publish() {
     done
 }
 
-overlay_status() {
-    src=$USERINIT/overlays/$1
-    if [ ! -f "$src/application.zip" ]; then
-        echo "not on the phone"
-        return
-    fi
-    if [ -n "$PRELOADED" ] && ! echo "$PRELOADED" | grep -qx "$1"; then
-        echo ok
-        return
-    fi
-    dst=$(readlink -f "$VROOT/$1" 2>/dev/null)
-    if [ -z "$dst" ] || [ ! -d "$dst" ]; then
-        echo "the phone has no $1 app"
-    elif same_dir "$src" "$dst" || stock_matches "$src" "$dst/application.zip"; then
-        echo ok
-    else
-        echo "made for another version of the phone's $1 app"
-    fi
-}
-
 availability() {
-    PRELOADED=$(preloaded_apps)
+    overlays_read
     needs | awk '{ print $2, $3 }' | sort -u | while read -r kind name; do
         case $kind in
-            overlay) echo "overlay $name $(overlay_status "$name")" ;;
+            overlay) echo "overlay $name $(overlay_shows "$name")" ;;
             app) [ -f "$USERINIT/apps/$name/application.zip" ] && echo "app $name ok" ||
                      echo "app $name not on the phone" ;;
             service) [ -f "$USERINIT/services/$name/service.sh" ] && echo "service $name ok" ||
                          echo "service $name not on the phone" ;;
+            remote) echo "remote $name $(remote_status "$name")" ;;
         esac
     done
 }
 
 cached_availability() {
-    key="# $(cat /proc/sys/kernel/random/boot_id) $(stat -c %Y "$MANIFEST" "$APPS_DB" "$APPS_DB-wal" 2>/dev/null | tr '\n' ' ')"
-    [ "$(head -1 "$STATE/avail" 2>/dev/null)" = "$key" ] && return 0
+    read -r boot < /proc/sys/kernel/random/boot_id
+    key="# $boot $(stat -c %Y "$MANIFEST" "$APPS_DB" "$APPS_DB-wal" 2>/dev/null | tr '\n' ' ')"
+    first=
+    [ -f "$STATE/avail" ] && IFS= read -r first < "$STATE/avail"
+    [ "$first" = "$key" ] && return 0
     { echo "$key"; availability; } > "$STATE/avail.tmp" && mv -f "$STATE/avail.tmp" "$STATE/avail"
 }
 
-cmd_state() {
+overlays_showing() {
+    cached_availability
+    awk -v word="$1" '$1 == "overlay" && $3 == word && NF == 3 { print $2 }' "$STATE/avail"
+}
+
+plan_state() {
     mkdir -p "$STATE"
     cached_availability
     pending=0
     removable_pending && pending=1
-    printf 'version\t%s\n' "$(version)"
-    printf 'hook\t%s\n' "$(hook_file >/dev/null && echo yes || echo no)"
-    printf 'removable\t%s\n' "$([ $pending = 1 ] && echo pending || echo saved)"
-    printf 'google-client\t%s\n' "$(google_client_id)"
-    printf 'release-repo\t%s\n' "$RELEASE_REPO"
-    awk -f "$PLAN_AWK" -v mode=state -v choices="$CHOICES" -v boot="$BOOT_PLAN" \
+    if [ "$1" = state ]; then
+        printf 'version\t%s\n' "$(version)"
+        printf 'hook\t%s\n' "$(hook_file >/dev/null && echo yes || echo no)"
+        printf 'removable\t%s\n' "$([ $pending = 1 ] && echo pending || echo saved)"
+        printf 'google-client\t%s\n' "$(google_client_id)"
+        printf 'release-repo\t%s\n' "$RELEASE_REPO"
+    fi
+    awk -f "$PLAN_AWK" -v mode="$1" -v choices="$CHOICES" -v boot="$BOOT_PLAN" \
         -v avail="$STATE/avail" -v pending=$pending "$REGISTRY"
 }
+
+cmd_state() { plan_state state; }
 
 cmd_set() {
     [ $# -gt 0 ] && [ $(($# % 2)) -eq 0 ] || die "usage: flipfull set ID on|off ..."
@@ -138,33 +133,35 @@ cmd_set() {
     after=$(plan)
     publish "$after" || echo "error: couldn't write features.js in $(http_root)"
     changed=$(printf '%s\n%s\n' "$before" "$after" | sort | uniq -u)
-    if echo "$changed" | grep -q '^service '; then
+    if has_line "$changed" 'service *'; then
         reconcile_services "$after"
     fi
     if apps_changed "$changed"; then
         reconcile_apps "$after"
     fi
-    if echo "$changed" | grep -q '^feature ostore '; then
+    if has_line "$changed" 'feature ostore *'; then
         reconcile_store "$after"
     fi
     restart_changed "$before" "$after"
 }
 
 apps_changed() {
-    echo "$1" | grep -q '^app ' && return 0
+    has_line "$1" 'app *' && return 0
     overlays=$(echo "$1" | awk '$1 == "overlay" { print $2 }')
     [ -n "$overlays" ] || return 1
-    pre=$(preloaded_apps)
-    [ -z "$pre" ] || echo "$overlays" | grep -qvxF "$pre"
+    now=$(overlays_showing now)
+    for name in $overlays; do
+        has_line "$now" "$name" && return 0
+    done
+    return 1
 }
 
 restart_changed() {
     changed=$(printf '%s\n%s\n' "$1" "$2" | awk '$1 == "feature"' | sort | uniq -u | awk '{ print $2 }' | sort -u)
     [ -n "$changed" ] || return 0
-    apps=$(needs | awk -v ids=" $(echo $changed) " '
-        $2 == "overlay" && ($3 == "launcher" || $3 == "settings" || $3 == "video") && index(ids, " " $1 " ") { print $3 }' | sort -u)
+    apps=$(needs | awk -v ids=" $(echo $changed) " -v restart=" $(echo $(overlays_showing restart)) " '
+        $2 == "overlay" && index(restart, " " $3 " ") && index(ids, " " $1 " ") { print $3 }' | sort -u)
     for app in $apps; do
-        same_dir "$USERINIT/overlays/$app" "$(readlink -f "$VROOT/$app")" || continue
         if sh "$USERINIT/tools/restart.sh" "$app" >/dev/null; then
             echo "restarted $app"
         fi
@@ -181,7 +178,7 @@ reconcile_services() {
         d=${s%/service.sh}
         name=${d##*/}
         want=0
-        if [ "$name" = toolbox ] || echo "$wanted_plan" | grep -qx "service $name"; then
+        if [ "$name" = toolbox ] || has_line "$wanted_plan" "service $name"; then
             want=1
         fi
         [ -e "$d/disabled" ] && want=0
@@ -189,7 +186,7 @@ reconcile_services() {
             if [ $want = 0 ]; then
                 sh "$s" stop >/dev/null 2>&1
                 echo "stopped $name"
-            elif echo " $* " | grep -q " $name "; then
+            elif has_word "$*" "$name"; then
                 sh "$s" restart >/dev/null 2>&1 && echo "restarted $name" || echo "error: $name didn't start again"
             fi
         elif [ $want = 1 ]; then
@@ -226,21 +223,20 @@ reconcile_apps() {
         installed=0
         case $list in *"$url"*) installed=1 ;; esac
         want=0
-        if [ "$name" = flipfull ] || echo "$wanted_plan" | grep -qx "app $name"; then
+        if [ "$name" = flipfull ] || has_line "$wanted_plan" "app $name"; then
             want=1
         fi
-        if [ $want = 1 ] && { [ $installed = 0 ] || echo " $* " | grep -q " $name "; }; then
+        if [ $want = 1 ] && { [ $installed = 0 ] || has_word "$*" "$name"; }; then
             app_install "$name"
         elif [ $want = 0 ] && [ $installed = 1 ]; then
             apps_ok "$(apps_cmd uninstall "$url")" && echo "uninstalled $name" || echo "error: $name didn't uninstall"
         fi
     done
-    pre=$(preloaded_apps)
-    [ -n "$pre" ] || return 0
+    overlays_read
     names=$(installed_names "$list")
     for app in $(echo "$wanted_plan" | awk '$1 == "overlay" { print $2 }'); do
-        echo "$pre" | grep -qx "$app" && continue
-        if ! echo "$names" | grep -qx "$app" || echo " $* " | grep -q " $app "; then
+        [ "$(overlay_check "$app")" = app ] || continue
+        if ! has_line "$names" "$app" || has_word "$*" "$app"; then
             install_zip "$USERINIT/overlays/$app/application.zip" "$app"
         fi
     done
@@ -249,53 +245,53 @@ reconcile_apps() {
 app_info() {
     core= rank=3 about=
     case $1 in
-        kaios-news) rank=1 about="KaiOS's news reader." ;;
-        kaios-weather) rank=1 about="KaiOS's weather forecast app." ;;
-        kaios-pay) rank=1 about="KaiOS's mobile payment wallet. It isn't in the app list." ;;
-        kaios-todo) rank=1 about="A to-do list." ;;
-        youtube) rank=1 about="Opens m.youtube.com in the browser; nothing else is installed." ;;
-        googlesearch) rank=1 about="Opens Google Search in the browser. The browser itself (Internet in the app list) stays." ;;
-        maps) rank=1 about="Google Maps, a web app. Flipfull's Google Maps navigation works in it." ;;
+        kaios-news) rank=1 about="KaiOS's news reader" ;;
+        kaios-weather) rank=1 about="KaiOS's weather forecast app" ;;
+        kaios-pay) rank=1 about="KaiOS's mobile payment wallet I assume, not visible in apps list" ;;
+        kaios-todo) rank=1 about="A to-do list" ;;
+        youtube) rank=1 about="Opens m.youtube.com in the browser" ;;
+        googlesearch) rank=1 about="Opens Google Search in the browser" ;;
+        maps) rank=1 about="Google Maps" ;;
         kaios-2048|kaios-birdy|kaios-gems|kaios-guardians|kaios-whackamole|brickbreaker2018)
-            rank=1 about="A game KaiOS preinstalls." ;;
-        engmode) rank=2 about="Engineering mode: hidden radio and hardware test menus, opened with dialer codes." ;;
-        mmitest) rank=2 about="The factory's hardware test (keys, screens, sound, camera), opened with a dialer code." ;;
-        logmanager) rank=2 about="Saves logs for bug reports, opened with a dialer code." ;;
-        tctfota) rank=2 about="TCL's system updater (Settings > Device > Software update). A system update removes root and Flipfull." ;;
-        antitheft) rank=2 about="Kill-switch: rings the phone at full volume when KaiOS's anti-theft service tells it to." ;;
+            rank=1 about="KaiOS preinstalled game" ;;
+        engmode) rank=2 about="Engineering mode, hidden tests" ;;
+        mmitest) rank=2 about="The factory's hardware test" ;;
+        logmanager) rank=2 about="Saves logs for bug reports" ;;
+        tctfota) rank=2 about="TCL's system updater" ;;
+        antitheft) rank=2 about="Kill Switch app" ;;
         download) rank=2 about="Lets other apps attach a file you downloaded." ;;
-        kaios-store) about="KaiStore: installs and updates KaiOS apps, Music and Video included." ;;
-        calculator) about="A calculator." ;;
-        calendar) about="Calendar; syncs with Google and Exchange accounts." ;;
-        camera) about="Photos and video. Two presses of the quick access button open it; other apps use it to attach a photo." ;;
-        clock) about="Alarms, timer and stopwatch. Without it alarms don't ring." ;;
-        communications) about="Your recent calls. Calling works without it: the dialer is part of the home screen." ;;
-        contact) about="Your contacts. Messages, Call Log and the dialer pick numbers from it." ;;
-        email) about="E-mail for Gmail, Outlook and other accounts." ;;
-        filemanager) about="Browses the phone's storage and the SD card." ;;
-        fm) about="FM radio; wired headphones are its antenna." ;;
-        gallery) about="Your photos; other apps pick photos from it." ;;
+        kaios-store) about="The stock appstore" ;;
+        calculator) about="" ;;
+        calendar) about="" ;;
+        camera) about="" ;;
+        clock) about="Alarms, timer and stopwatch" ;;
+        communications) about="Your recent calls" ;;
+        contact) about="Your phone contacts" ;;
+        email) about="" ;;
+        filemanager) about="Browses the phone's storage and the SD card" ;;
+        fm) about="FM radio" ;;
+        gallery) about="Your photos" ;;
         music) about="Music player and Icecast internet radio." ;;
-        notes) about="Simple text notes." ;;
-        soundrecorder) about="Voice recordings." ;;
-        video) about="Video player, with YouTube picks unless Flipfull takes them out." ;;
-        sms) rank=4 core="text messages" about="Text and picture messages (SMS, MMS)." ;;
-        bluetooth) rank=4 core="Bluetooth pairing" about="Bluetooth pairing requests and file transfers." ;;
-        system) rank=4 core="the whole phone UI" about="The status bar, lock screen, notifications, outer screen and everything around the apps." ;;
-        shared) rank=4 core="code every app uses" about="Fonts, sounds, wallpapers and code the other apps load." ;;
-        launcher) rank=4 core="home screen" about="The home screen, the app list and the dialer." ;;
+        notes) about="" ;;
+        soundrecorder) about="Voice recording" ;;
+        video) about="" ;;
+        sms) rank=4 core="text messages" about="Text and picture messages (SMS, MMS)" ;;
+        bluetooth) rank=4 core="Bluetooth pairing" about="Bluetooth pairing requests and file transfers" ;;
+        system) rank=4 core="the whole phone UI" about="The phones base UI" ;;
+        shared) rank=4 core="code every app uses" about="Fonts, sounds, wallpapers and code the other apps load" ;;
+        launcher) rank=4 core="home screen" about="The home screen, the app list and the dialer" ;;
         keyboard) rank=4 core="typing" about="Typing in every text field." ;;
-        settings) rank=4 core="Settings" about="Settings." ;;
+        settings) rank=4 core="Settings" about="" ;;
         callscreen) rank=4 core="phone calls" about="The screen during a call." ;;
-        emergency-call) rank=4 core="emergency calls" about="Emergency calls from the lock screen." ;;
-        network-alerts) rank=4 core="emergency alerts" about="Wireless emergency alerts: AMBER, extreme weather, presidential." ;;
-        ftu) rank=4 core="first-run setup" about="The setup the phone runs when it first starts, and after a reset." ;;
-        customization) rank=4 core="carrier setup" about="Applies the carrier's settings for the SIM you put in." ;;
+        emergency-call) rank=4 core="emergency calls" about="Emergency calls from the lock screen" ;;
+        network-alerts) rank=4 core="emergency alerts" about="Wireless emergency alerts, AMBER, extreme weather" ;;
+        ftu) rank=4 core="first-run setup" about="The setup the phone runs when it first starts, and after a reset" ;;
+        customization) rank=4 core="carrier setup" about="Applies the carrier's settings for the SIM you put in" ;;
         loginpages) rank=4 core="account sign-in" about="The sign-in pages of Settings > Accounts." ;;
-        stk) rank=4 core="SIM menus" about="SIM Toolkit: your SIM card's own menu and carrier services." ;;
-        wappush) rank=4 core="carrier messages" about="Receives the carrier's WAP push and settings messages." ;;
-        wallpaper) rank=4 core="wallpaper picker" about="The wallpaper picker in Settings." ;;
-        ringtones) rank=4 core="ringtone picker" about="Picks ringtones and notification sounds." ;;
+        stk) rank=4 core="SIM menus" about="SIM Toolkit" ;;
+        wappush) rank=4 core="carrier messages" about="Receives the carrier's WAP push and settings messages" ;;
+        wallpaper) rank=4 core="wallpaper picker" about="" ;;
+        ringtones) rank=4 core="ringtone picker" about="" ;;
     esac
     printf '%s\t%s\t%s' "$core" "$rank" "$about"
 }
@@ -382,16 +378,16 @@ cmd_google_client() {
 }
 
 version() {
-    v=$(head -1 "$MANIFEST" 2>/dev/null)
-    echo "${v:-# Flipfull (not installed)}" | sed 's/^# //'
+    v=
+    [ -f "$MANIFEST" ] && read -r v < "$MANIFEST"
+    v=${v:-# Flipfull (not installed)}
+    echo "${v#"# "}"
 }
 
+# my main phone has userinit in odm, one grep for all .rc files
 hook_file() {
-    for f in /system/etc/init/*.rc /vendor/etc/init/*.rc /odm/etc/init/*.rc \
-             /product/etc/init/*.rc /system_ext/etc/init/*.rc; do
-        grep -q "$USERINIT/run.sh" "$f" 2>/dev/null && { echo "$f"; return 0; }
-    done
-    return 1
+    grep -ls "$USERINIT/run.sh" /system/etc/init/*.rc /vendor/etc/init/*.rc /odm/etc/init/*.rc \
+        /product/etc/init/*.rc /system_ext/etc/init/*.rc | { read -r f && echo "$f"; }
 }
 
 sync_from() {
@@ -440,7 +436,7 @@ cmd_setup() {
          -o -name flipfull \) -exec chmod 0755 {} \;
     [ -f "$GOOGLE_CLIENT" ] && chmod 0600 "$GOOGLE_CLIENT"
     for src in "$USERINIT"/overlays/*; do
-        dst=$(readlink -f "$VROOT/${src##*/}" 2>/dev/null)
+        dst=$(overlay_target "${src##*/}")
         [ -f "$src/application.zip" ] && [ -n "$dst" ] && [ -d "$dst" ] || continue
         chmod 0755 "$src" && chmod 0644 "$src"/*
         ctx=$(ls -Zd "$dst" 2>/dev/null | awk '{ print $1 }')
@@ -560,17 +556,12 @@ cmd_status() {
         echo "boot hook: MISSING - nothing here runs at boot (src/boot-hook/README.md)"
     [ -e "$USERINIT/uninstall" ] && echo "uninstall pending: the next boot removes everything"
     echo
-    cmd_state | awk -F '\t' '
-        $1 == "reboot" && $2 == "yes" { waiting = 1 }
-        $1 == "removable" && $2 == "pending" { print "removable apps: changed, the next boot applies it" }
-        $1 == "google-client" { print "Google sign-in client: " ($2 == "-" ? "none" : $2) }
-        $1 == "feature" {
-            line = sprintf("  [%s] %s", $3 == "on" ? "x" : " ", $2)
-            if ($5 == "yes") line = line "  (after a reboot)"
-            if ($6 != "yes") line = line "  - " ($6 == "no" ? "unusable" : "partly") ": " $7
-            features = features line "\n"
-        }
-        END { printf "\nfeatures%s:\n%s", waiting ? " (some wait for a reboot)" : "", features }'
+    removable_pending && echo "removable apps: changed, the next boot applies it"
+    id=$(google_client_id)
+    echo "Google sign-in client: $([ "$id" = - ] && echo none || echo "$id")"
+    echo
+    echo "features:"
+    plan_state list
     echo
     echo "mounted:"
     awk '$4 ~ /userinit\/(overlays|media|state|etc)/ { print "  " $5 "  <-  " $4 }' /proc/self/mountinfo
@@ -597,6 +588,7 @@ esac
 case $cmd in
     features) cat "$REGISTRY" ;;
     state) cmd_state ;;
+    list) plan_state list ;;
     set) cmd_set "$@" ;;
     plan) plan ;;
     publish)

@@ -9,11 +9,6 @@ LOG=$DIR/toolboxd.log
 LOG_MAX=262144
 SOCKET=$USERINIT/run/toolbox.sock
 
-remote_uid() {
-    awk -F= -v name="$1" '$1 == name && $2 ~ /^[0-9]+$/ { print 10000 + $2; exit }' \
-        /data/local/service/api-daemon/remote_services.toml 2>/dev/null
-}
-
 stop() {
     for p in $(pids_of toolboxd); do
         kill "$p" 2>/dev/null
@@ -35,16 +30,12 @@ start() {
         status
         return 0
     fi
-    BRIDGE=$(remote_uid FlipfullBridge)
-    CALLREC=$(remote_uid FlipfullCallrec)
-    RETRO=$(remote_uid FlipfullRetro)
     mkdir -p "${SOCKET%/*}" && chmod 0711 "${SOCKET%/*}"
     chmod 0755 "$BIN" 2>/dev/null
     if [ -f "$LOG" ] && [ "$(stat -c %s "$LOG" 2>/dev/null || echo 0)" -gt "$LOG_MAX" ]; then
         mv -f "$LOG" "$LOG.old"
     fi
-    setsid "$BIN" --socket "$SOCKET" --bridge-uid "${BRIDGE:--1}" --callrec-uid "${CALLREC:--1}" --retro-uid "${RETRO:--1}" \
-        </dev/null >>"$LOG" 2>&1 &
+    setsid "$BIN" --socket "$SOCKET" </dev/null >>"$LOG" 2>&1 &
     sleep 0.3
     P=$(pids_of toolboxd)
     if [ -z "$P" ]; then
@@ -52,7 +43,7 @@ start() {
         return 1
     fi
     detach_cgroup toolbox "$P"
-    log "running (pid $P) for uids ${BRIDGE:-none} (bridge), ${CALLREC:-none} (call recording) and ${RETRO:-none} (games)"
+    log "running (pid $P) on $SOCKET"
 }
 
 case "$1" in

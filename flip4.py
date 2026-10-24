@@ -18,7 +18,6 @@
     python flip4.py uninstall [--reboot] remove everything; the phone boots stock
 """
 import argparse
-import configparser
 import hashlib
 import json
 import os
@@ -250,30 +249,7 @@ def import_google_client(path):
 
 def cmd_features(args):
     require_flipfull()
-    ini = configparser.ConfigParser(interpolation=None)
-    ini.read_string(flipfull("features"))
-    rows = {}
-    reboot = False
-    for line in flipfull("state").splitlines():
-        f = line.split("\t")
-        if f[0] == "feature" and len(f) >= 7:
-            rows[f[1]] = f
-        elif f[0] == "reboot":
-            reboot = f[1] == "yes"
-    for fid in ini.sections():
-        f = rows.get(fid)
-        if not f:
-            continue
-        if ini[fid].get("section"):
-            print(f"\n{ini[fid]['section']}")
-        note = ""
-        if f[4] == "yes":
-            note = "  (after a reboot)"
-        if f[5] != "yes":
-            note += f"  - {'unusable' if f[5] == 'no' else 'partly'}: {f[6]}"
-        print(f"  [{'x' if f[2] == 'on' else ' '}] {fid:20} {ini[fid].get('title', '')}{note}")
-    if reboot:
-        print("\nSome changes wait for a reboot.")
+    sys.exit(flipfull("list", live=True))
 
 
 def cmd_set(args):
@@ -380,10 +356,9 @@ def cmd_removable(args):
     apps = []
     for line in flipfull("removable").splitlines():
         f = line.split("\t")
-        if f[0] == "app" and len(f) >= 6:
-            rank = f[6] if len(f) > 6 and f[6].isdigit() else ("4" if f[5] else "3")
+        if f[0] == "app" and len(f) >= 8:
             apps.append({"name": f[1], "now": f[2] == "1", "chosen": f[3] == "1", "core": f[5],
-                         "rank": int(rank), "about": f[7] if len(f) > 7 else ""})
+                         "rank": int(f[6]), "about": f[7]})
     apps.sort(key=lambda a: (a["rank"], a["name"]))
     if not apps:
         sys.exit("couldn't read the preloaded apps from the phone")
