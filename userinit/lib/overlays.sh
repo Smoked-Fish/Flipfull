@@ -22,19 +22,28 @@ overlay_check() {
         echo "not on the phone"
         return 1
     fi
-    overlay_is_app "$1" && return 0
+    if overlay_is_app "$1"; then
+        echo app
+        return 0
+    fi
     _dst=$(overlay_target "$1")
     if [ -z "$_dst" ] || [ ! -d "$_dst" ]; then
         echo "the phone has no $1 app"
         return 1
     fi
-    same_dir "$_src" "$_dst" && return 0
+    if same_dir "$_src" "$_dst"; then
+        echo mounted
+        return 0
+    fi
     case $MOUNTS in
         *" $_dst "*)
             echo "something else is mounted over the phone's $1 app"
             return 1 ;;
     esac
-    stock_matches "$_src" "$_dst/application.zip" && return 0
+    if stock_matches "$_src" "$_dst/application.zip"; then
+        echo mount
+        return 0
+    fi
     echo "made for another version of the phone's $1 app"
     return 1
 }

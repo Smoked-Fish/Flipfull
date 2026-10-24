@@ -17,18 +17,17 @@ SEEN=" "
 for NAME in $PLANNED; do
     case $SEEN in *" $NAME "*) continue ;; esac
     SEEN="$SEEN$NAME "
-    if ! WHY=$(overlay_check "$NAME"); then
-        log "$NAME: $WHY - not mounted"
-    elif overlay_is_app "$NAME"; then
-        log "$NAME: not an app the phone came with - installed as an app instead"
-    elif overlay_mounted "$NAME"; then
-        log "$NAME: already mounted"
-    else
-        SRC="$USERINIT/overlays/$NAME"
-        TODO="$TODO$NAME $SRC $(overlay_target "$NAME")
+    HOW=$(overlay_check "$NAME")
+    case $HOW in
+        mount)
+            SRC="$USERINIT/overlays/$NAME"
+            TODO="$TODO$NAME $SRC $(overlay_target "$NAME")
 "
-        NOW="$NOW$NAME $(stat -c '%i %s %Y' "$SRC/application.zip") "
-    fi
+            NOW="$NOW$NAME $(stat -c '%i %s %Y' "$SRC/application.zip") " ;;
+        mounted) log "$NAME: already mounted" ;;
+        app) log "$NAME: not an app the phone came with, installed as an app instead" ;;
+        *) log "$NAME: $HOW - not mounted" ;;
+    esac
 done
 
 if [ "$NOW" != "$(cat "$MOUNTED" 2>/dev/null)" ]; then

@@ -75,7 +75,7 @@ availability() {
     overlays_read
     needs | awk '{ print $2, $3 }' | sort -u | while read -r kind name; do
         case $kind in
-            overlay) why=$(overlay_check "$name"); echo "overlay $name ${why:-ok}" ;;
+            overlay) why=$(overlay_check "$name") && why=ok; echo "overlay $name $why" ;;
             app) [ -f "$USERINIT/apps/$name/application.zip" ] && echo "app $name ok" ||
                      echo "app $name not on the phone" ;;
             service) [ -f "$USERINIT/services/$name/service.sh" ] && echo "service $name ok" ||
@@ -239,7 +239,7 @@ reconcile_apps() {
     overlays_read
     names=$(installed_names "$list")
     for app in $(echo "$wanted_plan" | awk '$1 == "overlay" { print $2 }'); do
-        overlay_is_app "$app" && overlay_check "$app" >/dev/null || continue
+        [ "$(overlay_check "$app")" = app ] || continue
         if ! is_line "$names" "$app" || echo " $* " | grep -q " $app "; then
             install_zip "$USERINIT/overlays/$app/application.zip" "$app"
         fi
