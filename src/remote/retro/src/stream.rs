@@ -2,13 +2,14 @@ use crate::clock;
 use crate::cpu;
 use crate::keypad::Keypad;
 use crate::libretro::Platform;
+use crate::pacer::{between, shift, Pacer};
 use crate::panel::Panel;
 use crate::service::{state, State};
 use crate::settings;
+use crate::sound_rate::SoundRate;
 use crate::ws;
 use log::{info, warn};
 use serde_json::Value;
-use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::net::{Shutdown, TcpListener, TcpStream};
@@ -26,31 +27,9 @@ const HOLD: u8 = 4;
 const FRAME_HEADER: usize = 32;
 const PREFIX: usize = 4;
 
-const SYNC_WITHIN: f64 = 0.015;
-// drawn 10ms or more before the refresh the compositor takes it, 8-10 86%, 6-8 half, less none
-const LEAD: f64 = 0.0095;
-const EARLIER: f64 = 0.001;
-const LATER: f64 = 0.00004;
-const EARLY: f64 = 0.022;
-const EARLY_MIN: f64 = 0.004;
-const EARLY_MAX: f64 = 0.05;
-// b2g presents 9-24ms after its refresh, 95% within 22
-const MARGIN: f64 = 0.023;
-const MARGIN_MIN: f64 = 0.021;
-const MARGIN_MAX: f64 = 0.027;
-const MARGIN_STEP: f64 = 0.001;
-const MARGIN_DECAY: f64 = 0.00002;
-const SEEN: Duration = Duration::from_millis(3);
-// 0.6% is about a tenth of a semitone
-const SKEW: f64 = 0.006;
-const SKEW_P: f64 = 0.008;
-const SKEW_I: f64 = 0.0001;
-const SKEW_I_MAX: f64 = 0.004;
 const FAST_MAX: u32 = 20;
-const FAST_SHARE: f64 = 0.75;
 const FAST_KEY: u16 = 158;
 const AHEAD_MAX: u32 = 2;
-const BEHIND: u32 = 4;
 const CLOCK_EVERY: u32 = 30;
 const IDLE: Duration = Duration::from_secs(3600);
 const WRITE_TIMEOUT: Duration = Duration::from_secs(2);
@@ -191,23 +170,6 @@ fn buttons(keypad: &mut Keypad, map: &[(u16, u16)]) -> u16 {
     map.iter().filter(|(code, _)| keypad.held(*code)).fold(0, |b, (_, bits)| b | bits)
 }
 
-fn shift(at: Instant, secs: f64) -> Instant {
-    let by = Duration::from_secs_f64(secs.abs());
-    if secs >= 0.0 {
-        at + by
-    } else {
-        at.checked_sub(by).unwrap_or(at)
-    }
-}
-
-fn between(from: Instant, to: Instant) -> f64 {
-    if to >= from {
-        (to - from).as_secs_f64()
-    } else {
-        -(from - to).as_secs_f64()
-    }
-}
-
 fn epoch_now() -> f64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs_f64() * 1e6).unwrap_or(0.0)
 }
@@ -230,11 +192,6 @@ fn grid(m: &Value) -> Option<(Instant, f64)> {
     }
 }
 
-fn refresh_before(grid: Option<(Instant, f64)>, at: Instant) -> Option<Instant> {
-    let (tick, period) = grid?;
-    Some(shift(tick, (between(tick, at) / period).floor() * period))
-}
-
 #[derive(Default)]
 struct Stats {
     since: Option<Instant>,
@@ -243,23 +200,14 @@ struct Stats {
     frames: u32,
     messages: u32,
     busy: Duration,
-    made: u32,
-    missed: u32,
-    held: u32,
-}
-
-#[derive(Clone, Copy, Default)]
-struct Target {
-    panel: Option<Instant>,
-    tick: Option<Instant>,
 }
 
 struct Player {
     client: Option<(u32, TcpStream)>,
     out: Option<(u64, TcpStream)>,
     running: bool,
-    deadline: Instant,
-    target: Target,
+    pacer: Pacer,
+    sound: SoundRate,
     keys: u16,
     fast: bool,
     keypad: Option<Keypad>,
@@ -268,22 +216,7 @@ struct Player {
     mix: bool,
     lcd: bool,
     fast_speed: u32,
-    panel: Option<Panel>,
-    per: u32,
-    grid: Option<(Instant, f64)>,
-    margin: f64,
-    early: f64,
-    work: f64,
-    fasting: bool,
-    flight: VecDeque<(Instant, bool)>,
-    hold: bool,
-    fps: f64,
     rate: f64,
-    out_rate: f64,
-    sound_target: f64,
-    buffered: f64,
-    skew: f64,
-    skew_sum: f64,
     clock_in: u32,
     played: Instant,
     stats: Stats,
@@ -297,8 +230,8 @@ impl Player {
             client: None,
             out: None,
             running: false,
-            deadline: Instant::now(),
-            target: Target::default(),
+            pacer: Pacer::new(),
+            sound: SoundRate::new(),
             keys: 0,
             fast: false,
             keypad: None,
@@ -307,22 +240,7 @@ impl Player {
             mix: true,
             lcd: false,
             fast_speed: 0,
-            panel: None,
-            per: 1,
-            grid: None,
-            margin: MARGIN,
-            early: EARLY,
-            work: 0.004,
-            fasting: false,
-            flight: VecDeque::new(),
-            hold: false,
-            fps: 59.7275,
             rate: 32768.0,
-            out_rate: 0.0,
-            sound_target: 0.1,
-            buffered: 0.0,
-            skew: 0.0,
-            skew_sum: 0.0,
             clock_in: 0,
             played: Instant::now(),
             stats: Stats::default(),
@@ -335,28 +253,14 @@ impl Player {
         if !self.running {
             return IDLE;
         }
-        let until = match self.flight.front() {
-            Some(&(refresh, _)) => self.deadline.min(refresh + SEEN),
-            None => self.deadline,
-        };
-        until.saturating_duration_since(Instant::now())
+        self.pacer.until().saturating_duration_since(Instant::now())
     }
 
     fn wake(&mut self) {
         let now = Instant::now();
-        self.check(now);
-        if now >= self.deadline {
+        self.pacer.check(now);
+        if now >= self.pacer.deadline() {
             self.picture();
-        }
-    }
-
-    fn period(&self) -> f64 {
-        if let Some(panel) = &self.panel {
-            return panel.period() / self.per as f64;
-        }
-        match self.grid {
-            Some((_, t)) if (1.0 / t / self.fps - 1.0).abs() < SYNC_WITHIN => t,
-            _ => 1.0 / self.fps,
         }
     }
 
@@ -364,9 +268,7 @@ impl Player {
         self.running = false;
         self.fast = false;
         self.keypad = None;
-        self.panel = None;
-        self.flight.clear();
-        self.hold = false;
+        self.pacer.stop();
         self.out = None;
     }
 
@@ -420,13 +322,12 @@ impl Player {
     }
 
     fn play(&mut self, m: &Value) {
-        let platform = {
+        let (fps, platform) = {
             let s = state();
             match (s.frontend.timing(), s.frontend.platform()) {
                 (Some((fps, rate)), Some(platform)) => {
-                    self.fps = fps;
                     self.rate = rate;
-                    platform
+                    (fps, platform)
                 }
                 _ => {
                     drop(s);
@@ -434,16 +335,14 @@ impl Player {
                 }
             }
         };
-        self.out_rate = m["rate"].as_f64().unwrap_or(0.0);
-        if let Some(g) = grid(m) {
-            self.grid = Some(g);
-        }
+        let out_rate = m["rate"].as_f64().unwrap_or(0.0);
+        self.pacer.compositor(grid(m));
         let ahead = settings::get(if platform == Platform::Gba { "ahead_gba" } else { "ahead_gb" });
         self.ahead = ahead.parse::<u32>().unwrap_or(0).min(AHEAD_MAX);
         self.mix = settings::on("blend");
         self.lcd = settings::get("colors") == "lcd";
         self.fast_speed = settings::get("fast").parse().unwrap_or(0);
-        self.sound_target = settings::get("latency").parse::<f64>().unwrap_or(100.0) / 1000.0;
+        let latency = settings::get("latency").parse::<f64>().unwrap_or(100.0) / 1000.0;
         self.map = settings::keymap();
         self.keypad = match Keypad::open() {
             Ok(k) => Some(k),
@@ -452,36 +351,13 @@ impl Player {
                 None
             }
         };
-        self.per = 1;
-        self.panel = match Panel::open() {
-            Ok(panel) => {
-                let frames = self.fps * panel.period();
-                let n = frames.round().max(1.0);
-                if (n / frames - 1.0).abs() < SYNC_WITHIN {
-                    self.per = n as u32;
-                    Some(panel)
-                } else {
-                    warn!("the panel's {:.2} Hz doesn't fit the game's frames", 1.0 / panel.period());
-                    None
-                }
-            }
-            Err(e) => {
-                warn!("pictures at the game's pace: {}", e);
-                None
-            }
-        };
-        self.flight.clear();
-        self.hold = false;
-        self.buffered = self.sound_target * self.out_rate;
-        self.skew = self.skew_sum;
+        self.sound.start(out_rate, latency);
         self.clock_in = 0;
         self.played = Instant::now();
         self.stats = Stats::default();
         self.running = true;
-        let now = Instant::now();
-        self.target = Target::default();
-        self.deadline = now;
-        self.plan(now);
+        let panel = Panel::open();
+        self.pacer.start(fps, panel, Instant::now());
     }
 
     fn pause(&mut self) {
@@ -500,101 +376,15 @@ impl Player {
     }
 
     fn sync(&mut self, sync: &Value) {
-        if let Some(g) = grid(sync) {
-            self.grid = Some(g);
-        }
+        self.pacer.compositor(grid(sync));
         if !self.running {
             return;
         }
-        if let (Some(s), false) = (sync["sound"].as_f64(), self.fasting) {
-            self.buffered = s;
-            if self.out_rate > 0.0 {
-                let short = (self.sound_target - s / self.out_rate) / self.sound_target;
-                let short = short.max(-1.0).min(1.0);
-                self.skew_sum = (self.skew_sum + short * SKEW_I).max(-SKEW_I_MAX).min(SKEW_I_MAX);
-                self.skew = (short * SKEW_P + self.skew_sum).max(-SKEW).min(SKEW);
-            }
-        }
-        if self.fasting {
-            return;
+        if let (Some(s), false) = (sync["sound"].as_f64(), self.pacer.fasting()) {
+            self.sound.sync(s);
         }
         let leads = sync["leads"].as_array().map(|l| l.iter().filter_map(Value::as_f64)).into_iter().flatten();
-        for lead in leads {
-            self.early += if lead / 1e6 < LEAD { EARLIER } else { -LATER };
-        }
-        self.early = self.early.max(EARLY_MIN).min(EARLY_MAX);
-    }
-
-    fn check(&mut self, now: Instant) {
-        let panel = match self.panel.as_ref() {
-            Some(p) => p,
-            None => return self.flight.clear(),
-        };
-        let period = Duration::from_secs_f64(panel.period());
-        let mut retired = None;
-        while let Some(&(refresh, fast)) = self.flight.front() {
-            if refresh + SEEN > now {
-                break;
-            }
-            self.flight.pop_front();
-            if now + SEEN > refresh + period {
-                continue;
-            }
-            let retired = *retired.get_or_insert_with(|| panel.retired());
-            if retired.map_or(false, |r| r + SEEN >= refresh) {
-                self.margin = (self.margin - MARGIN_DECAY).max(MARGIN_MIN);
-                self.stats.made += 1;
-            } else {
-                if !fast {
-                    self.margin = (self.margin + MARGIN_STEP).min(MARGIN_MAX);
-                }
-                self.hold = true;
-                self.stats.missed += 1;
-            }
-        }
-    }
-
-    fn plan(&mut self, now: Instant) {
-        let early = self.early + if self.fasting { FAST_SHARE * self.period() * self.per as f64 } else { 0.0 };
-        let (grid, margin, last) = (self.grid, self.margin, self.target);
-        if let Some(panel) = self.panel.as_mut() {
-            let period = panel.period();
-            let after = last.panel.map_or(now, |r| shift(r, period / 2.0).max(now));
-            match panel.next(after) {
-                Some(mut refresh) => loop {
-                    let tick = refresh_before(grid, shift(refresh, -margin));
-                    let start = shift(tick.unwrap_or(refresh), -early - tick.map_or(margin, |_| 0.0));
-                    if start >= now {
-                        self.target = Target { panel: Some(refresh), tick };
-                        self.deadline = start;
-                        return;
-                    }
-                    refresh = shift(refresh, period);
-                },
-                None => {
-                    warn!("the panel's vsync stopped: pictures at the game's pace");
-                    self.panel = None;
-                    self.per = 1;
-                    self.flight.clear();
-                }
-            }
-        }
-        let period = self.period();
-        if let Some((_, t)) = grid.filter(|&(_, t)| t == period) {
-            let after = last.tick.map_or(now, |r| shift(r, t / 2.0).max(now));
-            let mut tick = refresh_before(grid, shift(after, t)).unwrap_or(after);
-            while shift(tick, -early) < now {
-                tick = shift(tick, t);
-            }
-            self.target = Target { panel: None, tick: Some(tick) };
-            self.deadline = shift(tick, -early);
-            return;
-        }
-        self.target = Target::default();
-        self.deadline = shift(self.deadline, period);
-        if now > shift(self.deadline, period * BEHIND as f64) {
-            self.deadline = now;
-        }
+        self.pacer.leads(leads);
     }
 
     fn held(&mut self) -> u16 {
@@ -604,22 +394,13 @@ impl Player {
         }
     }
 
-    fn sound_rate(&self, period: f64) -> f64 {
-        if self.out_rate > 0.0 {
-            self.out_rate * self.fps * period * (1.0 + self.skew)
-        } else {
-            self.rate
-        }
-    }
-
     fn frames(&mut self, s: &mut State, fast: bool, started: Instant) -> u32 {
-        let period = self.period();
+        let (period, per) = (self.pacer.period(), self.pacer.per());
         self.audio.clear();
         if fast {
-            let budget = Duration::from_secs_f64(period * self.per as f64 * FAST_SHARE);
-            let until = self.target.tick.map_or(started + budget, |t| shift(t, self.work - self.early));
-            let most = if self.fast_speed > 0 { self.per * self.fast_speed } else { FAST_MAX };
-            let mut each = Duration::from_secs_f64(self.work / (self.per + self.ahead) as f64);
+            let until = self.pacer.fast_until(started);
+            let most = if self.fast_speed > 0 { per * self.fast_speed } else { FAST_MAX };
+            let mut each = Duration::from_secs_f64(self.pacer.work() / (per + self.ahead) as f64);
             let mut frames = 0;
             loop {
                 let at = Instant::now();
@@ -636,8 +417,8 @@ impl Player {
             self.audio.clear();
             return frames;
         }
-        s.frontend.set_audio_rate(self.sound_rate(period));
-        let (total, mix) = (self.per + self.ahead, self.mix);
+        s.frontend.set_audio_rate(self.sound.rate(self.pacer.fps(), period, self.rate));
+        let (total, mix) = (per + self.ahead, self.mix);
         let slot = move |i: u32| {
             if i + 1 == total {
                 Some(1)
@@ -647,7 +428,7 @@ impl Player {
                 None
             }
         };
-        for i in 0..self.per {
+        for i in 0..per {
             let keys = self.held();
             s.frontend.frame(keys, slot(i));
         }
@@ -655,7 +436,7 @@ impl Player {
         if self.ahead > 0 {
             let keys = self.held();
             if s.frontend.ahead() {
-                for i in self.per..total {
+                for i in per..total {
                     s.frontend.frame(keys, slot(i));
                 }
                 s.frontend.back();
@@ -664,13 +445,13 @@ impl Player {
                 self.ahead = 0;
             }
         }
-        self.per
+        per
     }
 
     fn picture(&mut self) {
         let started = Instant::now();
-        self.stats.wake = self.stats.wake.max(started.saturating_duration_since(self.deadline));
-        let target = self.target;
+        self.stats.wake = self.stats.wake.max(started.saturating_duration_since(self.pacer.deadline()));
+        let target = self.pacer.target();
         let fast = match self.keypad.as_ref() {
             Some(k) => k.held(FAST_KEY),
             None => self.fast,
@@ -689,7 +470,6 @@ impl Player {
         }
         self.clock_in -= 1;
         let frames = self.frames(s, fast, started);
-        self.fasting = fast;
 
         self.message.clear();
         self.message.resize(PREFIX + FRAME_HEADER, 0);
@@ -700,7 +480,7 @@ impl Player {
         }
         drop(guard);
 
-        let samples = if self.out_rate > 0.0 && !fast { self.audio.len() / 2 } else { 0 };
+        let samples = if self.sound.on() && !fast { self.audio.len() / 2 } else { 0 };
         self.message.reserve(samples * 8);
         for c in 0..2 {
             for frame in self.audio.chunks_exact(2).take(samples) {
@@ -709,11 +489,8 @@ impl Player {
         }
         self.stats.samples += samples;
         let work = started.elapsed();
-        if !fast {
-            self.work += (work.as_secs_f64() - self.work) / 16.0;
-        }
 
-        let hold = std::mem::take(&mut self.hold) && rows > 0;
+        let hold = self.pacer.made(fast, rows > 0, work.as_secs_f64());
         let m = &mut self.message[PREFIX..];
         m[0] = KIND_FRAME;
         m[1] = if hold { HOLD } else { 0 };
@@ -727,14 +504,9 @@ impl Player {
         m[20..24].copy_from_slice(&(self.played.elapsed().as_micros() as u32).to_le_bytes());
         m[24..32].copy_from_slice(&target.tick.map_or(0, to_epoch).to_le_bytes());
         self.send();
-        if hold {
-            self.stats.held += 1;
-        } else if let (true, Some(refresh)) = (rows > 0, target.panel) {
-            self.flight.push_back((refresh, fast));
-        }
         self.count(frames, work);
         if self.running {
-            self.plan(Instant::now());
+            self.pacer.plan(Instant::now());
         }
     }
 
@@ -759,21 +531,7 @@ impl Player {
         st.busy += work;
         if st.frames >= STATS_EVERY {
             let secs = (now - since).as_secs_f64();
-            let panel = match &self.panel {
-                Some(p) => format!(
-                    "the panel's {:.3} Hz, {} frames a picture: {} pictures made their refresh, {} missed it, \
-                     {} weren't drawn; compositor refresh {:.1} ms before the panel's at the least, frames \
-                     {:.1} ms before that",
-                    1.0 / p.period(),
-                    self.per,
-                    st.made,
-                    st.missed,
-                    st.held,
-                    self.margin * 1000.0,
-                    self.early * 1000.0
-                ),
-                None => "without the panel".into(),
-            };
+            let panel = self.pacer.report();
             info!(
                 "{} frames in {:.1} s ({:.2} a second) in {} pictures, {:.2} ms of emulation a frame with {} \
                  of run-ahead{}, keys from {}, {}, compositor {:.3} Hz, sound {:.0} ms ({:.0} samples a second, \
@@ -787,10 +545,10 @@ impl Player {
                 if self.mix { ", frames mixed" } else { "" },
                 if self.keypad.is_some() { "the keypad" } else { "the app" },
                 panel,
-                self.grid.map_or(0.0, |(_, t)| 1.0 / t),
-                if self.out_rate > 0.0 { self.buffered * 1000.0 / self.out_rate } else { 0.0 },
+                self.pacer.compositor_hz(),
+                self.sound.buffered_ms(),
                 st.samples as f64 / secs,
-                self.skew * 100.0,
+                self.sound.skew() * 100.0,
                 st.wake.as_secs_f64() * 1000.0
             );
             self.stats = Stats { since: Some(now), ..Stats::default() };
