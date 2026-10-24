@@ -1,10 +1,12 @@
-use crate::libretro;
+use crate::libretro::{self, Platform};
+use crate::video::Colors;
 use flipfull_remote::own_dir;
 use log::warn;
 use serde_json::{json, Map, Value};
 use std::collections::HashMap;
 use std::ffi::{CStr, CString};
 use std::fs;
+use std::str::FromStr;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 
@@ -451,7 +453,31 @@ pub fn set(key: &str, value: &Value) -> Result<(), String> {
     Ok(())
 }
 
-pub fn keymap() -> Vec<(u16, u16)> {
+pub struct Play {
+    pub ahead: u32,
+    pub mix: bool,
+    pub colors: Colors,
+    pub fast: Option<u32>,
+    pub latency: f64,
+    pub keymap: Vec<(u16, u16)>,
+}
+
+pub fn play(platform: Platform) -> Play {
+    Play {
+        ahead: number(if platform == Platform::Gba { "ahead_gba" } else { "ahead_gb" }),
+        mix: on("blend"),
+        colors: if get("colors") == "lcd" { platform.handheld_colors() } else { Colors::Vivid },
+        fast: get("fast").parse().ok(),
+        latency: number::<f64>("latency") / 1000.0,
+        keymap: keymap(),
+    }
+}
+
+fn number<T: FromStr + Default>(key: &str) -> T {
+    get(key).parse().unwrap_or_default()
+}
+
+fn keymap() -> Vec<(u16, u16)> {
     let s = settings();
     let active = s.keys["active"].as_str().unwrap_or("");
     let map = &s.keys["maps"][active];

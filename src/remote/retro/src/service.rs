@@ -24,6 +24,7 @@ const WRITTEN_WITHIN: Duration = Duration::from_secs(3);
 pub struct Loaded {
     pub path: String,
     pub save: SaveFile,
+    pub info: libretro::Game,
 }
 
 #[derive(Default)]
@@ -34,6 +35,10 @@ pub struct State {
 }
 
 impl State {
+    fn loaded(&self) -> Result<&Loaded, Failure> {
+        self.game.as_ref().ok_or_else(|| failure("no game is loaded"))
+    }
+
     pub fn flush_save(&mut self) {
         let State { frontend, game, .. } = self;
         if let Some(g) = game.as_mut() {
@@ -67,7 +72,7 @@ fn failure(message: impl Into<String>) -> Failure {
 }
 
 fn loaded_path() -> Result<String, Failure> {
-    state().game.as_ref().map(|g| g.path.clone()).ok_or_else(|| failure("no game is loaded"))
+    state().loaded().map(|g| g.path.clone())
 }
 
 fn slot(n: i64) -> Result<u32, Failure> {
@@ -113,6 +118,7 @@ impl RetroMethods for Retro {
         };
         let save_path = files::sibling(&path, "sav");
         let save = files::read(&save_path).unwrap_or_default();
+        // a restarted daemon hasn't listed the games yet, leave the bios copies alone
         if let (true, Some(found)) = (settings::on("bios"), &*bios()) {
             files::copy_bios(found);
         }
@@ -133,7 +139,7 @@ impl RetroMethods for Retro {
                 );
                 s.frontend.set_utc_offset(offset);
                 let data = s.frontend.save_data(false).to_vec();
-                s.game = Some(Loaded { path, save: SaveFile::new(save_path, &data) });
+                s.game = Some(Loaded { path, save: SaveFile::new(save_path, &data), info: game });
                 s.owner = self.id;
                 responder.resolve(Game {
                     width: game.width as i64,
@@ -170,7 +176,7 @@ impl RetroMethods for Retro {
             let (path, data) = {
                 let mut s = state();
                 s.flush_save();
-                let path = s.game.as_ref().map(|g| g.path.clone()).ok_or_else(|| failure("no game is loaded"))?;
+                let path = s.loaded()?.path.clone();
                 (path, s.frontend.save_state().map_err(failure)?)
             };
             files::write(&files::state_path(&path, n), &data).map_err(failure)

@@ -344,8 +344,7 @@
         held.clear();
         player.keys = 0;
         show('play');
-        const latency = setting('latency');
-        player.play({ latency: latency ? Number(latency.value) : 100 });
+        player.play({ latency: Number(setting('latency').value) });
         if (!wakeLock) {
             try {
                 const b2g = navigator.b2g;

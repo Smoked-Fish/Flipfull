@@ -290,6 +290,16 @@ pub enum Platform {
     Gb,
 }
 
+impl Platform {
+    pub fn handheld_colors(self) -> Colors {
+        match self {
+            Platform::Gba => Colors::Gba,
+            Platform::Gb => Colors::Gbc,
+        }
+    }
+}
+
+#[derive(Clone, Copy)]
 pub struct Game {
     pub width: u32,
     pub height: u32,
@@ -301,8 +311,6 @@ pub struct Game {
 #[derive(Default)]
 pub struct Frontend {
     loaded: bool,
-    platform: Option<Platform>,
-    timing: (f64, f64),
     before: Vec<u8>,
     ram_before: Vec<u8>,
     video: Video,
@@ -315,18 +323,6 @@ impl Frontend {
         } else {
             Err("no game is loaded".into())
         }
-    }
-
-    pub fn loaded(&self) -> bool {
-        self.loaded
-    }
-
-    pub fn platform(&self) -> Option<Platform> {
-        self.platform.filter(|_| self.loaded)
-    }
-
-    pub fn timing(&self) -> Option<(f64, f64)> {
-        Some(self.timing).filter(|_| self.loaded)
     }
 
     pub fn load(&mut self, rom: &[u8], save: &[u8]) -> Result<Game, String> {
@@ -345,7 +341,6 @@ impl Frontend {
             return Err("the core can't play this file".into());
         }
         self.loaded = true;
-        self.platform = Some(if unsafe { flipfull_platform() } == 1 { Platform::Gba } else { Platform::Gb });
         let memory = save_memory();
         let n = save.len().min(memory.len());
         memory[..n].copy_from_slice(&save[..n]);
@@ -360,13 +355,12 @@ impl Frontend {
         self.video.forget();
         let mut av = AvInfo::default();
         unsafe { retro_get_system_av_info(&mut av) };
-        self.timing = (av.timing.fps, av.timing.sample_rate);
         Ok(Game {
             width: av.geometry.base_width,
             height: av.geometry.base_height,
             fps: av.timing.fps,
             rate: av.timing.sample_rate,
-            platform: self.platform.unwrap(),
+            platform: if unsafe { flipfull_platform() } == 1 { Platform::Gba } else { Platform::Gb },
         })
     }
 
@@ -414,12 +408,7 @@ impl Frontend {
         }
     }
 
-    pub fn picture(&mut self, into: &mut Vec<u8>, mix: bool, lcd: bool) -> (usize, usize, usize, usize) {
-        let colors = match (lcd, self.platform) {
-            (false, _) | (_, None) => Colors::Vivid,
-            (true, Some(Platform::Gba)) => Colors::Gba,
-            (true, Some(Platform::Gb)) => Colors::Gbc,
-        };
+    pub fn picture(&mut self, into: &mut Vec<u8>, mix: bool, colors: Colors) -> (usize, usize, usize, usize) {
         {
             let out = output();
             let before = if mix { Some(&out.frames[0][..]) } else { None };

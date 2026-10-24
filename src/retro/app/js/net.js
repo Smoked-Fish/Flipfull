@@ -83,7 +83,7 @@
         since = performance.now();
         screen.postMessage({ playing: true });
         if (sound) {
-            sound.postMessage({ start: (options.latency || 100) / 1000 });
+            sound.postMessage({ start: options.latency / 1000 });
             sound.postMessage({ hold: false });
         }
         fetch(`${url.replace(/^ws:/, 'http:')}/play?o=${encodeURIComponent(JSON.stringify(asked))}`, { cache: 'no-store' })

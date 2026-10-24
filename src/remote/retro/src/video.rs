@@ -38,18 +38,18 @@ pub struct Video {
     height: usize,
     picture: Vec<u16>,
     shown: Vec<u16>,
-    colors: Option<(bool, Vec<u16>)>,
+    colors: Option<(Colors, Vec<u16>)>,
 }
 
 impl Video {
     fn correct(&mut self, colors: Colors) {
-        let gba = match colors {
+        let lcd = match colors {
             Colors::Vivid => return,
-            Colors::Gba => true,
-            Colors::Gbc => false,
+            Colors::Gba => &GBA,
+            Colors::Gbc => &GBC,
         };
-        if self.colors.as_ref().map_or(true, |(g, _)| *g != gba) {
-            self.colors = Some((gba, table(if gba { &GBA } else { &GBC })));
+        if self.colors.as_ref().map_or(true, |(c, _)| *c != colors) {
+            self.colors = Some((colors, table(lcd)));
         }
         if let Some((_, t)) = &self.colors {
             for p in self.picture.iter_mut() {
