@@ -1,9 +1,8 @@
 'use strict';
 
 (function (scope) {
-    const KIND_FRAME = 1;
-    const PAUSED = 2;
-    const HEADER = 32;
+    importScripts('frame.js');
+    const { Frame } = scope;
     // buffers go back and forth with the screen worker so there's no garbage
     const BUFFER = 128 * 1024;
     const CHUNK = 64 * 1024;
@@ -152,35 +151,34 @@
         }
     }
 
+    const header = {};
+
     function frame(data, s) {
-        const h16 = new Uint16Array(data, 0, HEADER >> 1);
-        const h32 = new Uint32Array(data, 0, HEADER >> 2);
-        const flags = h16[0] >> 8;
-        if ((h16[0] & 0xff) !== KIND_FRAME || s !== session) {
+        const h = Frame.read(data, header);
+        if (h.kind !== Frame.KIND_FRAME || s !== session) {
             spare.push(data);
-            if (flags & PAUSED) {
+            if (h.flags & Frame.PAUSED) {
                 post({ paused: true });
             }
             return;
         }
-        if (flags & PAUSED) {
+        if (h.flags & Frame.PAUSED) {
             spare.push(data);
             screen.postMessage({ last: true });
             stopped();
             return;
         }
-        const samples = h32[3];
-        if (samples && sound) {
-            const at = HEADER + h16[1] * h16[4] * 2;
-            const pcm = data.slice(at, at + samples * 8);
+        if (h.samples && sound) {
+            const at = Frame.HEADER + h.width * h.rows * 2;
+            const pcm = data.slice(at, at + h.samples * 8);
             sound.postMessage(new Float32Array(pcm), [pcm]);
         }
-        const trip = performance.now() - h32[5] / 1000;
+        const trip = performance.now() - h.sent / 1000;
         c.tripMin = Math.min(c.tripMin, trip);
         c.tripMax = Math.max(c.tripMax, trip);
         c.messages++;
-        c.frames += h16[5];
-        c.work += h32[4];
+        c.frames += h.frames;
+        c.work += h.work;
         screen.postMessage({ frame: data }, [data]);
     }
 

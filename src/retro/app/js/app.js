@@ -32,7 +32,6 @@
     let games = [];
     let scanned = false;
     let folder = '';
-    let listItems = [];
     const folderFocus = {};
     const focus = { list: 0, menu: 0, slots: 0, settings: 0, keys: 0 };
     let current = null;
@@ -130,7 +129,13 @@
                 render();
             }
         };
-        dialogKeys = { center: close, back: close };
+        dialogKeys = {
+            center: close,
+            back: close,
+            move: (by) => {
+                el.dialog.scrollTop += by * SCROLL;
+            },
+        };
         softkeys('', 'OK', '');
     }
 
@@ -191,7 +196,7 @@
                 return softkeys('', 'Retry', '');
             default:
                 el.barTitle.textContent = 'GBA';
-                keys = {};
+                keys = { back() {} };
                 return softkeys('', '', '');
         }
     }
@@ -223,7 +228,6 @@
 
     function renderList() {
         const items = entries();
-        listItems = items;
         el.barTitle.textContent = folder ? folder.slice(0, -1).replace(/^.*\//, '') : 'GBA';
         el.barCount.textContent = items.length ? String(items.length) : '';
         el.scanning.textContent = scanned ? '' : 'Looking for games…';
@@ -249,6 +253,10 @@
             },
             right: () => rescan(),
             back: () => (folder ? openFolder(folder.replace(/[^/]*\/$/, '')) : window.close()),
+            move: (by) => {
+                moveFocus('list', el.games, by);
+                listSoftkeys(items);
+            },
         };
         listSoftkeys(items);
     }
@@ -297,7 +305,7 @@
 
     function renderPlay() {
         el.barTitle.textContent = current ? current.title : 'GBA';
-        keys = {};
+        keys = { any: gameKey };
         softkeys('Pause', '', 'Fast');
     }
 
@@ -398,6 +406,7 @@
         keys = {
             center: () => menu[focus.menu] && menu[focus.menu].run(),
             back: resume,
+            move: (by) => moveFocus('menu', el.menuItems, by),
         };
         softkeys('', 'Select', '');
     }
@@ -473,6 +482,7 @@
                 menu = menuItems();
                 show('menu');
             },
+            move: (by) => moveFocus('slots', el.slotItems, by),
         };
         softkeys('', slots.length ? (saving ? 'Save' : 'Load') : '', '');
     }
@@ -542,6 +552,11 @@
         keys = {
             center: () => step(1),
             back: () => (settingsFrom === 'menu' ? openMenu() : show('list')),
+            move: (by) => {
+                moveFocus('settings', el.settingItems, by);
+                settingAbout();
+            },
+            side: (by) => settingRows()[focus.settings] !== KEYS_ROW && step(by),
         };
         settingAbout();
     }
@@ -593,6 +608,10 @@
         return preset().name;
     }
 
+    function keysSoftkeys() {
+        softkeys('Defaults', focus.keys === 0 ? 'Switch' : 'Change', '');
+    }
+
     function renderKeys() {
         const k = settings.keys;
         const map = k.maps[k.active];
@@ -608,7 +627,14 @@
         });
         moveFocus('keys', el.keyItems, 0);
         if (waitingKey) {
-            keys = {};
+            keys = {
+                any: (e, down) => {
+                    if (down) {
+                        setKey(e.key);
+                    }
+                    return down;
+                },
+            };
             softkeys('', '', 'Cancel');
             return;
         }
@@ -631,8 +657,12 @@
                 renderKeys();
             },
             back: () => (keysFrom === 'menu' ? openMenu() : show('settings')),
+            move: (by) => {
+                moveFocus('keys', el.keyItems, by);
+                keysSoftkeys();
+            },
         };
-        softkeys('Defaults', focus.keys === 0 ? 'Switch' : 'Change', '');
+        keysSoftkeys();
     }
 
     // the phone sends a MicrophoneToggle after other keys, ignore keys that aren't on the keypad
@@ -697,18 +727,13 @@
     }
 
     function onKeyDown(e) {
-        if (view === 'play' && !dialogKeys) {
-            if (gameKey(e, true)) {
+        const k = dialogKeys || keys;
+        if (k.any) {
+            if (k.any(e, true)) {
                 e.preventDefault();
             }
             return;
         }
-        if (view === 'keys' && waitingKey && !dialogKeys) {
-            e.preventDefault();
-            setKey(e.key);
-            return;
-        }
-        const k = dialogKeys || keys;
         let handled = true;
         switch (e.key) {
             case 'SoftLeft':
@@ -721,40 +746,19 @@
                 if (k.center) k.center();
                 break;
             case 'ArrowUp':
-            case 'ArrowDown': {
-                const by = e.key === 'ArrowUp' ? -1 : 1;
-                if (dialogKeys) {
-                    el.dialog.scrollTop += by * SCROLL;
-                } else if (view === 'list') {
-                    moveFocus('list', el.games, by);
-                    listSoftkeys(listItems);
-                } else if (view === 'menu') {
-                    moveFocus('menu', el.menuItems, by);
-                } else if (view === 'slots') {
-                    moveFocus('slots', el.slotItems, by);
-                } else if (view === 'settings') {
-                    moveFocus('settings', el.settingItems, by);
-                    settingAbout();
-                } else if (view === 'keys') {
-                    moveFocus('keys', el.keyItems, by);
-                    softkeys('Defaults', focus.keys === 0 ? 'Switch' : 'Change', '');
-                }
+            case 'ArrowDown':
+                if (k.move) k.move(e.key === 'ArrowUp' ? -1 : 1);
                 break;
-            }
             case 'ArrowLeft':
             case 'ArrowRight':
-                if (view === 'settings' && !dialogKeys && settingRows()[focus.settings] !== KEYS_ROW) {
-                    step(e.key === 'ArrowLeft' ? -1 : 1);
-                } else {
-                    handled = false;
-                }
+                handled = !!k.side && k.side(e.key === 'ArrowLeft' ? -1 : 1) !== false;
                 break;
             case 'Backspace':
             case 'GoBack':
                 if (k.back) {
                     k.back();
                 } else {
-                    handled = view === 'loading';
+                    handled = false;
                 }
                 break;
             default:
@@ -766,7 +770,8 @@
     }
 
     function onKeyUp(e) {
-        if (view === 'play' && !dialogKeys && gameKey(e, false)) {
+        const k = dialogKeys || keys;
+        if (k.any && k.any(e, false)) {
             e.preventDefault();
         }
     }

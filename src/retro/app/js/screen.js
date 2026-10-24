@@ -1,8 +1,8 @@
 'use strict';
 
 (function (scope) {
-    const HEADER = 32;
-    const HOLD = 4;
+    importScripts('frame.js');
+    const { Frame } = scope;
     const SYNC_EVERY = 250;
     const STATS_EVERY = 1000;
     const IDLE = 30;
@@ -97,7 +97,7 @@
             if (rows) {
                 const gl = this.gl;
                 gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, top, width, rows, gl.RGB, gl.UNSIGNED_SHORT_5_6_5,
-                    new Uint16Array(buffer, HEADER, width * rows));
+                    new Uint16Array(buffer, Frame.HEADER, width * rows));
                 this.changed = true;
             }
         }
@@ -132,18 +132,18 @@
         }
     }
 
+    const header = {};
+
     function show(buffer) {
-        const h16 = new Uint16Array(buffer, 0, HEADER >> 1);
-        const h32 = new Uint32Array(buffer, 0, HEADER >> 2);
-        screen.rows(h16[1], h16[2], h16[3], h16[4], buffer);
-        if ((h16[0] >> 8) & HOLD) {
+        const h = Frame.read(buffer, header);
+        screen.rows(h.width, h.height, h.top, h.rows, buffer);
+        if (h.flags & Frame.HOLD) {
             c.held++;
         } else if (screen.changed) {
             screen.draw();
             c.shown++;
-            const due = h32[6] + h32[7] * 4294967296;
-            if (due) {
-                const ahead = due / 1000 - (performance.timeOrigin + performance.now());
+            if (h.due) {
+                const ahead = h.due / 1000 - (performance.timeOrigin + performance.now());
                 leads.push(Math.round(ahead * 1000));
                 c.lead = c.lead === null ? ahead : Math.min(c.lead, ahead);
                 if (ahead < IN_TIME) {

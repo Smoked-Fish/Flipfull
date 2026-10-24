@@ -27,6 +27,37 @@ const HOLD: u8 = 4;
 const FRAME_HEADER: usize = 32;
 const PREFIX: usize = 4;
 
+#[derive(Default)]
+struct Header {
+    flags: u8,
+    width: u16,
+    height: u16,
+    top: u16,
+    rows: u16,
+    frames: u16,
+    samples: u32,
+    work_us: u32,
+    sent_us: u32,
+    tick_us: u64,
+}
+
+impl Header {
+    fn write(&self, message: &mut [u8]) {
+        let m = &mut message[PREFIX..PREFIX + FRAME_HEADER];
+        m[0] = KIND_FRAME;
+        m[1] = self.flags;
+        m[2..4].copy_from_slice(&self.width.to_le_bytes());
+        m[4..6].copy_from_slice(&self.height.to_le_bytes());
+        m[6..8].copy_from_slice(&self.top.to_le_bytes());
+        m[8..10].copy_from_slice(&self.rows.to_le_bytes());
+        m[10..12].copy_from_slice(&self.frames.to_le_bytes());
+        m[12..16].copy_from_slice(&self.samples.to_le_bytes());
+        m[16..20].copy_from_slice(&self.work_us.to_le_bytes());
+        m[20..24].copy_from_slice(&self.sent_us.to_le_bytes());
+        m[24..32].copy_from_slice(&self.tick_us.to_le_bytes());
+    }
+}
+
 const FAST_MAX: u32 = 20;
 const FAST_KEY: u16 = 158;
 const CLOCK_EVERY: u32 = 30;
@@ -245,8 +276,7 @@ fn send(out: &mut TcpStream, message: &mut [u8]) -> bool {
 fn send_paused(out: &mut TcpStream, message: &mut Vec<u8>) {
     message.clear();
     message.resize(PREFIX + FRAME_HEADER, 0);
-    message[PREFIX] = KIND_FRAME;
-    message[PREFIX + 1] = PAUSED;
+    Header { flags: PAUSED, ..Header::default() }.write(message);
     let _ = send(out, message);
 }
 
@@ -474,18 +504,19 @@ impl Player {
         let work = started.elapsed();
 
         let hold = self.pacer.made(fast, rows > 0, work.as_secs_f64());
-        let m = &mut self.message[PREFIX..];
-        m[0] = KIND_FRAME;
-        m[1] = if hold { HOLD } else { 0 };
-        m[2..4].copy_from_slice(&(width as u16).to_le_bytes());
-        m[4..6].copy_from_slice(&(height as u16).to_le_bytes());
-        m[6..8].copy_from_slice(&(top as u16).to_le_bytes());
-        m[8..10].copy_from_slice(&(rows as u16).to_le_bytes());
-        m[10..12].copy_from_slice(&(frames as u16).to_le_bytes());
-        m[12..16].copy_from_slice(&(samples as u32).to_le_bytes());
-        m[16..20].copy_from_slice(&(work.as_micros() as u32).to_le_bytes());
-        m[20..24].copy_from_slice(&(play.played.elapsed().as_micros() as u32).to_le_bytes());
-        m[24..32].copy_from_slice(&target.tick.map_or(0, to_epoch).to_le_bytes());
+        let header = Header {
+            flags: if hold { HOLD } else { 0 },
+            width: width as u16,
+            height: height as u16,
+            top: top as u16,
+            rows: rows as u16,
+            frames: frames as u16,
+            samples: samples as u32,
+            work_us: work.as_micros() as u32,
+            sent_us: play.played.elapsed().as_micros() as u32,
+            tick_us: target.tick.map_or(0, to_epoch),
+        };
+        header.write(&mut self.message);
         if !send(&mut play.out, &mut self.message) {
             return self.stop();
         }
