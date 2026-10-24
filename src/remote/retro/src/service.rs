@@ -57,8 +57,8 @@ pub fn state() -> MutexGuard<'static, State> {
     STATE.get_or_init(Mutex::default).lock().unwrap()
 }
 
-fn bios() -> MutexGuard<'static, Vec<String>> {
-    static BIOS: OnceLock<Mutex<Vec<String>>> = OnceLock::new();
+fn bios() -> MutexGuard<'static, Option<Vec<String>>> {
+    static BIOS: OnceLock<Mutex<Option<Vec<String>>>> = OnceLock::new();
     BIOS.get_or_init(Mutex::default).lock().unwrap()
 }
 
@@ -98,7 +98,7 @@ impl RetroMethods for Retro {
     fn games(&mut self, responder: RetroGamesResponder) {
         match files::games() {
             Ok((games, found)) => {
-                *bios() = found;
+                *bios() = Some(found);
                 responder.resolve(JsonValue::from(json!(games)))
             }
             Err(why) => responder.reject(failure(why)),
@@ -113,8 +113,8 @@ impl RetroMethods for Retro {
         };
         let save_path = files::sibling(&path, "sav");
         let save = files::read(&save_path).unwrap_or_default();
-        if settings::on("bios") {
-            files::copy_bios(&bios());
+        if let (true, Some(found)) = (settings::on("bios"), &*bios()) {
+            files::copy_bios(found);
         }
         let offset = clock::utc_offset();
         let mut s = state();
