@@ -787,43 +787,6 @@
         connect();
     }
 
-    async function migrate(s) {
-        const old = (k) => {
-            try {
-                return localStorage.getItem(k);
-            } catch (e) {
-                return null;
-            }
-        };
-        const changes = [];
-        try {
-            const presets = JSON.parse(old('presets'));
-            if (presets) {
-                changes.push(['keys', presets]);
-            }
-        } catch (e) {}
-        ['gba', 'gb'].forEach((f) => {
-            const ahead = old(`ahead-${f}`);
-            if (ahead !== null) {
-                changes.push([`ahead_${f}`, ahead]);
-            }
-        });
-        if (old('fps') !== null) {
-            changes.push(['fps', old('fps')]);
-        }
-        for (const [key, value] of changes) {
-            try {
-                s = await window.FlipfullRetro.set(key, value);
-            } catch (e) {}
-        }
-        ['presets', 'keys', 'ahead-gba', 'ahead-gb', 'fps'].forEach((k) => {
-            try {
-                localStorage.removeItem(k);
-            } catch (e) {}
-        });
-        return s;
-    }
-
     function connect() {
         if (!window.FlipfullRetro) {
             el.offlineWhy.textContent = "Flipfull's retro.js didn't load from api-daemon.";
@@ -832,7 +795,7 @@
         }
         show('loading');
         const r = window.FlipfullRetro;
-        Promise.all([r.stream(), r.settings().then(migrate)]).then(([url, s]) => {
+        Promise.all([r.stream(), r.settings()]).then(([url, s]) => {
             took(s);
             player.connect(url);
             rescan();
