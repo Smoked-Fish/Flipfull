@@ -6,12 +6,11 @@ const MAX_REQUEST: usize = 8192;
 const MAX_MESSAGE: u64 = 64 * 1024;
 
 pub const TEXT: u8 = 1;
-pub const BINARY: u8 = 2;
+const BINARY: u8 = 2;
 const CLOSE: u8 = 8;
 const PING: u8 = 9;
 const PONG: u8 = 10;
-
-pub const HEADER: usize = 10;
+const MAX_CONTROL: usize = 125;
 
 fn sha1(data: &[u8]) -> [u8; 20] {
     let mut h: [u32; 5] = [0x67452301, 0xefcdab89, 0x98badcfe, 0x10325476, 0xc3d2e1f0];
@@ -148,28 +147,6 @@ pub fn query(path: &str, name: &str) -> Option<String> {
     String::from_utf8(out).ok()
 }
 
-pub fn frame(buf: &mut [u8], opcode: u8) -> usize {
-    let len = buf.len() - HEADER;
-    let start = match len {
-        0..=125 => {
-            buf[HEADER - 1] = len as u8;
-            HEADER - 2
-        }
-        126..=0xffff => {
-            buf[HEADER - 3] = 126;
-            buf[HEADER - 2..HEADER].copy_from_slice(&(len as u16).to_be_bytes());
-            HEADER - 4
-        }
-        _ => {
-            buf[HEADER - 9] = 127;
-            buf[HEADER - 8..HEADER].copy_from_slice(&(len as u64).to_be_bytes());
-            0
-        }
-    };
-    buf[start] = 0x80 | opcode;
-    start
-}
-
 pub struct Reader {
     stream: TcpStream,
 }
@@ -215,10 +192,12 @@ impl Reader {
             match opcode {
                 CLOSE => return Ok(None),
                 PING => {
-                    let mut pong = vec![0u8; HEADER];
+                    if payload.len() > MAX_CONTROL {
+                        return Err(io::Error::new(io::ErrorKind::InvalidData, "ping too long"));
+                    }
+                    let mut pong = vec![0x80 | PONG, payload.len() as u8];
                     pong.extend_from_slice(&payload);
-                    let start = frame(&mut pong, PONG);
-                    (&self.stream).write_all(&pong[start..])?;
+                    (&self.stream).write_all(&pong)?;
                     continue;
                 }
                 PONG => continue,
