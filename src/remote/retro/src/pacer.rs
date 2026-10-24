@@ -55,8 +55,7 @@ pub struct Counts {
 }
 
 pub struct Pacer {
-    panel: Option<Panel>,
-    per: u32,
+    panel: Option<(Panel, u32)>,
     fps: f64,
     grid: Option<(Instant, f64)>,
     deadline: Instant,
@@ -74,7 +73,6 @@ impl Pacer {
     pub fn new() -> Pacer {
         Pacer {
             panel: None,
-            per: 1,
             fps: 59.7275,
             grid: None,
             deadline: Instant::now(),
@@ -91,14 +89,12 @@ impl Pacer {
 
     pub fn start(&mut self, fps: f64, panel: Result<Panel, String>, now: Instant) {
         self.fps = fps;
-        self.per = 1;
         self.panel = match panel {
             Ok(panel) => {
                 let frames = fps * panel.period();
                 let n = frames.round().max(1.0);
                 if (n / frames - 1.0).abs() < SYNC_WITHIN {
-                    self.per = n as u32;
-                    Some(panel)
+                    Some((panel, n as u32))
                 } else {
                     warn!("the panel's {:.2} Hz doesn't fit the game's frames", 1.0 / panel.period());
                     None
@@ -134,7 +130,7 @@ impl Pacer {
     }
 
     pub fn per(&self) -> u32 {
-        self.per
+        self.panel.as_ref().map_or(1, |&(_, per)| per)
     }
 
     pub fn deadline(&self) -> Instant {
@@ -161,13 +157,14 @@ impl Pacer {
     }
 
     pub fn period(&self) -> f64 {
-        if let Some(panel) = &self.panel {
-            return panel.period() / self.per as f64;
+        match &self.panel {
+            Some((panel, per)) => panel.period() / *per as f64,
+            None => self.grid_fit().unwrap_or(1.0 / self.fps),
         }
-        match self.grid {
-            Some((_, t)) if (1.0 / t / self.fps - 1.0).abs() < SYNC_WITHIN => t,
-            _ => 1.0 / self.fps,
-        }
+    }
+
+    fn grid_fit(&self) -> Option<f64> {
+        self.grid.map(|(_, t)| t).filter(|t| (1.0 / t / self.fps - 1.0).abs() < SYNC_WITHIN)
     }
 
     pub fn leads(&mut self, leads: impl Iterator<Item = f64>) {
@@ -182,7 +179,7 @@ impl Pacer {
 
     pub fn check(&mut self, now: Instant) {
         let panel = match self.panel.as_ref() {
-            Some(p) => p,
+            Some((p, _)) => p,
             None => return self.flight.clear(),
         };
         let period = Duration::from_secs_f64(panel.period());
@@ -210,7 +207,7 @@ impl Pacer {
     }
 
     pub fn fast_until(&self, started: Instant) -> Instant {
-        let budget = Duration::from_secs_f64(self.period() * self.per as f64 * FAST_SHARE);
+        let budget = Duration::from_secs_f64(self.period() * self.per() as f64 * FAST_SHARE);
         self.target.tick.map_or(started + budget, |t| shift(t, self.work - self.early))
     }
 
@@ -229,9 +226,9 @@ impl Pacer {
     }
 
     pub fn plan(&mut self, now: Instant) {
-        let early = self.early + if self.fasting { FAST_SHARE * self.period() * self.per as f64 } else { 0.0 };
+        let early = self.early + if self.fasting { FAST_SHARE * self.period() * self.per() as f64 } else { 0.0 };
         let (grid, margin, last) = (self.grid, self.margin, self.target);
-        if let Some(panel) = self.panel.as_mut() {
+        if let Some((panel, _)) = self.panel.as_mut() {
             let period = panel.period();
             let after = last.panel.map_or(now, |r| shift(r, period / 2.0).max(now));
             match panel.next(after) {
@@ -248,13 +245,11 @@ impl Pacer {
                 None => {
                     warn!("the panel's vsync stopped: pictures at the game's pace");
                     self.panel = None;
-                    self.per = 1;
                     self.flight.clear();
                 }
             }
         }
-        let period = self.period();
-        if let Some((_, t)) = grid.filter(|&(_, t)| t == period) {
+        if let Some(t) = self.grid_fit() {
             let after = last.tick.map_or(now, |r| shift(r, t / 2.0).max(now));
             let mut tick = refresh_before(grid, shift(after, t)).unwrap_or(after);
             while shift(tick, -early) < now {
@@ -264,6 +259,7 @@ impl Pacer {
             self.deadline = shift(tick, -early);
             return;
         }
+        let period = self.period();
         self.target = Target::default();
         self.deadline = shift(self.deadline, period);
         if now > shift(self.deadline, period * BEHIND as f64) {
@@ -274,12 +270,12 @@ impl Pacer {
     pub fn report(&mut self) -> String {
         let c = std::mem::take(&mut self.counts);
         match &self.panel {
-            Some(p) => format!(
+            Some((p, per)) => format!(
                 "the panel's {:.3} Hz, {} frames a picture: {} pictures made their refresh, {} missed it, \
                  {} weren't drawn; compositor refresh {:.1} ms before the panel's at the least, frames \
                  {:.1} ms before that",
                 1.0 / p.period(),
-                self.per,
+                per,
                 c.made,
                 c.missed,
                 c.held,
