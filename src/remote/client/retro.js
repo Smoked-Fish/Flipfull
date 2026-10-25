@@ -8,38 +8,16 @@ const SLOW = 60 * 1000;
 
 const retro = service('FlipfullRetro', lib);
 
-window.FlipfullRetro = {
-    info() {
-        return retro.call((svc) => svc.info(), QUICK);
-    },
-    stream() {
-        return retro.call((svc) => svc.stream(), QUICK);
-    },
-    games() {
-        return retro.call((svc) => svc.games(), SLOW);
-    },
-    load(path) {
-        return retro.call((svc) => svc.load(path), SLOW);
-    },
-    reset() {
-        return retro.call((svc) => svc.reset(), QUICK);
-    },
-    states() {
-        return retro.call((svc) => svc.states(), QUICK);
-    },
-    saveState(slot) {
-        return retro.call((svc) => svc.saveState(slot), SLOW);
-    },
-    loadState(slot) {
-        return retro.call((svc) => svc.loadState(slot), SLOW);
-    },
-    settings() {
-        return retro.call((svc) => svc.settings(), QUICK);
-    },
-    set(key, value) {
-        return retro.call((svc) => svc.set(key, value), QUICK);
-    },
-    unload() {
-        return retro.call((svc) => svc.unload(), QUICK);
-    },
-};
+window.FlipfullRetro = retro.methods({
+    info: QUICK,
+    stream: QUICK,
+    games: SLOW,
+    load: SLOW,
+    reset: QUICK,
+    states: QUICK,
+    saveState: SLOW,
+    loadState: SLOW,
+    settings: QUICK,
+    set: QUICK,
+    unload: QUICK,
+});

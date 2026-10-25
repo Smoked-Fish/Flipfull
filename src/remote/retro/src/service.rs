@@ -7,6 +7,7 @@ use crate::settings;
 use crate::stream;
 use common::traits::{EmptyConfig, EmptyState, Shared, SharedServiceState};
 use common::JsonValue;
+use flipfull_remote::settle;
 use log::info;
 use serde_json::{json, Value};
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -89,10 +90,7 @@ impl RetroMethods for Retro {
     }
 
     fn stream(&mut self, responder: RetroStreamResponder) {
-        match stream::url() {
-            Ok(url) => responder.resolve(url),
-            Err(why) => responder.reject(failure(why)),
-        }
+        settle!(responder, stream::url().map_err(failure));
     }
 
     fn games(&mut self, responder: RetroGamesResponder) {
@@ -148,22 +146,17 @@ impl RetroMethods for Retro {
     }
 
     fn reset(&mut self, responder: RetroResetResponder) {
-        match state().frontend.reset() {
-            Ok(()) => responder.resolve(),
-            Err(why) => responder.reject(failure(why)),
-        }
+        settle!(responder, state().frontend.reset().map_err(failure), ());
     }
 
     fn states(&mut self, responder: RetroStatesResponder) {
-        match loaded_path() {
-            Ok(path) => {
-                let slots: Vec<Value> = (0..SLOTS)
-                    .map(|n| json!({ "slot": n, "time": files::modified(&files::state_path(&path, n)).unwrap_or(0) }))
-                    .collect();
-                responder.resolve(JsonValue::from(json!(slots)))
-            }
-            Err(why) => responder.reject(why),
-        }
+        let slots = loaded_path().map(|path| {
+            let slots: Vec<Value> = (0..SLOTS)
+                .map(|n| json!({ "slot": n, "time": files::modified(&files::state_path(&path, n)).unwrap_or(0) }))
+                .collect();
+            JsonValue::from(json!(slots))
+        });
+        settle!(responder, slots);
     }
 
     fn save_state(&mut self, responder: RetroSaveStateResponder, n: i64) {
@@ -176,10 +169,7 @@ impl RetroMethods for Retro {
             };
             files::write(&files::state_path(&path, n), &data).map_err(failure)
         });
-        match saved {
-            Ok(()) => responder.resolve(),
-            Err(why) => responder.reject(why),
-        }
+        settle!(responder, saved, ());
     }
 
     fn load_state(&mut self, responder: RetroLoadStateResponder, n: i64) {
@@ -190,10 +180,7 @@ impl RetroMethods for Retro {
             s.frontend.set_utc_offset(clock::utc_offset());
             Ok(())
         });
-        match loaded {
-            Ok(()) => responder.resolve(),
-            Err(why) => responder.reject(why),
-        }
+        settle!(responder, loaded, ());
     }
 
     fn settings(&mut self, responder: RetroSettingsResponder) {
@@ -201,10 +188,7 @@ impl RetroMethods for Retro {
     }
 
     fn set(&mut self, responder: RetroSetResponder, key: String, value: JsonValue) {
-        match settings::set(&key, &value) {
-            Ok(()) => responder.resolve(JsonValue::from(settings::describe())),
-            Err(why) => responder.reject(failure(why)),
-        }
+        settle!(responder, settings::set(&key, &value).map(|()| JsonValue::from(settings::describe())).map_err(failure));
     }
 
     fn unload(&mut self, responder: RetroUnloadResponder) {
