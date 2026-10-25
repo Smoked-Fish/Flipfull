@@ -1,4 +1,5 @@
 mod fd;
+pub mod games;
 mod role;
 pub mod services;
 
@@ -10,6 +11,8 @@ use std::os::unix::io::{AsRawFd, OwnedFd};
 use std::os::unix::net::UnixStream;
 
 const MAX_LINE: usize = 4096;
+const MAX_WRITE: usize = 8 * 1024 * 1024;
+const FILE_ANSWER: usize = 256;
 const NONSENSE: &str = "toolboxd's answer made no sense";
 
 struct Allowed {
@@ -67,11 +70,16 @@ impl std::fmt::Debug for Allowed {
 pub enum Request {
     Script(Script),
     Record(File),
+    Keypad,
+    ListGames,
+    OpenGameFile(String),
+    WriteGameFile { path: String, data: Vec<u8> },
 }
 
 #[derive(Debug)]
 pub enum Answer {
     Text { ok: bool, text: String },
+    File(File),
     HandedOver(UnixStream),
 }
 
@@ -99,6 +107,10 @@ impl Request {
         match self {
             Request::Script(s) => format!("{} {}\n", s.name(), s.words.join(" ")),
             Request::Record(_) => "record\n".into(),
+            Request::Keypad => "keypad\n".into(),
+            Request::ListGames => "retro-list\n".into(),
+            Request::OpenGameFile(path) => format!("retro-open {}\n", path),
+            Request::WriteGameFile { path, data } => format!("retro-write {} {}\n", data.len(), path),
         }
     }
 
@@ -107,8 +119,12 @@ impl Request {
         if line.len() > MAX_LINE {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "Too long"));
         }
+        if line[..line.len() - 1].contains('\n') {
+            return Err(io::Error::new(io::ErrorKind::InvalidInput, "Not a path"));
+        }
         match self {
             Request::Record(file) => fd::send(stream, line.as_bytes(), file.as_raw_fd()),
+            Request::WriteGameFile { data, .. } => stream.write_all(line.as_bytes()).and_then(|_| stream.write_all(data)),
             _ => stream.write_all(line.as_bytes()),
         }
     }
@@ -132,20 +148,42 @@ impl Request {
             }
         }
         let end = line.iter().position(|&b| b == b'\n').unwrap_or(line.len());
+        let rest = line.split_off(end + 1);
         line.truncate(end);
         let line = String::from_utf8(line).map_err(|_| "Not a command")?;
-        decode(&line, fd)
+        decode(&line, fd, rest, stream)
     }
 }
 
-fn decode(line: &str, fd: Option<OwnedFd>) -> Result<Request, String> {
+fn decode(line: &str, fd: Option<OwnedFd>, rest: Vec<u8>, stream: &mut UnixStream) -> Result<Request, String> {
     let words: Vec<&str> = line.split(' ').filter(|w| !w.is_empty()).collect();
     if let Some(fd) = fd {
         return if words == ["record"] { Ok(Request::Record(File::from(fd))) } else { Err("Not a command".into()) };
     }
-    match words.split_first() {
-        Some((name, args)) => Request::script(name, args),
-        None => Err("Not a command".into()),
+    let (verb, args) = line.split_once(' ').unwrap_or((line, ""));
+    match verb {
+        "keypad" if args.is_empty() => Ok(Request::Keypad),
+        "retro-list" if args.is_empty() => Ok(Request::ListGames),
+        "retro-open" if !args.is_empty() => Ok(Request::OpenGameFile(args.to_string())),
+        "retro-write" => {
+            let (size, path) =
+                args.split_once(' ').and_then(|(n, p)| Some((n.parse::<usize>().ok()?, p))).ok_or("Not a command")?;
+            if size > MAX_WRITE {
+                return Err("Too big".into());
+            }
+            let mut data = rest;
+            if data.len() < size {
+                let start = data.len();
+                data.resize(size, 0);
+                stream.read_exact(&mut data[start..]).map_err(|e| format!("the data: {}", e))?;
+            }
+            data.truncate(size);
+            Ok(Request::WriteGameFile { path: path.to_string(), data })
+        }
+        _ => match words.split_first() {
+            Some((name, args)) => Request::script(name, args),
+            None => Err("Not a command".into()),
+        },
     }
 }
 
@@ -164,6 +202,7 @@ impl Answer {
                 stream.write_all(if *ok { b"ok\n" } else { b"error\n" })?;
                 stream.write_all(text.as_bytes())
             }
+            Answer::File(file) => fd::send(stream, b"ok\n", file.as_raw_fd()),
             Answer::HandedOver(_) => Ok(()),
         }
     }
@@ -173,6 +212,14 @@ impl Answer {
             Answer::Text { ok: true, text } => Ok(text),
             Answer::Text { ok: false, text } => Err(text.trim().to_string()),
             _ => Err(NONSENSE.into()),
+        }
+    }
+
+    pub fn file(self) -> Result<File, String> {
+        match self {
+            Answer::File(file) => Ok(file),
+            Answer::Text { ok: false, text } => Err(text.trim().to_string()),
+            _ => Err("toolboxd sent no file".into()),
         }
     }
 
@@ -199,10 +246,22 @@ fn receive_text(mut stream: UnixStream) -> Result<Answer, String> {
     parse(&answer)
 }
 
+fn receive_file(mut stream: UnixStream) -> Result<Answer, String> {
+    let mut buf = [0u8; FILE_ANSWER];
+    let (n, fd) = fd::receive(&stream, &mut buf).map_err(|e| e.to_string())?;
+    if let Some(fd) = fd {
+        return Ok(Answer::File(File::from(fd)));
+    }
+    let mut answer = String::from_utf8_lossy(&buf[..n]).into_owned();
+    let _ = stream.read_to_string(&mut answer);
+    parse(&answer)
+}
+
 pub fn ask(mut stream: UnixStream, request: &Request) -> Result<Answer, String> {
     request.send(&mut stream).map_err(|e| e.to_string())?;
     match request {
         Request::Record(_) => Ok(Answer::HandedOver(stream)),
+        Request::Keypad | Request::OpenGameFile(_) => receive_file(stream),
         _ => receive_text(stream),
     }
 }

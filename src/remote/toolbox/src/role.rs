@@ -8,6 +8,7 @@ const FIRST_UID: u32 = 10000;
 pub enum Role {
     Scripts,
     Record,
+    Games,
 }
 
 impl Role {
@@ -15,6 +16,7 @@ impl Role {
         match name {
             "scripts" => Some(Role::Scripts),
             "record" => Some(Role::Record),
+            "games" => Some(Role::Games),
             _ => None,
         }
     }
@@ -28,6 +30,10 @@ impl Role {
         match self {
             Role::Scripts => matches!(request, Request::Script(_)),
             Role::Record => matches!(request, Request::Record(_)),
+            Role::Games => matches!(
+                request,
+                Request::Keypad | Request::ListGames | Request::OpenGameFile(_) | Request::WriteGameFile { .. }
+            ),
         }
     }
 }

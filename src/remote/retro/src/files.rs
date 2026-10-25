@@ -1,21 +1,30 @@
-use flipfull_remote::{own_dir, retro_list, retro_open, retro_write};
+use flipfull_remote::own_dir;
 use log::{info, warn};
 use serde::Serialize;
 use std::collections::VecDeque;
-use std::fs;
+use std::fs::{self, File};
 use std::io::Read;
 use std::os::unix::fs::MetadataExt;
 use std::os::unix::io::AsRawFd;
 use std::sync::{Condvar, Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
+use toolbox::games::{self, Row, BIOS, GAMES};
+use toolbox::Request;
 
-const GAMES: &[(&str, &str)] = &[("gba", "GBA"), ("gbc", "GBC"), ("gb", "GB")];
-pub const BIOS: &[&str] = &["gba_bios.bin", "gb_bios.bin", "gbc_bios.bin", "sgb_bios.bin"];
-pub const SLOTS: u32 = 4;
 const QUIET: Duration = Duration::from_secs(1);
 const AT_MOST: Duration = Duration::from_secs(10);
 const RETRIES: u32 = 3;
+const OPENING: Duration = Duration::from_secs(10);
+const LISTING: Duration = Duration::from_secs(20);
+
+fn open(path: &str) -> Result<File, String> {
+    flipfull_remote::ask(&Request::OpenGameFile(path.to_string()), Some(OPENING))?.file()
+}
+
+fn put(request: &Request) -> Result<(), String> {
+    flipfull_remote::ask(request, Some(LISTING))?.text().map(|_| ())
+}
 
 #[derive(Serialize, Clone)]
 pub struct Game {
@@ -27,16 +36,15 @@ pub struct Game {
 }
 
 pub fn games() -> Result<(Vec<Game>, Vec<String>), String> {
-    let listing = retro_list()?;
+    let listing = flipfull_remote::ask(&Request::ListGames, Some(LISTING))?.text()?;
     let mut roots: Vec<(String, bool)> = Vec::new();
     let mut games = Vec::new();
     let mut bios = Vec::new();
-    for line in listing.lines() {
-        let f: Vec<&str> = line.split('\t').collect();
-        match f.as_slice() {
-            ["root", path, kind] => roots.push((format!("{}/", path.trim_end_matches('/')), *kind == "sd")),
-            ["file", path, _size, _mtime] => {
-                let name = path.rsplit('/').next().unwrap_or(path);
+    for row in listing.lines().filter_map(Row::parse) {
+        match row {
+            Row::Root { path, sd } => roots.push((format!("{}/", path.trim_end_matches('/')), sd)),
+            Row::File { path, .. } => {
+                let name = path.rsplit('/').next().unwrap_or(&path);
                 if BIOS.contains(&name.to_ascii_lowercase().as_str()) {
                     bios.push(path.to_string());
                     continue;
@@ -57,7 +65,6 @@ pub fn games() -> Result<(Vec<Game>, Vec<String>), String> {
                 let folder = inside[..inside.len() - name.len()].to_string();
                 games.push(Game { path: path.to_string(), title: stem.to_string(), system, folder, sd });
             }
-            _ => {}
         }
     }
     Ok((games, bios))
@@ -72,18 +79,18 @@ pub fn sibling(game: &str, ext: &str) -> String {
 }
 
 pub fn state_path(game: &str, slot: u32) -> String {
-    sibling(game, &if slot == 0 { "state".to_string() } else { format!("state{}", slot) })
+    sibling(game, &games::state_extension(slot))
 }
 
 pub fn read(path: &str) -> Result<Vec<u8>, String> {
-    let mut file = retro_open(path)?;
+    let mut file = open(path)?;
     let mut data = Vec::new();
     file.read_to_end(&mut data).map_err(|e| format!("{}: {}", path, e))?;
     Ok(data)
 }
 
 pub fn modified(path: &str) -> Option<i64> {
-    retro_open(path).ok()?.metadata().ok().map(|m| m.mtime())
+    open(path).ok()?.metadata().ok().map(|m| m.mtime())
 }
 
 pub struct Rom {
@@ -93,7 +100,7 @@ pub struct Rom {
 
 impl Rom {
     pub fn open(path: &str) -> Result<Rom, String> {
-        let file = retro_open(path)?;
+        let file = open(path)?;
         let len = file.metadata().map_err(|e| e.to_string())?.len() as usize;
         if len == 0 {
             return Err("the file is empty".into());
@@ -163,9 +170,10 @@ fn writer() {
             q.busy = true;
             q.files.pop_front().unwrap()
         };
+        let request = Request::WriteGameFile { path: path.clone(), data };
         let mut tries = 0;
         loop {
-            match retro_write(&path, &data) {
+            match put(&request) {
                 Ok(()) => break,
                 Err(e) if tries + 1 < RETRIES => {
                     tries += 1;
@@ -205,7 +213,7 @@ pub fn written(within: Duration) {
 }
 
 pub fn write(path: &str, data: &[u8]) -> Result<(), String> {
-    retro_write(path, data)
+    put(&Request::WriteGameFile { path: path.to_string(), data: data.to_vec() })
 }
 
 pub struct SaveFile {

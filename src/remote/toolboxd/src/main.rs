@@ -11,6 +11,10 @@ use toolbox::{Answer, Request, Role, Script, REGISTRY};
 
 const USERINIT: &str = "/data/local/userinit";
 
+mod retro;
+
+use retro::Storage;
+
 fn log(msg: &str) {
     let secs = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
     println!("{} {}", secs, msg);
@@ -68,6 +72,7 @@ fn output(path: &str, args: &[String]) -> std::io::Result<(ExitStatus, Vec<u8>)>
         return Err(std::io::Error::last_os_error());
     }
     let (mut read, write) = unsafe { (File::from_raw_fd(fds[0]), OwnedFd::from_raw_fd(fds[1])) };
+    // the Command and its copy of the write end drop here, otherwise the read never ends
     let mut child = Command::new("/system/bin/sh")
         .arg(path)
         .args(args)
@@ -113,6 +118,7 @@ fn record(stream: UnixStream, file: File) {
             .stdin(Stdio::from(OwnedFd::from(input)))
             .stdout(Stdio::from(OwnedFd::from(output)))
             .pre_exec(move || {
+                // dup2 onto itself keeps FD_CLOEXEC
                 let r = if fd == 3 { libc::fcntl(3, libc::F_SETFD, 0) } else { libc::dup2(fd, 3) };
                 if r < 0 {
                     return Err(std::io::Error::last_os_error());
@@ -146,7 +152,7 @@ fn request(stream: &mut UnixStream) -> Result<Request, String> {
     }
 }
 
-fn handle(mut stream: UnixStream) {
+fn handle(storage: &Storage, mut stream: UnixStream) {
     let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
     let answer = match request(&mut stream) {
         Ok(Request::Record(file)) => {
@@ -154,6 +160,10 @@ fn handle(mut stream: UnixStream) {
             return record(stream, file);
         }
         Ok(Request::Script(script)) => Ok(run_script(&script)),
+        Ok(Request::Keypad) => retro::keypad().map(Answer::File),
+        Ok(Request::ListGames) => Ok(Answer::ok(storage.listing())),
+        Ok(Request::OpenGameFile(path)) => storage.open(&path).map(Answer::File),
+        Ok(Request::WriteGameFile { path, data }) => storage.write(&path, &data).map(|()| Answer::ok("\n")),
         Err(why) => Err(why),
     };
     if let Err(e) = answer.unwrap_or_else(Answer::error).send(&mut stream) {
@@ -163,6 +173,7 @@ fn handle(mut stream: UnixStream) {
 
 fn main() {
     let socket = parse_args();
+    let storage: &'static Storage = Box::leak(Box::new(Storage::phone()));
     let _ = fs::remove_file(&socket);
     let listener = match UnixListener::bind(&socket) {
         Ok(l) => l,
@@ -176,7 +187,7 @@ fn main() {
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
-                thread::spawn(move || handle(stream));
+                thread::spawn(move || handle(storage, stream));
             }
             Err(e) => {
                 log(&format!("accept: {}", e));

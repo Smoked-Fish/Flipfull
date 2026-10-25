@@ -1,6 +1,8 @@
 use std::fs::File;
 use std::io::{ErrorKind, Read};
 use std::os::unix::io::AsRawFd;
+use std::time::Duration;
+use toolbox::Request;
 
 const EV_SYN: u16 = 0;
 const EV_KEY: u16 = 1;
@@ -24,7 +26,7 @@ fn held(file: &File) -> Vec<bool> {
 
 impl Keypad {
     pub fn open() -> Result<Keypad, String> {
-        let file = flipfull_remote::keypad()?;
+        let file = flipfull_remote::ask(&Request::Keypad, Some(Duration::from_secs(10)))?.file()?;
         unsafe {
             let fd = file.as_raw_fd();
             libc::fcntl(fd, libc::F_SETFL, libc::fcntl(fd, libc::F_GETFL) | libc::O_NONBLOCK);

@@ -1,24 +1,19 @@
 use crate::clock;
-use crate::files::{self, Rom, SaveFile, SLOTS};
+use crate::files::{self, Rom, SaveFile};
 use crate::generated::common::*;
 use crate::generated::service::*;
 use crate::libretro::{self, Frontend};
 use crate::settings;
 use crate::stream;
-use common::core::BaseMessage;
-use common::traits::{
-    EmptyConfig, EmptyState, OriginAttributes, Service, SessionSupport, Shared, SharedServiceState,
-    SharedSessionContext,
-};
+use common::traits::{EmptyConfig, EmptyState, Shared, SharedServiceState};
 use common::JsonValue;
-use flipfull_remote::feature_on;
 use log::info;
 use serde_json::{json, Value};
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Mutex, MutexGuard, OnceLock};
 use std::time::Duration;
+use toolbox::games::SLOTS;
 
-const APP: &str = "http://retro.localhost";
 const WRITTEN_WITHIN: Duration = Duration::from_secs(3);
 
 pub struct Loaded {
@@ -234,33 +229,6 @@ impl FlipfullRetro for Retro {}
 
 common::impl_shared_state!(Retro, EmptyState, EmptyConfig);
 
-impl Service<Retro> for Retro {
-    fn create(
-        attrs: &OriginAttributes,
-        _context: SharedSessionContext,
-        _helper: SessionSupport,
-    ) -> Result<Retro, String> {
-        static NEXT: AtomicU32 = AtomicU32::new(1);
-        let who = attrs.identity();
-        if who != APP {
-            info!("refused {}", who);
-            return Err(format!("Only the GBA app, not {}", who));
-        }
-        if !feature_on("gba") {
-            return Err("GBA games are off in Flipfull".into());
-        }
-        Ok(Retro { id: NEXT.fetch_add(1, Ordering::Relaxed) })
-    }
+static NEXT: AtomicU32 = AtomicU32::new(1);
 
-    fn format_request(&mut self, _transport: &SessionSupport, _message: &BaseMessage) -> String {
-        "FlipfullRetro request".into()
-    }
-
-    fn on_request(&mut self, transport: &SessionSupport, message: &BaseMessage) {
-        self.dispatch_request(transport, message);
-    }
-
-    fn release_object(&mut self, _object_id: u32) -> bool {
-        false
-    }
-}
+flipfull_remote::remote_service!(Retro, |_origin| Retro { id: NEXT.fetch_add(1, Ordering::Relaxed) });
