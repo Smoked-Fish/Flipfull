@@ -1,8 +1,8 @@
 'use strict';
 
 (function (scope) {
-    importScripts('frame.js');
-    const { Frame } = scope;
+    importScripts('wire.js');
+    const { Wire } = scope;
     // buffers go back and forth with the screen worker so there's no garbage
     const BUFFER = 128 * 1024;
     const CHUNK = 64 * 1024;
@@ -37,9 +37,9 @@
         scope.postMessage(message);
     }
 
-    function send(message) {
+    function send(text) {
         if (socket && socket.readyState === WebSocket.OPEN) {
-            socket.send(JSON.stringify(message));
+            socket.send(text);
         }
     }
 
@@ -77,7 +77,6 @@
     function start() {
         session++;
         const s = session;
-        const asked = Object.assign({ session, rate }, grid);
         c = counts();
         since = performance.now();
         screen.postMessage({ playing: true });
@@ -85,7 +84,7 @@
             sound.postMessage({ start: options.latency / 1000 });
             sound.postMessage({ hold: false });
         }
-        fetch(`${url.replace(/^ws:/, 'http:')}/play?o=${encodeURIComponent(JSON.stringify(asked))}`, { cache: 'no-store' })
+        fetch(Wire.play(url, s, rate, grid), { cache: 'no-store' })
             .then((response) => read(s, response))
             .catch(() => {})
             .then(() => ended(s));
@@ -100,43 +99,16 @@
         } catch (e) {
             reader = response.body.getReader();
         }
-        const head = new Uint8Array(4);
-        let have = 0;
-        let message = null;
-        let got = 0;
+        const splitter = new Wire.Splitter(buffer, (data) => picture(data, s));
         for (;;) {
             const result = await (chunk ? reader.read(chunk) : reader.read());
             if (result.done) {
                 return;
             }
-            const value = result.value;
             if (chunk) {
-                chunk = new Uint8Array(value.buffer);
+                chunk = new Uint8Array(result.value.buffer);
             }
-            let at = 0;
-            while (at < value.length) {
-                if (!message) {
-                    const n = Math.min(4 - have, value.length - at);
-                    head.set(value.subarray(at, at + n), have);
-                    have += n;
-                    at += n;
-                    if (have < 4) {
-                        break;
-                    }
-                    have = 0;
-                    const size = (head[0] | (head[1] << 8) | (head[2] << 16) | (head[3] << 24)) >>> 0;
-                    message = new Uint8Array(buffer(size), 0, size);
-                    got = 0;
-                }
-                const n = Math.min(message.length - got, value.length - at);
-                message.set(value.subarray(at, at + n), got);
-                got += n;
-                at += n;
-                if (got === message.length) {
-                    frame(message.buffer, s);
-                    message = null;
-                }
-            }
+            splitter.push(result.value);
         }
     }
 
@@ -153,25 +125,24 @@
 
     const header = {};
 
-    function frame(data, s) {
-        const h = Frame.read(data, header);
-        if (h.kind !== Frame.KIND_FRAME || s !== session) {
+    function picture(data, s) {
+        const h = Wire.picture(data, header);
+        if (h.kind !== Wire.KIND_PICTURE || s !== session) {
             spare.push(data);
-            if (h.flags & Frame.PAUSED) {
+            if (h.flags & Wire.PAUSED) {
                 post({ paused: true });
             }
             return;
         }
-        if (h.flags & Frame.PAUSED) {
+        if (h.flags & Wire.PAUSED) {
             spare.push(data);
             screen.postMessage({ last: true });
             stopped();
             return;
         }
         if (h.samples && sound) {
-            const at = Frame.HEADER + h.width * h.rows * 2;
-            const pcm = data.slice(at, at + h.samples * 8);
-            sound.postMessage(new Float32Array(pcm), [pcm]);
+            const pcm = Wire.sound(data, h);
+            sound.postMessage(pcm, [pcm.buffer]);
         }
         const trip = performance.now() - h.sent / 1000;
         c.tripMin = Math.min(c.tripMin, trip);
@@ -179,7 +150,7 @@
         c.messages++;
         c.frames += h.frames;
         c.work += h.work;
-        screen.postMessage({ frame: data }, [data]);
+        screen.postMessage({ picture: data }, [data]);
     }
 
     function fromScreen(m) {
@@ -191,7 +162,7 @@
             grid = m.grid;
         } else if (m.sync) {
             if (playing) {
-                send({ sync: Object.assign(m.sync, { sound: buffered }) });
+                send(Wire.sync(m.sync.grid, m.sync.leads, buffered));
             }
         } else if (m.stats) {
             if (monitor) {
@@ -255,15 +226,15 @@
             const was = playing;
             if (socket && socket.readyState === WebSocket.OPEN && was) {
                 pausing = true;
-                send({ pause: session });
+                send(Wire.pause(session));
             } else {
                 stopped();
                 post({ paused: true });
             }
         } else if (m.keys !== undefined) {
-            send({ keys: m.keys });
+            send(Wire.keys(m.keys));
         } else if (m.fast !== undefined) {
-            send({ fast: m.fast });
+            send(Wire.fast(m.fast));
             if (sound) {
                 sound.postMessage({ quiet: m.fast });
             }

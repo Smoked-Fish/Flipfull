@@ -11,4 +11,5 @@ pub mod settings;
 pub mod sound_rate;
 pub mod stream;
 pub mod video;
+pub mod wire;
 pub mod ws;

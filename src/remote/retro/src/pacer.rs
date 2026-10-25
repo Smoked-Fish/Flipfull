@@ -4,7 +4,7 @@ use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
 const SYNC_WITHIN: f64 = 0.015;
-const LEAD: f64 = 0.0095;
+pub(crate) const LEAD: f64 = 0.0095;
 const EARLIER: f64 = 0.001;
 const LATER: f64 = 0.00004;
 const EARLY: f64 = 0.022;

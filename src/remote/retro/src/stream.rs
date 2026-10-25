@@ -7,9 +7,9 @@ use crate::panel::Panel;
 use crate::service::{state, State};
 use crate::settings;
 use crate::sound_rate::SoundRate;
+use crate::wire::{Grid, Header, Message, PlayOptions, SyncReport, WorkerMessage, HOLD};
 use crate::ws;
 use log::{info, warn};
-use serde_json::Value;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::net::{Shutdown, TcpListener, TcpStream};
@@ -21,43 +21,6 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const APP: &str = "http://retro.localhost";
 
-const KIND_FRAME: u8 = 1;
-const PAUSED: u8 = 2;
-const HOLD: u8 = 4;
-const FRAME_HEADER: usize = 32;
-const PREFIX: usize = 4;
-
-#[derive(Default)]
-struct Header {
-    flags: u8,
-    width: u16,
-    height: u16,
-    top: u16,
-    rows: u16,
-    frames: u16,
-    samples: u32,
-    work_us: u32,
-    sent_us: u32,
-    tick_us: u64,
-}
-
-impl Header {
-    fn write(&self, message: &mut [u8]) {
-        let m = &mut message[PREFIX..PREFIX + FRAME_HEADER];
-        m[0] = KIND_FRAME;
-        m[1] = self.flags;
-        m[2..4].copy_from_slice(&self.width.to_le_bytes());
-        m[4..6].copy_from_slice(&self.height.to_le_bytes());
-        m[6..8].copy_from_slice(&self.top.to_le_bytes());
-        m[8..10].copy_from_slice(&self.rows.to_le_bytes());
-        m[10..12].copy_from_slice(&self.frames.to_le_bytes());
-        m[12..16].copy_from_slice(&self.samples.to_le_bytes());
-        m[16..20].copy_from_slice(&self.work_us.to_le_bytes());
-        m[20..24].copy_from_slice(&self.sent_us.to_le_bytes());
-        m[24..32].copy_from_slice(&self.tick_us.to_le_bytes());
-    }
-}
-
 const FAST_MAX: u32 = 20;
 const FAST_KEY: u16 = 158;
 const CLOCK_EVERY: u32 = 30;
@@ -68,8 +31,8 @@ const STATS_EVERY: u32 = 1800;
 enum Command {
     Client(u32, TcpStream),
     Gone(u32),
-    Message(u32, Value),
-    Play(TcpStream, Value),
+    Message(u32, WorkerMessage),
+    Play(TcpStream, PlayOptions),
     Stop,
 }
 
@@ -149,7 +112,7 @@ fn client(id: u32, mut stream: TcpStream, path: &str, tx: Sender<Command>) {
     let _ = stream.set_write_timeout(Some(WRITE_TIMEOUT));
     let base = request.path.split('?').next().unwrap_or("");
     if base == format!("{}/play", path) {
-        let options = ws::query(&request.path, "o").and_then(|o| serde_json::from_str(&o).ok());
+        let options = ws::query(&request.path, "o").and_then(|o| PlayOptions::parse(&o));
         let head = format!(
             "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nX-Content-Type-Options: nosniff\r\n\
              Cache-Control: no-store\r\nAccess-Control-Allow-Origin: {}\r\nConnection: close\r\n\r\n",
@@ -183,9 +146,9 @@ fn client(id: u32, mut stream: TcpStream, path: &str, tx: Sender<Command>) {
         if kind != ws::TEXT {
             continue;
         }
-        match serde_json::from_slice(&message) {
-            Ok(value) => {
-                if tx.send(Command::Message(id, value)).is_err() {
+        match WorkerMessage::parse(&message) {
+            Ok(m) => {
+                if tx.send(Command::Message(id, m)).is_err() {
                     return;
                 }
             }
@@ -212,14 +175,8 @@ fn to_epoch(at: Instant) -> u64 {
     (epoch_now() + between(Instant::now(), at) * 1e6).max(0.0) as u64
 }
 
-fn grid(m: &Value) -> Option<(Instant, f64)> {
-    let tick = m["tick"].as_f64()?;
-    let period = m["period"].as_f64()? / 1e6;
-    if period > 0.004 && period < 0.1 {
-        Some((from_epoch(tick), period))
-    } else {
-        None
-    }
+fn compositor(grid: Option<Grid>) -> Option<(Instant, f64)> {
+    grid.map(|g| (from_epoch(g.tick_us), g.period_us / 1e6))
 }
 
 #[derive(Default)]
@@ -263,21 +220,8 @@ struct Player {
     play: Option<Play>,
     pacer: Pacer,
     sound: SoundRate,
-    message: Vec<u8>,
+    message: Message,
     audio: Vec<i16>,
-}
-
-fn send(out: &mut TcpStream, message: &mut [u8]) -> bool {
-    let len = (message.len() - PREFIX) as u32;
-    message[..PREFIX].copy_from_slice(&len.to_le_bytes());
-    out.write_all(message).is_ok()
-}
-
-fn send_paused(out: &mut TcpStream, message: &mut Vec<u8>) {
-    message.clear();
-    message.resize(PREFIX + FRAME_HEADER, 0);
-    Header { flags: PAUSED, ..Header::default() }.write(message);
-    let _ = send(out, message);
 }
 
 impl Player {
@@ -289,7 +233,7 @@ impl Player {
             play: None,
             pacer: Pacer::new(),
             sound: SoundRate::new(),
-            message: Vec::new(),
+            message: Message::default(),
             audio: Vec::new(),
         }
     }
@@ -345,32 +289,35 @@ impl Player {
                 if self.client.as_ref().map_or(true, |(c, _)| *c != id) {
                     return;
                 }
-                if let Some(keys) = m["keys"].as_u64() {
-                    self.keys = keys as u16;
+                if let Some(keys) = m.keys {
+                    self.keys = keys;
                 }
-                if let Some(fast) = m["fast"].as_bool() {
+                if let Some(fast) = m.fast {
                     self.fast = fast;
                 }
-                if let Some(session) = m["pause"].as_u64() {
+                if let Some(session) = m.pause {
                     if self.play.as_ref().map_or(false, |p| p.session == session) {
                         self.pause();
                     }
                 }
-                if let Some(sync) = m.get("sync") {
-                    self.sync(sync);
+                if let Some(sync) = m.sync {
+                    self.sync(&sync);
                 }
             }
         }
     }
 
-    fn play(&mut self, mut out: TcpStream, m: &Value) {
+    fn play(&mut self, mut out: TcpStream, options: &PlayOptions) {
         let info = state().game.as_ref().map(|g| g.info);
         let Game { fps, rate, platform, .. } = match info {
             Some(info) => info,
-            None => return send_paused(&mut out, &mut self.message),
+            None => {
+                let _ = out.write_all(self.message.paused());
+                return;
+            }
         };
         let settings = settings::play(platform);
-        self.pacer.compositor(grid(m));
+        self.pacer.compositor(compositor(options.grid()));
         let keypad = match Keypad::open() {
             Ok(k) => Some(k),
             Err(e) => {
@@ -378,8 +325,8 @@ impl Player {
                 None
             }
         };
-        self.sound.start(m["rate"].as_f64().unwrap_or(0.0), settings.latency);
-        let session = m["session"].as_u64().unwrap_or(0);
+        self.sound.start(options.rate, settings.latency);
+        let session = options.session;
         let stats = Stats::default();
         self.play = Some(Play { session, out, settings, keypad, rate, clock_in: 0, played: Instant::now(), stats });
         let panel = Panel::open();
@@ -388,22 +335,21 @@ impl Player {
 
     fn pause(&mut self) {
         if let Some(mut play) = self.play.take() {
-            send_paused(&mut play.out, &mut self.message);
+            let _ = play.out.write_all(self.message.paused());
             state().flush_save();
         }
         self.stop();
     }
 
-    fn sync(&mut self, sync: &Value) {
-        self.pacer.compositor(grid(sync));
+    fn sync(&mut self, sync: &SyncReport) {
+        self.pacer.compositor(compositor(sync.grid()));
         if self.play.is_none() {
             return;
         }
-        if let (Some(s), false) = (sync["sound"].as_f64(), self.pacer.fasting()) {
+        if let (Some(s), false) = (sync.sound, self.pacer.fasting()) {
             self.sound.sync(s);
         }
-        let leads = sync["leads"].as_array().map(|l| l.iter().filter_map(Value::as_f64)).into_iter().flatten();
-        self.pacer.leads(leads);
+        self.pacer.leads(sync.leads.iter().copied());
     }
 
     fn frames(&mut self, play: &mut Play, s: &mut State, fast: bool, started: Instant) -> u32 {
@@ -483,23 +429,15 @@ impl Player {
         play.clock_in -= 1;
         let frames = self.frames(&mut play, s, fast, started);
 
-        self.message.clear();
-        self.message.resize(PREFIX + FRAME_HEADER, 0);
         let mix = play.settings.mix && !fast;
-        let (width, height, top, rows) = s.frontend.picture(&mut self.message, mix, play.settings.colors);
+        let (width, height, top, rows) = s.frontend.picture(self.message.picture(), mix, play.settings.colors);
         let State { frontend, game, .. } = s;
         if let Some(g) = game.as_mut() {
             g.save.check(frontend.save_data(false), started);
         }
         drop(guard);
 
-        let samples = if self.sound.on() && !fast { self.audio.len() / 2 } else { 0 };
-        self.message.reserve(samples * 8);
-        for c in 0..2 {
-            for frame in self.audio.chunks_exact(2).take(samples) {
-                self.message.extend_from_slice(&(frame[c] as f32 / 32768.0).to_le_bytes());
-            }
-        }
+        let samples = if self.sound.on() && !fast { self.message.sound(&self.audio) } else { 0 };
         play.stats.samples += samples;
         let work = started.elapsed();
 
@@ -516,8 +454,7 @@ impl Player {
             sent_us: play.played.elapsed().as_micros() as u32,
             tick_us: target.tick.map_or(0, to_epoch),
         };
-        header.write(&mut self.message);
-        if !send(&mut play.out, &mut self.message) {
+        if play.out.write_all(self.message.finish(&header)).is_err() {
             return self.stop();
         }
         self.count(&mut play, frames, work);

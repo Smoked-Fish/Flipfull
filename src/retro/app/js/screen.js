@@ -1,14 +1,13 @@
 'use strict';
 
 (function (scope) {
-    importScripts('frame.js');
-    const { Frame } = scope;
+    importScripts('wire.js');
+    const { Wire } = scope;
     const SYNC_EVERY = 250;
     const STATS_EVERY = 1000;
     const IDLE = 30;
     // raf times are whole ms here, average them
     const SMOOTH = 0.05;
-    const IN_TIME = 10;
 
     function counts() {
         return { shown: 0, held: 0, late: 0, ticks: 0, busy: 0, lead: null };
@@ -90,14 +89,14 @@
             this.changed = true;
         }
 
-        rows(width, height, top, rows, buffer) {
-            if (width !== this.width || height !== this.height) {
-                this.clear(width, height, this.canvas.width, this.canvas.height);
+        rows(h, buffer) {
+            if (h.width !== this.width || h.height !== this.height) {
+                this.clear(h.width, h.height, this.canvas.width, this.canvas.height);
             }
-            if (rows) {
+            if (h.rows) {
                 const gl = this.gl;
-                gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, top, width, rows, gl.RGB, gl.UNSIGNED_SHORT_5_6_5,
-                    new Uint16Array(buffer, Frame.HEADER, width * rows));
+                gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, h.top, h.width, h.rows, gl.RGB, gl.UNSIGNED_SHORT_5_6_5,
+                    Wire.rows(buffer, h));
                 this.changed = true;
             }
         }
@@ -135,9 +134,9 @@
     const header = {};
 
     function show(buffer) {
-        const h = Frame.read(buffer, header);
-        screen.rows(h.width, h.height, h.top, h.rows, buffer);
-        if (h.flags & Frame.HOLD) {
+        const h = Wire.picture(buffer, header);
+        screen.rows(h, buffer);
+        if (h.flags & Wire.HOLD) {
             c.held++;
         } else if (screen.changed) {
             screen.draw();
@@ -146,7 +145,7 @@
                 const ahead = h.due / 1000 - (performance.timeOrigin + performance.now());
                 leads.push(Math.round(ahead * 1000));
                 c.lead = c.lead === null ? ahead : Math.min(c.lead, ahead);
-                if (ahead < IN_TIME) {
+                if (ahead < Wire.LEAD_MS) {
                     c.late++;
                 }
             }
@@ -184,7 +183,7 @@
             const grid = { tick: Math.round(phase * 1000), period: Math.round(period * 1000) };
             net.postMessage({ grid });
             if (playing) {
-                net.postMessage({ sync: Object.assign(grid, { leads }) });
+                net.postMessage({ sync: { grid, leads } });
                 leads = [];
             }
         }
@@ -209,8 +208,8 @@
     }
 
     function fromNet(m) {
-        if (m.frame) {
-            show(m.frame);
+        if (m.picture) {
+            show(m.picture);
         } else if (m.last) {
             if (screen.changed) {
                 screen.draw();
