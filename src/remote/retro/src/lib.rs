@@ -6,6 +6,7 @@ pub mod keypad;
 pub mod libretro;
 pub mod pacer;
 pub mod panel;
+pub mod player;
 pub mod service;
 pub mod settings;
 pub mod sound_rate;
