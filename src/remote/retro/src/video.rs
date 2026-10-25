@@ -1,6 +1,6 @@
 const MASK: u16 = 0xf7de;
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Colors {
     Vivid,
     Gba,

@@ -33,7 +33,7 @@ const DEFS: &[Def] = &[
         about: "The screen shows 30 pictures a second, one for every two of the game's frames. Mixed, \
                 the shadows and see-through things games draw by flickering show instead of vanishing.",
         choices: &[("on", "Both frames"), ("off", "Last frame only")],
-        default: "on",
+        default: "off",
         load: false,
     },
     Def {
@@ -300,157 +300,253 @@ pub const KEY_CODES: &[(&str, u16)] = &[
     ("Message", 30),
 ];
 
-struct Settings {
-    values: HashMap<String, String>,
-    keys: Value,
+fn preset_index(id: &str) -> Option<usize> {
+    PRESETS.iter().position(|&(p, _, _)| p == id)
 }
 
-static UPDATED: AtomicBool = AtomicBool::new(false);
-
-fn settings() -> MutexGuard<'static, Settings> {
-    static SETTINGS: OnceLock<Mutex<Settings>> = OnceLock::new();
-    SETTINGS.get_or_init(|| Mutex::new(load())).lock().unwrap()
+fn button_index(id: &str) -> Option<usize> {
+    BUTTONS.iter().position(|&(b, _, _)| b == id)
 }
 
-fn choices(def: &Def) -> Vec<(String, String)> {
-    if def.choices.is_empty() {
-        libretro::gb_palettes().into_iter().map(|p| (p.clone(), p)).collect()
-    } else {
-        def.choices.iter().map(|&(v, n)| (v.to_string(), n.to_string())).collect()
-    }
+fn key_code(key: &str) -> Option<u16> {
+    KEY_CODES.iter().find(|&&(k, _)| k == key).map(|&(_, c)| c)
 }
 
-fn default_keys() -> Value {
-    let maps: Map<String, Value> = PRESETS.iter().map(|&(id, _, map)| (id.to_string(), preset_map(map))).collect();
-    json!({ "active": PRESETS[0].0, "maps": maps })
+type ButtonKeys = Vec<Vec<String>>;
+
+fn preset_defaults(preset: usize) -> ButtonKeys {
+    let (_, _, map) = PRESETS[preset];
+    BUTTONS
+        .iter()
+        .map(|&(b, _, _)| map.iter().find(|&&(id, _)| id == b).map_or_else(Vec::new, |&(_, keys)| {
+            keys.iter().map(|k| k.to_string()).collect()
+        }))
+        .collect()
 }
 
-fn preset_map(map: Map10) -> Value {
-    Value::Object(map.iter().map(|&(b, keys)| (b.to_string(), json!(keys))).collect())
-}
-
-fn valid_map(map: &Value) -> Option<Value> {
+fn read_map(map: &Value) -> Option<ButtonKeys> {
     let map = map.as_object()?;
-    let mut out = Map::new();
+    let mut seen: Vec<String> = Vec::new();
+    let mut out = Vec::new();
     for &(id, _, _) in BUTTONS {
-        let keys: Vec<&str> = map
-            .get(id)?
-            .as_array()?
-            .iter()
-            .filter_map(Value::as_str)
-            .filter(|k| KEY_CODES.iter().any(|(c, _)| c == k))
-            .collect();
-        out.insert(id.to_string(), json!(keys));
-    }
-    Some(Value::Object(out))
-}
-
-fn valid_keys(keys: &Value) -> Option<Value> {
-    let active = keys["active"].as_str().filter(|a| PRESETS.iter().any(|(id, _, _)| id == a))?;
-    let mut maps = Map::new();
-    for &(id, _, defaults) in PRESETS {
-        let map = valid_map(&keys["maps"][id]).unwrap_or_else(|| preset_map(defaults));
-        maps.insert(id.to_string(), map);
-    }
-    Some(json!({ "active": active, "maps": maps }))
-}
-
-fn load() -> Settings {
-    let mut s = Settings { values: HashMap::new(), keys: default_keys() };
-    let saved: Value = match fs::read_to_string(own_dir().join(FILE)) {
-        Ok(text) => serde_json::from_str(&text).unwrap_or_else(|e| {
-            warn!("{}: {}", FILE, e);
-            Value::Null
-        }),
-        Err(_) => Value::Null,
-    };
-    for def in DEFS {
-        if let Some(v) = saved[def.key].as_str() {
-            if def.choices.is_empty() || def.choices.iter().any(|(c, _)| *c == v) {
-                s.values.insert(def.key.to_string(), v.to_string());
+        let mut keys = Vec::new();
+        for key in map.get(id)?.as_array()?.iter().filter_map(Value::as_str) {
+            if key_code(key).is_some() && !seen.iter().any(|k| k == key) {
+                seen.push(key.to_string());
+                keys.push(key.to_string());
             }
         }
+        out.push(keys);
     }
-    if let Some(keys) = valid_keys(&saved["keys"]) {
-        s.keys = keys;
-    }
-    s
+    Some(out)
 }
 
-fn store(s: &Settings) {
-    let mut out = Map::new();
-    for (k, v) in &s.values {
-        out.insert(k.clone(), json!(v));
+#[derive(Clone, Debug, PartialEq)]
+struct Keys {
+    active: usize,
+    maps: Vec<ButtonKeys>,
+}
+
+impl Default for Keys {
+    fn default() -> Keys {
+        Keys { active: 0, maps: (0..PRESETS.len()).map(preset_defaults).collect() }
     }
-    out.insert("keys".into(), s.keys.clone());
-    let path = own_dir().join(FILE);
-    let tmp = path.with_extension("json.tmp");
-    let text = serde_json::to_string_pretty(&Value::Object(out)).unwrap_or_default();
-    if let Err(e) = fs::write(&tmp, text).and_then(|_| fs::rename(&tmp, &path)) {
-        warn!("{}: {}", FILE, e);
+}
+
+impl Keys {
+    fn from_json(keys: &Value) -> Keys {
+        let active = match keys["active"].as_str().and_then(preset_index) {
+            Some(a) => a,
+            None => return Keys::default(),
+        };
+        let maps = PRESETS
+            .iter()
+            .enumerate()
+            .map(|(i, &(id, _, _))| read_map(&keys["maps"][id]).unwrap_or_else(|| preset_defaults(i)))
+            .collect();
+        Keys { active, maps }
+    }
+
+    fn to_json(&self) -> Value {
+        let maps: Map<String, Value> = PRESETS
+            .iter()
+            .zip(&self.maps)
+            .map(|(&(id, _, _), map)| {
+                let buttons = BUTTONS.iter().zip(map).map(|(&(b, _, _), keys)| (b.to_string(), json!(keys)));
+                (id.to_string(), Value::Object(buttons.collect()))
+            })
+            .collect();
+        json!({ "active": PRESETS[self.active].0, "maps": maps })
+    }
+
+    fn bits(&self) -> Vec<(&str, u16)> {
+        let mut out: Vec<(&str, u16)> = Vec::new();
+        for (&(_, _, bit), keys) in BUTTONS.iter().zip(&self.maps[self.active]) {
+            for key in keys {
+                match out.iter_mut().find(|(k, _)| *k == key.as_str()) {
+                    Some((_, bits)) => *bits |= 1 << bit,
+                    None => out.push((key.as_str(), 1 << bit)),
+                }
+            }
+        }
+        out
+    }
+
+    fn set(&mut self, key: &str, value: &Value) -> Result<(), String> {
+        match key {
+            "keys.preset" => {
+                let id = value.as_str().ok_or("Not a preset")?;
+                self.active = preset_index(id).ok_or_else(|| format!("No preset {}", id))?;
+            }
+            "keys.button" => {
+                let id = value["button"].as_str().ok_or("Not a button")?;
+                let b = button_index(id).ok_or_else(|| format!("No button {}", id))?;
+                let key = value["key"].as_str().ok_or("Not a key")?;
+                key_code(key).ok_or_else(|| format!("{} isn't on the keypad", key))?;
+                let map = &mut self.maps[self.active];
+                for keys in map.iter_mut() {
+                    keys.retain(|k| k != key);
+                }
+                map[b] = vec![key.to_string()];
+            }
+            "keys.defaults" => self.maps[self.active] = preset_defaults(self.active),
+            _ => return Err(format!("No setting {}", key)),
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct Settings {
+    values: HashMap<String, String>,
+    keys: Keys,
+    palettes: Vec<String>,
+}
+
+impl Settings {
+    pub fn from_json(saved: &Value, palettes: Vec<String>) -> Settings {
+        let mut values = HashMap::new();
+        for def in DEFS {
+            if let Some(v) = saved[def.key].as_str() {
+                if def.choices.is_empty() || def.choices.iter().any(|(c, _)| *c == v) {
+                    values.insert(def.key.to_string(), v.to_string());
+                }
+            }
+        }
+        Settings { values, keys: Keys::from_json(&saved["keys"]), palettes }
+    }
+
+    pub fn to_json(&self) -> Value {
+        let mut out: Map<String, Value> = self.values.iter().map(|(k, v)| (k.clone(), json!(v))).collect();
+        out.insert("keys".into(), self.keys.to_json());
+        Value::Object(out)
+    }
+
+    pub fn get(&self, key: &str) -> String {
+        match self.values.get(key) {
+            Some(v) => v.clone(),
+            None => def(key).map(|d| d.default.to_string()).unwrap_or_default(),
+        }
+    }
+
+    pub fn on(&self, key: &str) -> bool {
+        self.get(key) == "on"
+    }
+
+    fn number<T: FromStr + Default>(&self, key: &str) -> T {
+        self.get(key).parse().unwrap_or_default()
+    }
+
+    fn choices(&self, def: &Def) -> Vec<(String, String)> {
+        if def.choices.is_empty() {
+            self.palettes.iter().map(|p| (p.clone(), p.clone())).collect()
+        } else {
+            def.choices.iter().map(|&(v, n)| (v.to_string(), n.to_string())).collect()
+        }
+    }
+
+    pub fn describe(&self) -> Value {
+        let mut sections: Vec<(&str, Vec<Value>)> = Vec::new();
+        for d in DEFS {
+            let item = json!({
+                "key": d.key,
+                "name": d.name,
+                "about": d.about,
+                "value": self.get(d.key),
+                "choices": self.choices(d).into_iter().map(|(v, n)| json!([v, n])).collect::<Vec<_>>(),
+                "load": d.load,
+            });
+            match sections.iter_mut().find(|(name, _)| *name == d.section) {
+                Some((_, items)) => items.push(item),
+                None => sections.push((d.section, vec![item])),
+            }
+        }
+        let keys = self.keys.to_json();
+        json!({
+            "sections": sections.into_iter().map(|(name, items)| json!({ "name": name, "items": items })).collect::<Vec<_>>(),
+            "keys": {
+                "active": keys["active"],
+                "maps": keys["maps"],
+                "presets": PRESETS.iter().map(|&(id, name, _)| json!({ "id": id, "name": name })).collect::<Vec<_>>(),
+                "buttons": BUTTONS.iter().map(|&(id, name, _)| json!({ "id": id, "name": name })).collect::<Vec<_>>(),
+                "codes": KEY_CODES.iter().map(|&(k, c)| (k.to_string(), json!(c))).collect::<Map<String, Value>>(),
+            },
+            "play": {
+                "keys": self.keys.bits().into_iter().map(|(k, bits)| (k.to_string(), json!(bits))).collect::<Map<String, Value>>(),
+                "latency": self.number::<u32>("latency"),
+            },
+        })
+    }
+
+    pub fn set(&mut self, key: &str, value: &Value) -> Result<bool, String> {
+        if key.starts_with("keys.") {
+            self.keys.set(key, value)?;
+            return Ok(false);
+        }
+        let d = def(key).ok_or_else(|| format!("No setting {}", key))?;
+        let v = value.as_str().ok_or("Not a choice")?;
+        if !self.choices(d).iter().any(|(c, _)| c == v) {
+            return Err(format!("{} can't be {}", d.name, v));
+        }
+        self.values.insert(key.to_string(), v.to_string());
+        Ok(true)
+    }
+
+    pub fn play(&self, platform: Platform) -> Play {
+        let keymap = self.keys.bits().into_iter().filter_map(|(k, bits)| Some((key_code(k)?, bits))).collect();
+        Play {
+            ahead: self.number(if platform == Platform::Gba { "ahead_gba" } else { "ahead_gb" }),
+            mix: self.on("blend"),
+            colors: if self.get("colors") == "lcd" { platform.handheld_colors() } else { Colors::Vivid },
+            fast: self.get("fast").parse().ok(),
+            latency: self.number::<f64>("latency") / 1000.0,
+            keymap,
+        }
+    }
+
+    pub fn core_option(&self, key: &str) -> Option<String> {
+        let on_off = |k: &str| if self.on(k) { "ON" } else { "OFF" }.to_string();
+        Some(match key {
+            "mgba_gb_model" => self.get("gb_model"),
+            "mgba_use_bios" => on_off("bios"),
+            "mgba_skip_bios" => on_off("skip_bios"),
+            "mgba_gb_colors" => self.get("gb_palette"),
+            "mgba_gb_colors_preset" => self.get("gb_colors"),
+            "mgba_sgb_borders" => on_off("sgb_borders"),
+            "mgba_audio_low_pass_filter" => if self.get("filter") == "off" { "disabled" } else { "enabled" }.into(),
+            "mgba_audio_low_pass_range" => Some(self.get("filter")).filter(|f| f != "off").unwrap_or_else(|| "60".into()),
+            "mgba_allow_opposing_directions" => self.get("opposing"),
+            "mgba_solar_sensor_level" => self.get("solar"),
+            "mgba_idle_optimization" => self.get("idle"),
+            "mgba_force_gbp" => "OFF".into(),
+            "mgba_frameskip" => "0".into(),
+            _ => return None,
+        })
     }
 }
 
 fn def(key: &str) -> Option<&'static Def> {
     DEFS.iter().find(|d| d.key == key)
-}
-
-pub fn get(key: &str) -> String {
-    if let Some(v) = settings().values.get(key) {
-        return v.clone();
-    }
-    def(key).map(|d| d.default.to_string()).unwrap_or_default()
-}
-
-pub fn on(key: &str) -> bool {
-    get(key) == "on"
-}
-
-pub fn describe() -> Value {
-    let mut sections: Vec<(&str, Vec<Value>)> = Vec::new();
-    for d in DEFS {
-        let item = json!({
-            "key": d.key,
-            "name": d.name,
-            "about": d.about,
-            "value": get(d.key),
-            "choices": choices(d).into_iter().map(|(v, n)| json!([v, n])).collect::<Vec<_>>(),
-            "load": d.load,
-        });
-        match sections.iter_mut().find(|(name, _)| *name == d.section) {
-            Some((_, items)) => items.push(item),
-            None => sections.push((d.section, vec![item])),
-        }
-    }
-    let keys = settings().keys.clone();
-    json!({
-        "sections": sections.into_iter().map(|(name, items)| json!({ "name": name, "items": items })).collect::<Vec<_>>(),
-        "keys": {
-            "active": keys["active"],
-            "maps": keys["maps"],
-            "presets": PRESETS.iter().map(|&(id, name, map)| json!({ "id": id, "name": name, "defaults": preset_map(map) }))
-                .collect::<Vec<_>>(),
-            "buttons": BUTTONS.iter().map(|&(id, name, bit)| json!({ "id": id, "name": name, "bit": bit })).collect::<Vec<_>>(),
-            "codes": KEY_CODES.iter().map(|&(k, c)| (k.to_string(), json!(c))).collect::<Map<String, Value>>(),
-        },
-    })
-}
-
-pub fn set(key: &str, value: &Value) -> Result<(), String> {
-    let mut s = settings();
-    if key == "keys" {
-        s.keys = valid_keys(value).ok_or("Those aren't keys")?;
-    } else {
-        let d = def(key).ok_or_else(|| format!("No setting {}", key))?;
-        let v = value.as_str().ok_or("Not a choice")?;
-        if !choices(d).iter().any(|(c, _)| c == v) {
-            return Err(format!("{} can't be {}", d.name, v));
-        }
-        s.values.insert(key.to_string(), v.to_string());
-        UPDATED.store(true, Ordering::Relaxed);
-    }
-    store(&s);
-    Ok(())
 }
 
 pub struct Play {
@@ -462,37 +558,52 @@ pub struct Play {
     pub keymap: Vec<(u16, u16)>,
 }
 
+static UPDATED: AtomicBool = AtomicBool::new(false);
+
+fn shared() -> MutexGuard<'static, Settings> {
+    static SETTINGS: OnceLock<Mutex<Settings>> = OnceLock::new();
+    SETTINGS.get_or_init(|| Mutex::new(load())).lock().unwrap()
+}
+
+fn load() -> Settings {
+    let saved: Value = match fs::read_to_string(own_dir().join(FILE)) {
+        Ok(text) => serde_json::from_str(&text).unwrap_or_else(|e| {
+            warn!("{}: {}", FILE, e);
+            Value::Null
+        }),
+        Err(_) => Value::Null,
+    };
+    Settings::from_json(&saved, libretro::gb_palettes())
+}
+
+fn store(s: &Settings) {
+    let path = own_dir().join(FILE);
+    let tmp = path.with_extension("json.tmp");
+    let text = serde_json::to_string_pretty(&s.to_json()).unwrap_or_default();
+    if let Err(e) = fs::write(&tmp, text).and_then(|_| fs::rename(&tmp, &path)) {
+        warn!("{}: {}", FILE, e);
+    }
+}
+
+pub fn on(key: &str) -> bool {
+    shared().on(key)
+}
+
+pub fn describe() -> Value {
+    shared().describe()
+}
+
+pub fn set(key: &str, value: &Value) -> Result<(), String> {
+    let mut s = shared();
+    if s.set(key, value)? {
+        UPDATED.store(true, Ordering::Relaxed);
+    }
+    store(&s);
+    Ok(())
+}
+
 pub fn play(platform: Platform) -> Play {
-    Play {
-        ahead: number(if platform == Platform::Gba { "ahead_gba" } else { "ahead_gb" }),
-        mix: on("blend"),
-        colors: if get("colors") == "lcd" { platform.handheld_colors() } else { Colors::Vivid },
-        fast: get("fast").parse().ok(),
-        latency: number::<f64>("latency") / 1000.0,
-        keymap: keymap(),
-    }
-}
-
-fn number<T: FromStr + Default>(key: &str) -> T {
-    get(key).parse().unwrap_or_default()
-}
-
-fn keymap() -> Vec<(u16, u16)> {
-    let s = settings();
-    let active = s.keys["active"].as_str().unwrap_or("");
-    let map = &s.keys["maps"][active];
-    let mut out: Vec<(u16, u16)> = Vec::new();
-    for &(id, _, bit) in BUTTONS {
-        for key in map[id].as_array().into_iter().flatten().filter_map(Value::as_str) {
-            if let Some(&(_, code)) = KEY_CODES.iter().find(|(k, _)| *k == key) {
-                match out.iter_mut().find(|(c, _)| *c == code) {
-                    Some((_, bits)) => *bits |= 1 << bit,
-                    None => out.push((code, 1 << bit)),
-                }
-            }
-        }
-    }
-    out
+    shared().play(platform)
 }
 
 pub fn take_update() -> bool {
@@ -512,22 +623,6 @@ fn interned(value: &str) -> &'static CStr {
 }
 
 pub fn core_option(key: &CStr) -> Option<&'static CStr> {
-    let on_off = |k: &str| if on(k) { "ON" } else { "OFF" }.to_string();
-    let value = match key.to_str().ok()? {
-        "mgba_gb_model" => get("gb_model"),
-        "mgba_use_bios" => on_off("bios"),
-        "mgba_skip_bios" => on_off("skip_bios"),
-        "mgba_gb_colors" => get("gb_palette"),
-        "mgba_gb_colors_preset" => get("gb_colors"),
-        "mgba_sgb_borders" => on_off("sgb_borders"),
-        "mgba_audio_low_pass_filter" => if get("filter") == "off" { "disabled" } else { "enabled" }.into(),
-        "mgba_audio_low_pass_range" => Some(get("filter")).filter(|f| f != "off").unwrap_or_else(|| "60".into()),
-        "mgba_allow_opposing_directions" => get("opposing"),
-        "mgba_solar_sensor_level" => get("solar"),
-        "mgba_idle_optimization" => get("idle"),
-        "mgba_force_gbp" => "OFF".into(),
-        "mgba_frameskip" => "0".into(),
-        _ => return None,
-    };
+    let value = shared().core_option(key.to_str().ok()?)?;
     Some(interned(&value))
 }

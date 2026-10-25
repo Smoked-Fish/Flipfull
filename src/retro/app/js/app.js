@@ -20,8 +20,6 @@
         Backspace: 'Back', FavoriteContacts: 'Fav', Message: 'Msg',
     };
 
-    const copy = (o) => JSON.parse(JSON.stringify(o));
-    // localeCompare with options makes a collator every call, slow with a few hundred games
     const named = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' }).compare;
 
     let view = 'loading';
@@ -66,18 +64,9 @@
         return c ? c[1] : item.value;
     }
 
-    function updateKeys() {
-        keyBits = {};
-        const k = settings.keys;
-        const map = k.maps[k.active];
-        k.buttons.forEach((b) => (map[b.id] || []).forEach((key) => {
-            keyBits[key] = (keyBits[key] || 0) | (1 << b.bit);
-        }));
-    }
-
     function took(s) {
         settings = s;
-        updateKeys();
+        keyBits = s.play.keys;
         player.monitor = setting('fps') && setting('fps').value === 'on' ? monitor : null;
         el.fps.classList.toggle('show', !!(setting('fps') && setting('fps').value === 'on'));
     }
@@ -352,7 +341,7 @@
         held.clear();
         player.keys = 0;
         show('play');
-        player.play({ latency: Number(setting('latency').value) });
+        player.play({ latency: settings.play.latency });
         if (!wakeLock) {
             try {
                 const b2g = navigator.b2g;
@@ -640,9 +629,7 @@
         }
         keys = {
             left: async () => {
-                const changed = copy(k);
-                changed.maps[k.active] = copy(preset().defaults);
-                if (await change('keys', { active: changed.active, maps: changed.maps })) {
+                if (await change('keys.defaults', null)) {
                     renderKeys();
                     toast(`${presetName()} has its own keys again.`);
                 }
@@ -650,7 +637,7 @@
             center: async () => {
                 if (focus.keys === 0) {
                     const at = k.presets.indexOf(preset());
-                    await change('keys', { active: k.presets[(at + 1) % k.presets.length].id, maps: k.maps });
+                    await change('keys.preset', k.presets[(at + 1) % k.presets.length].id);
                 } else {
                     waitingKey = true;
                 }
@@ -676,15 +663,8 @@
             }
             return;
         } else {
-            const maps = copy(k.maps);
-            const map = maps[k.active];
-            const button = k.buttons[focus.keys - 1];
-            k.buttons.forEach((b) => {
-                map[b.id] = (map[b.id] || []).filter((x) => x !== key);
-            });
-            map[button.id] = [key];
             waitingKey = false;
-            await change('keys', { active: k.active, maps });
+            await change('keys.button', { button: k.buttons[focus.keys - 1].id, key });
         }
         renderKeys();
     }
