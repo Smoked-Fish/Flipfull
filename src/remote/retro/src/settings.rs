@@ -29,10 +29,11 @@ const DEFS: &[Def] = &[
     Def {
         key: "blend",
         section: "Screen",
-        name: "Frame mixing",
-        about: "The screen shows 30 pictures a second, one for every two of the game's frames. Mixed, \
-                the shadows and see-through things games draw by flickering show instead of vanishing.",
-        choices: &[("on", "Both frames"), ("off", "Last frame only")],
+        name: "Frame Mixing",
+        about: "The Flip 4 screen supports ~30 FPS, but GBA/GBC/GB games run at 60. \
+                Mixing the frames can help make the game look and feel more natural at 30 FPS. \
+                When set to None the phone will try to render the full 60 anyways",
+        choices: &[("off", "Last frame only"), ("on", "Both frames"), ("none", "None")],
         default: "off",
         load: false,
     },
@@ -40,8 +41,7 @@ const DEFS: &[Def] = &[
         key: "colors",
         section: "Screen",
         name: "Colors",
-        about: "Like the handheld: the softer colors the games were made for on the GBA's and the Game \
-                Boy Color's screens.",
+        about: "User preference, vivid colors or softer colors emulating real hardware on the GBA/GBC",
         choices: &[("vivid", "Vivid"), ("lcd", "Like the handheld")],
         default: "vivid",
         load: false,
@@ -49,9 +49,8 @@ const DEFS: &[Def] = &[
     Def {
         key: "gb_colors",
         section: "Screen",
-        name: "Game Boy colors",
-        about: "Game Boy games in the colors a Game Boy Color or Super Game Boy has for them; the \
-                others in the palette below.",
+        name: "Game Boy Colors",
+        about: "Sets the Game Boy color modes",
         choices: &[("3", "GBC or SGB"), ("1", "GBC"), ("2", "SGB"), ("0", "Palette only")],
         default: "3",
         load: true,
@@ -69,8 +68,9 @@ const DEFS: &[Def] = &[
         key: "sgb_borders",
         section: "Screen",
         name: "Super Game Boy borders",
-        about: "The picture around Super Game Boy games. The game is drawn smaller with it.",
-        choices: OFF_ON,
+        about: "The picture around Super Game Boy games. It's wider than the screen so the user can \
+        choose if they want the boarder to fit or for the game to scale properly and have the sides cut off",
+        choices: &[("off", "Off"), ("on", "Shrunk to fit"), ("cut", "Sides cut off")],
         default: "off",
         load: true,
     },
@@ -78,8 +78,7 @@ const DEFS: &[Def] = &[
         key: "latency",
         section: "Sound",
         name: "Sound buffer",
-        about: "How much sound waits to be played. More rides through the moments the phone is busy; \
-                less is heard sooner.",
+        about: "How much sound waits to be played, helps with sound quality",
         choices: &[("60", "60 ms"), ("80", "80 ms"), ("100", "100 ms"), ("120", "120 ms"), ("160", "160 ms")],
         default: "100",
         load: false,
@@ -97,8 +96,7 @@ const DEFS: &[Def] = &[
         key: "ahead_gba",
         section: "Play",
         name: "Run-ahead, GBA",
-        about: "Shows the game that many frames ahead, which hides the frames a game takes to answer \
-                a key. Each one costs a frame of emulation.",
+        about: "Shows the game that many frames ahead to help with input latency.",
         choices: AHEAD,
         default: "1",
         load: false,
@@ -116,7 +114,7 @@ const DEFS: &[Def] = &[
         key: "fast",
         section: "Play",
         name: "Fast forward",
-        about: "How fast the game runs while the right soft key is held.",
+        about: "How fast the game runs while the fast forward key is held.",
         choices: &[("max", "As fast as it goes"), ("2", "2×"), ("3", "3×"), ("4", "4×")],
         default: "max",
         load: false,
@@ -209,22 +207,24 @@ const DEFS: &[Def] = &[
     },
 ];
 
-pub const BUTTONS: &[(&str, &str, u16)] = &[
-    ("up", "Up", 4),
-    ("down", "Down", 5),
-    ("left", "Left", 6),
-    ("right", "Right", 7),
-    ("a", "A", 8),
-    ("b", "B", 0),
-    ("l", "L", 10),
-    ("r", "R", 11),
-    ("start", "Start", 3),
-    ("select", "Select", 2),
+pub const BUTTONS: &[(&str, &str, Option<u16>)] = &[
+    ("up", "Up", Some(4)),
+    ("down", "Down", Some(5)),
+    ("left", "Left", Some(6)),
+    ("right", "Right", Some(7)),
+    ("a", "A", Some(8)),
+    ("b", "B", Some(0)),
+    ("l", "L", Some(10)),
+    ("r", "R", Some(11)),
+    ("start", "Start", Some(3)),
+    ("select", "Select", Some(2)),
+    ("pause", "Pause", None),
+    ("fast", "Fast forward", None),
 ];
 
-type Map10 = &'static [(&'static str, &'static [&'static str])];
+type PresetMap = &'static [(&'static str, &'static [&'static str])];
 
-const PRESETS: &[(&str, &str, Map10)] = &[
+const PRESETS: &[(&str, &str, PresetMap)] = &[
     (
         "standard",
         "Standard",
@@ -233,28 +233,32 @@ const PRESETS: &[(&str, &str, Map10)] = &[
             ("down", &["ArrowDown", "8"]),
             ("left", &["ArrowLeft", "4"]),
             ("right", &["ArrowRight", "6"]),
-            ("a", &["Enter", "5", "9"]),
-            ("b", &["7", "0", "Backspace"]),
-            ("l", &["1"]),
-            ("r", &["3"]),
-            ("start", &["#"]),
-            ("select", &["*"]),
+            ("a", &["Enter", "5"]),
+            ("b", &["Backspace", "7"]),
+            ("l", &["FavoriteContacts", "1"]),
+            ("r", &["Message", "3"]),
+            ("start", &["SoftLeft"]),
+            ("select", &["SoftRight"]),
+            ("pause", &["*"]),
+            ("fast", &["#"]),
         ],
     ),
     (
         "keypad",
         "Keypad",
         &[
-            ("up", &["2", "ArrowUp"]),
+            ("up", &["5", "ArrowUp"]),
             ("down", &["8", "ArrowDown"]),
-            ("left", &["4", "ArrowLeft"]),
-            ("right", &["6", "ArrowRight"]),
-            ("a", &["5", "Enter"]),
-            ("b", &["3"]),
-            ("l", &["Backspace"]),
-            ("r", &["FavoriteContacts"]),
-            ("start", &["9"]),
-            ("select", &["7"]),
+            ("left", &["7", "ArrowLeft"]),
+            ("right", &["9", "ArrowRight"]),
+            ("a", &["6", "Enter"]),
+            ("b", &["4"]),
+            ("l", &["1"]),
+            ("r", &["3"]),
+            ("start", &["*"]),
+            ("select", &["#"]),
+            ("pause", &["FavoriteContacts"]),
+            ("fast", &["Message"]),
         ],
     ),
     (
@@ -266,11 +270,13 @@ const PRESETS: &[(&str, &str, Map10)] = &[
             ("left", &["ArrowLeft", "4"]),
             ("right", &["ArrowRight", "6"]),
             ("a", &["Enter", "5"]),
-            ("b", &["0", "Backspace"]),
-            ("l", &["1"]),
-            ("r", &["3"]),
-            ("start", &["#"]),
-            ("select", &["*"]),
+            ("b", &["Backspace", "0"]),
+            ("l", &["FavoriteContacts", "1"]),
+            ("r", &["Message", "3"]),
+            ("start", &["SoftLeft"]),
+            ("select", &["SoftRight"]),
+            ("pause", &["*"]),
+            ("fast", &["#"]),
         ],
     ),
 ];
@@ -289,6 +295,8 @@ pub const KEY_CODES: &[(&str, u16)] = &[
     ("0", 11),
     ("*", 522),
     ("#", 523),
+    ("SoftLeft", 139),
+    ("SoftRight", 158),
     ("ArrowUp", 103),
     ("ArrowDown", 108),
     ("ArrowLeft", 105),
@@ -381,7 +389,8 @@ impl Keys {
 
     fn bits(&self) -> Vec<(&str, u16)> {
         let mut out: Vec<(&str, u16)> = Vec::new();
-        for (&(_, _, bit), keys) in BUTTONS.iter().zip(&self.maps[self.active]) {
+        let joypad = BUTTONS.iter().zip(&self.maps[self.active]).filter_map(|(&(_, _, bit), keys)| Some((bit?, keys)));
+        for (bit, keys) in joypad {
             for key in keys {
                 match out.iter_mut().find(|(k, _)| *k == key.as_str()) {
                     Some((_, bits)) => *bits |= 1 << bit,
@@ -390,6 +399,13 @@ impl Keys {
             }
         }
         out
+    }
+
+    fn keys_of(&self, id: &str) -> &[String] {
+        match button_index(id) {
+            Some(b) => &self.maps[self.active][b],
+            None => &[],
+        }
     }
 
     fn set(&mut self, key: &str, value: &Value) -> Result<(), String> {
@@ -404,6 +420,11 @@ impl Keys {
                 let key = value["key"].as_str().ok_or("Not a key")?;
                 key_code(key).ok_or_else(|| format!("{} isn't on the keypad", key))?;
                 let map = &mut self.maps[self.active];
+                // without a key there'd be no way out of a game
+                let pause = button_index("pause").unwrap_or(b);
+                if b != pause && map[pause] == [key] {
+                    return Err("It's the only key that pauses. Give Pause another key first.".into());
+                }
                 for keys in map.iter_mut() {
                     keys.retain(|k| k != key);
                 }
@@ -493,6 +514,8 @@ impl Settings {
             },
             "play": {
                 "keys": self.keys.bits().into_iter().map(|(k, bits)| (k.to_string(), json!(bits))).collect::<Map<String, Value>>(),
+                "pause": self.keys.keys_of("pause"),
+                "fast": self.keys.keys_of("fast"),
                 "latency": self.number::<u32>("latency"),
             },
         })
@@ -514,13 +537,16 @@ impl Settings {
 
     pub fn play(&self, platform: Platform) -> Play {
         let keymap = self.keys.bits().into_iter().filter_map(|(k, bits)| Some((key_code(k)?, bits))).collect();
+        let fast_keys = self.keys.keys_of("fast").iter().filter_map(|k| key_code(k)).collect();
         Play {
             ahead: self.number(if platform == Platform::Gba { "ahead_gba" } else { "ahead_gb" }),
             mix: self.on("blend"),
+            every: self.get("blend") == "none",
             colors: if self.get("colors") == "lcd" { platform.handheld_colors() } else { Colors::Vivid },
             fast: self.get("fast").parse().ok(),
             latency: self.number::<f64>("latency") / 1000.0,
             keymap,
+            fast_keys,
         }
     }
 
@@ -532,7 +558,7 @@ impl Settings {
             "mgba_skip_bios" => on_off("skip_bios"),
             "mgba_gb_colors" => self.get("gb_palette"),
             "mgba_gb_colors_preset" => self.get("gb_colors"),
-            "mgba_sgb_borders" => on_off("sgb_borders"),
+            "mgba_sgb_borders" => if self.get("sgb_borders") == "off" { "OFF" } else { "ON" }.into(),
             "mgba_audio_low_pass_filter" => if self.get("filter") == "off" { "disabled" } else { "enabled" }.into(),
             "mgba_audio_low_pass_range" => Some(self.get("filter")).filter(|f| f != "off").unwrap_or_else(|| "60".into()),
             "mgba_allow_opposing_directions" => self.get("opposing"),
@@ -552,10 +578,12 @@ fn def(key: &str) -> Option<&'static Def> {
 pub struct Play {
     pub ahead: u32,
     pub mix: bool,
+    pub every: bool,
     pub colors: Colors,
     pub fast: Option<u32>,
     pub latency: f64,
     pub keymap: Vec<(u16, u16)>,
+    pub fast_keys: Vec<u16>,
 }
 
 static UPDATED: AtomicBool = AtomicBool::new(false);

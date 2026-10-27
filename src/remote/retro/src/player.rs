@@ -13,7 +13,6 @@ use std::net::{Shutdown, TcpStream};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const FAST_MAX: u32 = 20;
-const FAST_KEY: u16 = 158;
 const CLOCK_EVERY: u32 = 30;
 const IDLE: Duration = Duration::from_secs(3600);
 const STATS_EVERY: u32 = 1800;
@@ -63,7 +62,7 @@ impl Play {
     }
 
     fn fast(&self, app: bool) -> bool {
-        self.keypad.as_ref().map_or(app, |k| k.held(FAST_KEY))
+        self.keypad.as_ref().map_or(app, |k| self.settings.fast_keys.iter().any(|&code| k.held(code)))
     }
 }
 
@@ -179,6 +178,7 @@ impl Player {
             }
         };
         let settings = settings::play(platform);
+        let every = settings.every;
         let grid = self.compositor(options.grid());
         self.pacer.compositor(grid);
         let keypad = match Keypad::open() {
@@ -192,7 +192,7 @@ impl Player {
         let now = Instant::now();
         let stats = Stats::default();
         self.play = Some(Play { session: options.session, out, settings, keypad, rate, clock_in: 0, played: now, stats });
-        let panel = Panel::open();
+        let panel = if every { Err("every frame is shown".into()) } else { Panel::open() };
         self.pacer.start(fps, panel, now);
     }
 

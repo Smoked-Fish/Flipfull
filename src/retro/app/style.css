@@ -86,6 +86,7 @@ body[data-view="play"] #play,
 body[data-view="menu"] #play,
 body[data-view="menu"] #menu,
 body[data-view="slots"] #slots,
+body[data-view="settings"] #settings,
 body[data-view="keys"] #keys {
     display: block;
 }
@@ -217,24 +218,6 @@ body[data-view="slots"] #play {
     max-height: 100%;
 }
 
-body[data-view="settings"] #settings {
-    display: flex;
-    flex-direction: column;
-    overflow: hidden;
-}
-
-#setting-items {
-    flex: 1;
-    overflow-y: auto;
-}
-
-#setting-about {
-    flex: none;
-    max-height: 9.1rem;
-    overflow: hidden;
-    border-top: 0.1rem solid var(--gs60);
-}
-
 .section {
     margin: 0;
     padding: 0.7rem 1rem 0.2rem;
@@ -281,6 +264,18 @@ body[data-view="settings"] #settings {
     display: block;
 }
 
+#dialog-title {
+    margin: 0 0 0.6rem;
+    font-size: 1.6rem;
+    line-height: 2.1rem;
+    font-weight: 600;
+    color: var(--purple-light);
+}
+
+#dialog-title:empty {
+    display: none;
+}
+
 #dialog-text {
     margin: 0;
     font-size: 1.45rem;
@@ -300,13 +295,19 @@ body[data-view="settings"] #settings {
 }
 
 #softkeys span {
-    flex: 1;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
 }
 
+/* the center is as wide as its label, the sides share what's left and keep it in the middle */
+#sk-left,
+#sk-right {
+    flex: 1;
+}
+
 #sk-center {
+    max-width: 50%;
     text-align: center;
     color: #fff;
     font-weight: 600;

@@ -7,17 +7,15 @@
         loadingText: $('loading-text'), offlineWhy: $('offline-why'),
         list: $('list'), scanning: $('scanning'), games: $('games'),
         screen: $('screen'), fps: $('fps'), status: $('status'), menuItems: $('menu-items'), slotItems: $('slot-items'),
-        settingItems: $('setting-items'), settingAbout: $('setting-about'), keyItems: $('key-items'),
-        keysHint: $('keys-hint'), toast: $('toast'), dialog: $('dialog'), dialogText: $('dialog-text'),
+        settingItems: $('setting-items'), keyItems: $('key-items'), keysHint: $('keys-hint'), toast: $('toast'),
+        dialog: $('dialog'), dialogTitle: $('dialog-title'), dialogText: $('dialog-text'),
         softkeys: $('softkeys'), left: $('sk-left'), center: $('sk-center'), right: $('sk-right'),
     };
     const SCROLL = 40;
     const STATUS_HEIGHT = 22;
-    const MENU_KEY = 'SoftLeft';
-    const FAST_KEY = 'SoftRight';
     const KEY_NAMES = {
         ArrowUp: '↑', ArrowDown: '↓', ArrowLeft: '←', ArrowRight: '→', Enter: 'OK', Call: 'Call',
-        Backspace: 'Back', FavoriteContacts: 'Fav', Message: 'Msg',
+        Backspace: 'Back', FavoriteContacts: 'Fav', Message: 'Msg', SoftLeft: 'Left soft', SoftRight: 'Right soft',
     };
 
     const named = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' }).compare;
@@ -37,6 +35,8 @@
     const held = new Set();
     let settings = null;
     let keyBits = {};
+    let pauseKeys = [];
+    let fastKeys = [];
     let waitingKey = false;
     let settingsFrom = 'list';
     let keysFrom = 'settings';
@@ -67,6 +67,8 @@
     function took(s) {
         settings = s;
         keyBits = s.play.keys;
+        pauseKeys = s.play.pause;
+        fastKeys = s.play.fast;
         player.monitor = setting('fps') && setting('fps').value === 'on' ? monitor : null;
         el.fps.classList.toggle('show', !!(setting('fps') && setting('fps').value === 'on'));
     }
@@ -105,7 +107,8 @@
         }
     }
 
-    function message(text, then) {
+    function message(text, then, title) {
+        el.dialogTitle.textContent = title || '';
         el.dialogText.textContent = text;
         el.dialog.classList.add('show');
         el.dialog.scrollTop = 0;
@@ -295,7 +298,14 @@
     function renderPlay() {
         el.barTitle.textContent = current ? current.title : 'GBA';
         keys = { any: gameKey };
-        softkeys('Pause', '', 'Fast');
+        softkeys(buttonOn('SoftLeft'), '', buttonOn('SoftRight'));
+    }
+
+    function buttonOn(key) {
+        const k = settings.keys;
+        const map = k.maps[k.active];
+        const b = k.buttons.find((button) => (map[button.id] || []).includes(key));
+        return b ? b.name : '';
     }
 
     function failed(e) {
@@ -309,7 +319,9 @@
 
     function fit(width, height) {
         const room = window.innerHeight - el.bar.offsetHeight - el.softkeys.offsetHeight - STATUS_HEIGHT;
-        const scale = Math.max(1, Math.min(window.innerWidth / width, room / height));
+        const fits = Math.min(window.innerWidth / width, room / height);
+        const cut = setting('sgb_borders') && setting('sgb_borders').value === 'cut';
+        const scale = cut ? Math.max(1, fits) : fits;
         player.open(width, height, Math.round(width * scale), Math.round(height * scale));
     }
 
@@ -518,7 +530,7 @@
         show('list');
     }
 
-    const KEYS_ROW = { key: 'keys', about: 'Which key is which button, in three presets.' };
+    const KEYS_ROW = { key: 'keys', name: 'Keys', about: 'Which key is which button, pause and fast forward, in three presets.' };
 
     function settingRows() {
         const rows = [KEYS_ROW];
@@ -529,7 +541,7 @@
     function renderSettings() {
         el.barTitle.textContent = 'Settings';
         el.settingItems.textContent = '';
-        el.settingItems.appendChild(row('Keys', `${presetName()} ›`));
+        el.settingItems.appendChild(row(KEYS_ROW.name, `${presetName()} ›`));
         settings.sections.forEach((section) => {
             const h = document.createElement('p');
             h.className = 'section';
@@ -540,25 +552,28 @@
         moveFocus('settings', el.settingItems, 0);
         keys = {
             center: () => step(1),
+            right: settingInfo,
             back: () => (settingsFrom === 'menu' ? openMenu() : show('list')),
             move: (by) => {
                 moveFocus('settings', el.settingItems, by);
-                settingAbout();
+                settingSoftkeys();
             },
             side: (by) => settingRows()[focus.settings] !== KEYS_ROW && step(by),
         };
-        settingAbout();
+        settingSoftkeys();
     }
 
-    function settingAbout() {
+    function settingSoftkeys() {
         const item = settingRows()[focus.settings];
-        if (!item) {
-            el.settingAbout.textContent = '';
-            return;
+        softkeys('', item ? (item === KEYS_ROW ? 'Open' : 'Change') : '', item ? 'Info' : '');
+    }
+
+    function settingInfo() {
+        const item = settingRows()[focus.settings];
+        if (item) {
+            const later = item.load && current ? '\n\nFrom the next game you start.' : '';
+            message(`${item.about}${later}`, null, item.name);
         }
-        const later = item.load && current ? ' From the next game you start.' : '';
-        el.settingAbout.textContent = `${item.about}${later}`;
-        softkeys('', item === KEYS_ROW ? 'Open' : 'Change', '');
     }
 
     async function step(by) {
@@ -605,8 +620,6 @@
         const k = settings.keys;
         const map = k.maps[k.active];
         el.barTitle.textContent = 'Keys';
-        el.keysHint.textContent = waitingKey ? 'Press the key for the button, or Cancel.' :
-            'The left soft key pauses; holding the right soft key fast forwards.';
         el.keyItems.textContent = '';
         el.keyItems.appendChild(row('Preset', presetName()));
         k.buttons.forEach((b, i) => {
@@ -624,7 +637,7 @@
                     return down;
                 },
             };
-            softkeys('', '', 'Cancel');
+            softkeys('', '', '');
             return;
         }
         keys = {
@@ -652,19 +665,15 @@
         keysSoftkeys();
     }
 
-    // the phone sends a MicrophoneToggle after other keys, ignore keys that aren't on the keypad
     async function setKey(key) {
         const k = settings.keys;
-        if (key === FAST_KEY) {
-            waitingKey = false;
-        } else if (!(key in k.codes)) {
-            if (key === MENU_KEY) {
-                toast('The left soft key pauses. Press another key.', true);
-            }
+        if (!(key in k.codes)) {
             return;
-        } else {
-            waitingKey = false;
-            await change('keys.button', { button: k.buttons[focus.keys - 1].id, key });
+        }
+        waitingKey = false;
+        const button = k.buttons[focus.keys - 1].id;
+        if (!(k.maps[k.active][button] || []).includes(key)) {
+            await change('keys.button', { button, key });
         }
         renderKeys();
     }
@@ -681,16 +690,19 @@
     }
 
     function gameKey(e, down) {
-        if (e.key === FAST_KEY) {
+        if (fastKeys.includes(e.key)) {
             player.fast = down;
-            status(down ? 'Fast forward' : '', true);
+            const labelled = fastKeys.some((k) => k === 'SoftLeft' || k === 'SoftRight');
+            el.center.textContent = down && !labelled ? 'Fast forward' : '';
+            return true;
+        }
+        if (pauseKeys.includes(e.key)) {
+            if (down) {
+                openMenu();
+            }
             return true;
         }
         if (!(e.key in keyBits)) {
-            if (down && e.key === MENU_KEY) {
-                openMenu();
-                return true;
-            }
             return e.key === 'Backspace' || e.key === 'GoBack';
         }
         if (down) {

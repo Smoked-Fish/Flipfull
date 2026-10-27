@@ -88,8 +88,9 @@ extern "C" {
     fn retro_get_memory_size(id: c_uint) -> usize;
     fn flipfull_state_size() -> usize;
     fn flipfull_save_state(state: *mut c_void) -> bool;
-    fn flipfull_load_state(state: *const c_void) -> bool;
+    fn flipfull_load_state(state: *mut c_void) -> bool;
     fn flipfull_draw_next(draw: bool);
+    fn flipfull_frame_done();
     fn flipfull_drain_audio();
     fn flipfull_set_audio_rate(rate: f64);
     fn flipfull_set_utc_offset(seconds: i64);
@@ -280,6 +281,7 @@ fn run(keys: u16, slot: Option<usize>) {
     unsafe {
         flipfull_draw_next(slot.is_some());
         retro_run();
+        flipfull_frame_done();
         flipfull_drain_audio();
     }
 }
@@ -382,7 +384,7 @@ impl Frontend {
     }
 
     pub fn back(&mut self) {
-        unsafe { flipfull_load_state(self.before.as_ptr() as *const c_void) };
+        unsafe { flipfull_load_state(self.before.as_mut_ptr() as *mut c_void) };
         output().audio.clear();
         let ram = save_memory();
         if ram.len() == self.ram_before.len() && *ram != *self.ram_before {
