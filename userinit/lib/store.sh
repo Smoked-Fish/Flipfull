@@ -6,26 +6,6 @@ STORE_DIR=/data/local/tmp/ostore
 STORE_MAX=52428800
 STORE_RECORDS=$CONFIG/ostore-apps
 
-app_url() {
-    m=$USERINIT/apps/$1/manifest.webmanifest
-    [ -f "$m" ] || return 1
-    origin=$(json_value origin < "$m")
-    [ -n "$origin" ] && echo "http://$origin.localhost/manifest.webmanifest"
-}
-
-install_zip() {
-    tmp=/data/local/tmp/flipfull-$2.zip
-    cp "$1" "$tmp" && chmod 0644 "$tmp" || return 1
-    r=$(apps_cmd install "$tmp")
-    rm -f "$tmp"
-    if apps_ok "$r"; then
-        echo "installed $2"
-    else
-        echo "error: $2 didn't install: $r"
-        return 1
-    fi
-}
-
 app_manifest() {
     m=$VROOT/$1/manifest.webmanifest
     if [ -f "$m" ]; then

@@ -2,12 +2,9 @@
 . /data/local/userinit/lib/common.sh
 LOG_TAG=api-daemon
 
-DIR=/data/local/service/api-daemon
-REMOTE=$DIR/remote
-
 mount_changed() {
-    copy=$USERINIT/state/api-daemon-${1##*/}
-    if grep -qs " $1 " /proc/mounts; then
+    copy=$STATE/api-daemon-${1##*/}
+    if mounted_on "$1"; then
         log "$1 already has something mounted on it - skipping"
         return 1
     fi
@@ -27,48 +24,6 @@ mount_changed() {
     fi
 }
 
-install_remote() {
-    mkdir -p "$REMOTE" && chmod 0755 "$REMOTE" || return 1
-    for src in "$USERINIT"/remote/*/daemon; do
-        [ -f "$src" ] || continue
-        name=${src%/daemon}
-        name=${name##*/}
-        dst=$REMOTE/$name
-        cmp -s "$src" "$dst/daemon" && continue
-        later=
-        [ -n "$LIVE" ] && [ ! -d "$dst" ] && later=" - api-daemon uses it from the next boot"
-        if mkdir -p "$dst" && cp "$src" "$dst/daemon.tmp" && chmod 0755 "$dst/daemon.tmp" &&
-            mv -f "$dst/daemon.tmp" "$dst/daemon"; then
-            log "installed $name$later"
-            pkill -f "^$dst/daemon" 2>/dev/null
-        else
-            log "couldn't install $name"
-        fi
-        chcon -R u:object_r:api_data_file:s0 "$dst" 2>/dev/null
-    done
-}
-
-remove_remote() {
-    for dst in "$REMOTE"/Flipfull*; do
-        [ -d "$dst" ] || continue
-        [ "$1" != all ] && [ -f "$USERINIT/remote/${dst##*/}/daemon" ] && continue
-        rm -rf "$dst" && log "removed ${dst##*/}"
-    done
-}
-
-case $1 in
-    remove)
-        remove_remote all
-        exit 0 ;;
-    remote)
-        LIVE=1
-        install_remote
-        remove_remote
-        exit 0 ;;
-esac
-install_remote
-remove_remote
-
 CONFIG_SED=""
 if planned feature block-telemetry on; then
     CONFIG_SED="${CONFIG_SED}/^\\[telemetry\\]/,/^\\[/s/^enabled *= *true/enabled = false/;"
@@ -81,11 +36,11 @@ fi
 
 CONFIG_SED="${CONFIG_SED%;}"
 if [ -n "$CONFIG_SED" ]; then
-    mount_changed "$DIR/config.toml" "$CONFIG_SED"
+    mount_changed "$API_DAEMON/config.toml" "$CONFIG_SED"
 fi
 
 if planned feature block-app-updates on; then
-    f=$DIR/app-update-config.json
+    f=$API_DAEMON/app-update-config.json
     if [ ! -f "$f" ]; then
         echo '{"enabled":true,"conn_type":"Any","delay":86400,"last_check":0}' > "$f"
         chmod 0600 "$f"

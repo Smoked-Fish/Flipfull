@@ -25,14 +25,14 @@ SOFTWARE.
 This MIT license covers only the files original to this project. Bundled
 third-party components keep their own licenses:
 
-  - src/overlays/base/*/application.zip are stock KaiOS/TCL apps from the
-    phone; they are proprietary and not covered by any license granted here.
-  - userinit/bin/busybox is BusyBox 1.37.0, GPLv2. Source: busybox.net,
-    built with src/native/busybox-1.37.0-armhf.config.
-  - userinit/bin/sqlite3 is SQLite, public domain.
-  - userinit/remote/FlipfullSpeech/daemon includes whisper.cpp and
-    transcribe.cpp (MIT, (c) the ggml authors) and libopus (BSD).
-  - userinit/remote/FlipfullRetro/daemon statically links mGBA which is 
-    licensed under MPL-2.0.
+- src/overlays/base/*/application.zip are stock KaiOS/TCL apps from the
+  phone; they are proprietary and not covered by any license granted here.
+- userinit/bin/busybox is BusyBox 1.37.0, GPLv2. Source: busybox.net,
+  built with src/native/busybox-1.37.0-armhf.config.
+- userinit/bin/sqlite3 is SQLite, public domain.
+- userinit/remote/FlipfullSpeech/daemon includes whisper.cpp and
+  transcribe.cpp (MIT, (c) the ggml authors).
+- userinit/remote/FlipfullRetro/daemon statically links mGBA which is
+  licensed under MPL-2.0.
 
 Follow each component's own terms when you redistribute it.

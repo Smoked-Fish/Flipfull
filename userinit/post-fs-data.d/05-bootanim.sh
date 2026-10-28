@@ -22,13 +22,11 @@ mount_over() {
         log "${src##*/} missing - $* stay stock"
         return
     fi
-    chmod 0644 "$src" 2>/dev/null
-    chown root:root "$src" 2>/dev/null
-    chcon u:object_r:system_file:s0 "$src" 2>/dev/null
+    label_system_file "$src"
     for name in "$@"; do
         dst="$SYS/$name"
         [ -f "$dst" ] || continue
-        if grep -qs " $dst " /proc/mounts; then
+        if mounted_on "$dst"; then
             log "$dst already has something mounted on it - skipped"
         elif mount -o bind "$src" "$dst"; then
             log "${src##*/} mounted over $dst"

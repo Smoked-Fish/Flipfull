@@ -17,14 +17,12 @@ if [ ! -s "$SRC" ]; then
     exit 0
 fi
 
-chmod 0644 "$SRC" 2>/dev/null
-chown root:root "$SRC" 2>/dev/null
 LABEL_FROM=$SERVED
 [ -f "$LABEL_FROM" ] || LABEL_FROM=$ORIGINAL
 CTX=$(ls -Z "$LABEL_FROM" 2>/dev/null | awk '{print $1}')
 case "$CTX" in
-    u:object_r:*) chcon "$CTX" "$SRC" 2>/dev/null ;;
-    *) chcon u:object_r:system_file:s0 "$SRC" 2>/dev/null ;;
+    u:object_r:*) label_system_file "$SRC" "$CTX" ;;
+    *) label_system_file "$SRC" ;;
 esac
 
 mounted=0
@@ -33,7 +31,7 @@ for DST in "$SERVED" "$ORIGINAL"; do
         log "$DST not found - skipped"
         continue
     fi
-    if grep -qs " $DST " /proc/mounts; then
+    if mounted_on "$DST"; then
         log "$DST already has something mounted on it - skipped"
         continue
     fi

@@ -45,12 +45,9 @@ if [ "$STAGE" = post-fs-data ] && [ -e "$BASE/uninstall" ]; then
     if [ -f "$BASE/config/removable-apps" ] && [ -f "$BASE/post-fs-data.d/02-removable-apps.sh" ]; then
         sh "$BASE/post-fs-data.d/02-removable-apps.sh" reset >> "$LOG" 2>&1
     fi
-    if [ -f "$BASE/flipfull" ]; then
-        sh "$BASE/flipfull" publish --remove >> "$LOG" 2>&1
+    if [ -f "$BASE/post-fs-data.d/03-features.sh" ]; then
+        sh "$BASE/post-fs-data.d/03-features.sh" uninstall >> "$LOG" 2>&1
     fi
-    for f in "$BASE/post-fs-data.d/04-gecko-prefs.sh" "$BASE/post-fs-data.d/04-api-daemon.sh"; do
-        [ -f "$f" ] && sh "$f" remove >> "$LOG" 2>&1
-    done
     log "-- uninstall requested: removing everything in $BASE except run.sh"
     for f in "$BASE"/* "$BASE"/.[!.]*; do
         case "${f##*/}" in

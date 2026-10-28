@@ -11,11 +11,9 @@ if ! planned feature camera-rework on; then
     exit 0
 fi
 
-# Gecko reads more than one of these (the variant files), so each gets its
-# own back camera section swapped for etc/camera/profiles.xml
 for dst in /vendor/etc/media_profiles*.xml; do
     [ -f "$dst" ] || continue
-    if grep -qs " $dst " /proc/mounts; then
+    if mounted_on "$dst"; then
         log "$dst already has something mounted on it - skipped"
         continue
     fi
@@ -29,9 +27,7 @@ for dst in /vendor/etc/media_profiles*.xml; do
         skip { if (index($0, "</CamcorderProfiles>")) skip = 0; next }
         { print }
     ' "$dst" > "$src"
-    chmod 0644 "$src" 2>/dev/null
-    chown root:root "$src" 2>/dev/null
-    chcon u:object_r:vendor_configs_file:s0 "$src" 2>/dev/null
+    label_system_file "$src" u:object_r:vendor_configs_file:s0
     if mount -o bind "$src" "$dst"; then
         log "camera profiles mounted over $dst"
     else

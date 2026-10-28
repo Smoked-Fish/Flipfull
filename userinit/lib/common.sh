@@ -12,7 +12,7 @@ VROOT=/data/local/webapps/vroot
 APPS_SOCK=/data/local/tmp/apps-uds.sock
 APPS_DB=/data/local/webapps/db/apps.sqlite
 SQLITE=$USERINIT/bin/sqlite3
-REMOTE_REGISTRY=/data/local/service/api-daemon/remote_services.toml
+API_DAEMON=/data/local/service/api-daemon
 
 # Append
 case ":$PATH:" in
@@ -25,13 +25,58 @@ die() {
     exit 1
 }
 
-log() { echo "[$LOG_TAG] $*"; }
+log() { echo "${LOG_TAG:+[$LOG_TAG] }$*"; }
 
 planned() { grep -qxF "$*" "$BOOT_PLAN" 2>/dev/null; }
 
 plan() { awk -f "$PLAN_AWK" -v choices="$CHOICES" "$REGISTRY"; }
 
 needs() { awk -f "$PLAN_AWK" -v mode=needs "$REGISTRY"; }
+
+# the names of one need kind in a plan
+wanted() { echo "$2" | awk -v kind="$1" '$1 == kind { print $2 }'; }
+
+# the names under DIR/ that setup changed
+changed_in() { echo "$2" | sed -n "s|^$1/\([^/]*\)/.*|\1|p" | sort -u; }
+
+# needs/KIND.sh is one need kind: KIND_status NAME says whether it works here and what a
+# change takes (plan.awk's works()), KIND_apply WHEN PLAN [CHANGED] makes the phone match PLAN.
+# WHEN is post-fs-data or boot-completed (the boot plan), set (flipfull set, and uninstall with
+# no plan), setup (CHANGED: the files it changed) or uninstall (the boot that removes Flipfull)
+load_needs() {
+    for f in "$USERINIT"/needs/*.sh; do
+        [ -f "$f" ] && . "$f"
+    done
+}
+
+needs_apply() {
+    for f in "$USERINIT"/needs/*.sh; do
+        [ -f "$f" ] || continue
+        f=${f##*/}
+        "${f%.sh}_apply" "$1" "$2" "$3"
+    done
+}
+
+http_root() {
+    r=$(sed -n '/^\[http\]/,/^\[/s/^root_path *= *"\(.*\)"/\1/p' "$API_DAEMON/config.toml" 2>/dev/null)
+    echo "${r:-$API_DAEMON/http_root}"
+}
+
+# features.js tells the overlays which features are on, state/features tells the remote services
+publish() {
+    dir=$(http_root)/flipfull
+    mkdir -p "$dir" "$STATE" || return 1
+    { if [ -n "$1" ]; then echo "$1"; else plan; fi; } | awk '$1 == "feature" && $3 == "on" { print $2 }' \
+        > "$STATE/features.tmp" && chmod 0644 "$STATE/features.tmp" && mv -f "$STATE/features.tmp" "$STATE/features" || return 1
+    awk -v src="$USERINIT/flipfull" '
+        BEGIN {
+            print "// Written by " src ": the Flipfull features that are on."
+            printf "window.FlipfullFeatures = {"
+        }
+        { printf "%s\"%s\": true", n++ ? ", " : "", $1 }
+        END { print "};" }' "$STATE/features" > "$dir/features.js.tmp" &&
+        chmod 0644 "$dir/features.js.tmp" && mv -f "$dir/features.js.tmp" "$dir/features.js"
+}
 
 apps_cmd() {
     if [ $# -gt 1 ]; then
@@ -68,21 +113,14 @@ detach_cgroup() {
 
 pids_of() { pidof "$1" 2>/dev/null; }
 
-preloaded_apps() {
-    "$SQLITE" -init /dev/null "$APPS_DB" 'SELECT name FROM apps WHERE preloaded = 1' 2>/dev/null
+# a file only Flipfull writes, bind-mounted over a phone file at boot
+label_system_file() {
+    chmod 0644 "$1" 2>/dev/null
+    chown root:root "$1" 2>/dev/null
+    chcon "${2:-u:object_r:system_file:s0}" "$1" 2>/dev/null
 }
 
-same_dir() { [ "$(stat -c %d:%i "$1" 2>/dev/null)" = "$(stat -c %d:%i "$2" 2>/dev/null)" ]; }
-
-remote_status() {
-    if [ ! -f "$USERINIT/remote/$1/daemon" ]; then
-        echo "not on the phone"
-    elif grep -q "^$1 *=" "$REMOTE_REGISTRY" 2>/dev/null; then
-        echo ok
-    else
-        echo reboot
-    fi
-}
+mounted_on() { grep -qs " $1 " /proc/mounts; }
 
 # whether a line of $1 matches the case pattern $2, without starting a grep, ugly
 has_line() {
@@ -96,25 +134,5 @@ $1
 
 has_word() {
     case " $1 " in *" $2 "*) return 0 ;; esac
-    return 1
-}
-
-stock_matches() {
-    [ -f "$1/stock.md5" ] || return 0
-    id=$(stat -c '%d:%i:%s:%Y' "$2" 2>/dev/null) || return 1
-    sum=
-    if [ -f "$USERINIT/state/stock-md5" ]; then
-        while read -r f fid fsum; do
-            [ "$f" = "$2" ] && [ "$fid" = "$id" ] && sum=$fsum
-        done < "$USERINIT/state/stock-md5"
-    fi
-    if [ -z "$sum" ]; then
-        sum=$(md5sum "$2" 2>/dev/null | cut -d' ' -f1)
-        [ -n "$sum" ] || return 1
-        mkdir -p "$USERINIT/state" && echo "$2 $id $sum" >> "$USERINIT/state/stock-md5"
-    fi
-    while read -r want; do
-        [ "$want" = "$sum" ] && return 0
-    done < "$1/stock.md5"
     return 1
 }

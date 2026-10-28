@@ -111,7 +111,7 @@ function print_plan(    i, id, c, items, j, seen) {
 }
 
 function works(r) {
-    return r == "" || r == "ok" || r == "now" || r == "restart" || r == "reopen" || r == "boot"
+    return r == "" || r == "now" || r == "restart" || r == "reopen" || r == "boot"
 }
 
 function work_out_state(    line, w, i, id, c, items, j, b, changed, pend, bad, total, why, sp, r) {
@@ -144,7 +144,6 @@ function work_out_state(    line, w, i, id, c, items, j, b, changed, pend, bad, 
         why = ""
         for (j = 1; j <= c; j++) {
             total++
-            split(items[j], w, " ")
             r = usable[items[j]]
             if (r == "reboot") {
                 if (on[id])
@@ -153,12 +152,8 @@ function work_out_state(    line, w, i, id, c, items, j, b, changed, pend, bad, 
                 bad++
                 if (why == "")
                     why = r
-            } else if (changed && w[1] == "overlay") {
-                if (r == "boot" || ((r == "restart" || r == "reopen") &&
-                                    (items[j] in booted) && !(items[j] in planned)))
-                    pend = 1
-            } else if (changed && (w[1] == "hosts" || w[1] == "prefs") &&
-                       ((items[j] in planned) != (items[j] in booted))) {
+            } else if (changed && (r == "boot" || ((r == "restart" || r == "reopen") &&
+                                                    (items[j] in booted) && !(items[j] in planned)))) {
                 pend = 1
             }
         }
@@ -192,8 +187,8 @@ function print_list(    i, id, note) {
 }
 
 BEGIN {
-    NKINDS = split("overlays hosts prefs services apps remote", KEY, " ")
-    split("overlay hosts prefs service app remote", KIND, " ")
+    NKINDS = split("overlays hosts prefs autoconfig services apps remote", KEY, " ")
+    split("overlay hosts prefs autoconfig service app remote", KIND, " ")
     if (mode == "")
         mode = "plan"
 }

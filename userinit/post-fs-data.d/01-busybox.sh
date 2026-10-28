@@ -33,7 +33,5 @@ else
     done
 fi
 
-rm -f "$BASE/busybox-path.sh"
-
 log "done - tools in $BBX (e.g. $BBX/timeout)"
 exit 0

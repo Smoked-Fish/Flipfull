@@ -16,6 +16,7 @@ def check_features(overlays, apps):
         "services": lambda n: (USERINIT / "services" / n / "service.sh").is_file(),
         "hosts": lambda n: (USERINIT / "etc" / "hosts.d" / f"{n}.hosts").is_file(),
         "prefs": lambda n: (USERINIT / "etc" / "prefs.d" / f"{n}.js").is_file(),
+        "autoconfig": lambda n: (USERINIT / "etc" / "autoconfig.d" / f"{n}.js").is_file(),
         "remote": remote.has_section,
     }
     bad = [problem for fid in ini.sections() for problem in feature_problems(ini, fid, exists)]
