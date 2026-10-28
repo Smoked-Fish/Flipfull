@@ -3,29 +3,29 @@
 (function (exports) {
   function normWord(word) {
     return word
-      .toLowerCase()
-      .replace(/[‘’`]/g, "'")
-      .replace(/[.,!?;:…"“”«»()[\]{}]/g, '')
-      .replace(/^wi-?fi$/, 'wifi')
-      .replace(/^e-mail$/, 'email')
-      .replace(/^'+|'+$/g, '');
+        .toLowerCase()
+        .replace(/[‘’`]/g, "'")
+        .replace(/[.,!?;:…"“”«»()[\]{}]/g, '')
+        .replace(/^wi-?fi$/, 'wifi')
+        .replace(/^e-mail$/, 'email')
+        .replace(/^'+|'+$/g, '');
   }
 
   function tokens(raw) {
     return String(raw || '').trim().split(/\s+/)
-      .map((w) => ({ raw: w, norm: normWord(w) }))
-      .filter((w) => w.norm);
+        .map((w) => ({ raw: w, norm: normWord(w) }))
+        .filter((w) => w.norm);
   }
 
   function simplify(s) {
     return String(s || '')
-      .toLowerCase()
-      .normalize('NFD').replace(/[̀-ͯ]/g, '')
-      .replace(/[_-]/g, '')
-      .replace(/[^a-z0-9' ]/g, ' ')
-      .replace(/'/g, '')
-      .replace(/\s+/g, ' ')
-      .trim();
+        .toLowerCase()
+        .normalize('NFD').replace(/[̀-ͯ]/g, '')
+        .replace(/[_-]/g, '')
+        .replace(/[^a-z0-9' ]/g, ' ')
+        .replace(/'/g, '')
+        .replace(/\s+/g, ' ')
+        .trim();
   }
 
   function lev(a, b) {
@@ -37,7 +37,7 @@
       const cur = [i];
       for (let j = 1; j <= b.length; j++) {
         cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1,
-          prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+            prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
       }
       prev = cur;
     }
@@ -46,8 +46,8 @@
 
   function sound(s) {
     const k = s.replace(/[^a-z]/g, '')
-      .replace(/ph/g, 'f').replace(/ck|q/g, 'k').replace(/c(?=[aou]|$)/g, 'k').replace(/c/g, 's')
-      .replace(/z/g, 's').replace(/y/g, 'i').replace(/(.)\1+/g, '$1');
+        .replace(/ph/g, 'f').replace(/ck|q/g, 'k').replace(/c(?=[aou]|$)/g, 'k').replace(/c/g, 's')
+        .replace(/z/g, 's').replace(/y/g, 'i').replace(/(.)\1+/g, '$1');
     return k.charAt(0) + k.slice(1).replace(/[aeiouhw]/g, '');
   }
 
@@ -178,7 +178,7 @@
       return ' ';
     });
     t = t.replace(/ (?:o'clock|oclock|o clock|sharp|exactly|on the dot)(?= )/g, ' ').trim()
-      .replace(/^(?:at|for|by|around|about) /, '');
+        .replace(/^(?:at|for|by|around|about) /, '');
 
     const rel = t.match(/^in (?:(.+?) (hours?|hrs?)(?: and (.+?) (?:minutes?|mins?))?|(.+?) (?:minutes?|mins?))$/);
     if (rel || /^in (?:an?|one) hour and a half$/.test(t) || /^in half an hour$/.test(t)) {
@@ -206,7 +206,7 @@
     if ((m = t.match(/^(?:(a )?quarter|half|(.+?)(?: minutes?)?) (past|after|to|till|before) (.+)$/))) {
       const base = numberList(m[4].split(' '));
       const off = m[1] !== undefined || /^(?:a )?quarter/.test(t) ? 15 : /^half/.test(t) ? 30 :
-        (numberList(m[2].split(' ')) || [])[0];
+          (numberList(m[2].split(' ')) || [])[0];
       if (!base || base.length !== 1 || off === undefined || off >= 60) return null;
       hour = base[0];
       minute = /past|after/.test(m[3]) ? off : 60 - off;
@@ -232,7 +232,7 @@
       return new Date(base.getTime() + when.inMinutes * 60000);
     }
     const hours = when.meridiem || when.hour === 0 || when.hour > 12 ? [when.hour] :
-      when.hour === 12 ? [12, 0] : [when.hour, when.hour + 12];
+        when.hour === 12 ? [12, 0] : [when.hour, when.hour + 12];
     let best = null;
     for (const h of hours) {
       const d = new Date(base.getTime());
@@ -331,7 +331,7 @@
 
     const tw = t ? t.split(' ') : [];
     const rawOf = (from, to) => words.slice(lead + from, to === undefined ? undefined : lead + to)
-      .map((w) => w.raw).join(' ');
+        .map((w) => w.raw).join(' ');
     const suffixStart = (group) => tw.length - group.split(' ').length;
     const intent = (type, extra) => Object.assign({ type, text }, extra);
     let m;
@@ -491,7 +491,7 @@
 
   function matchApp(name, apps, selfOrigin) {
     const usable = (apps || []).filter((a) => a && a.type !== 'folder' &&
-      !(selfOrigin && String(a.manifestUrl || '').startsWith(selfOrigin)));
+        !(selfOrigin && String(a.manifestUrl || '').startsWith(selfOrigin)));
     const top = best(name, usable, (a) => [a.value, a.displayName, a.name].filter(Boolean), APP_KIN);
     return top && top.item;
   }
@@ -521,9 +521,9 @@
     const tels = telsOf(contact);
     const want = { mobile: /mobile|cell/, home: /home/, work: /work|office/ }[kind];
     return (want && tels.find((t) => want.test(telType(t)))) ||
-      tels.find((t) => t.pref) ||
-      tels.find((t) => /mobile|cell/.test(telType(t))) ||
-      tels[0];
+        tels.find((t) => t.pref) ||
+        tels.find((t) => /mobile|cell/.test(telType(t))) ||
+        tels[0];
   }
 
   function splitRecipient(whoWords, whoRaw, contacts) {
@@ -541,4 +541,4 @@
     parse, normWord, simplify, nameScore, phoneNumber, settingsPage, clockTime, alarmDate, alarmMatches,
     matchApp, matchContact, pickNumber, splitRecipient, contactNames, MIN_SCORE,
   });
-})(typeof module !== 'undefined' ? module.exports : (window.Commands = {}));
+})(window.Commands = {});

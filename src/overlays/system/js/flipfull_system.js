@@ -48,8 +48,8 @@
     const origin = new URL(app.manifestUrl).origin;
     try {
       Components.classes['@mozilla.org/systemmessage-service;1']
-        .getService(Components.interfaces.nsISystemMessageService)
-        .sendMessage('media-button', { message }, origin);
+          .getService(Components.interfaces.nsISystemMessageService)
+          .sendMessage('media-button', { message }, origin);
     } catch (e) {
       log(`media-button to ${origin} failed: ${e}`);
       return false;
@@ -103,7 +103,7 @@
 
     quickPress(screenWasOff, calling) {
       firstPressPlays = featureOn('play-pause-button') && ScreenManager.lidOpened === false &&
-        !screenWasOff && !calling;
+          !screenWasOff && !calling;
     },
 
     quickPresses(count) {
@@ -147,43 +147,14 @@
           update();
         }, { signal });
         ['activated', 'deactivated', 'metadatachange', 'playbackstatechange'].forEach(type =>
-          controller.addEventListener(type, update, { signal }));
+            controller.addEventListener(type, update, { signal }));
       }
       update();
     };
   }
 
-  const SPEECH_SCRIPTS = [
-    ['ExternalAPI', 'http://127.0.0.1/api/v1/shared/core.js'],
-    ['lib_session', 'http://127.0.0.1/api/v1/shared/session.js'],
-    ['FlipfullSpeech', 'http://127.0.0.1/flipfull/speech.js'],
-  ];
-
-  function script(src) {
-    return new Promise((resolve, reject) => {
-      const s = document.createElement('script');
-      s.src = src;
-      s.onload = resolve;
-      s.onerror = () => reject(new Error(`${src} didn't load`));
-      document.head.appendChild(s);
-    });
-  }
-
-  function startWebSpeech() {
-    SPEECH_SCRIPTS.reduce((done, [name, src]) => done.then(() => exports[name] ? null : script(src)),
-      Promise.resolve())
-      .then(() => exports.FlipfullSpeech.health())
-      .then(() => log('Web Speech is up'), e => {
-        log(`Web Speech isn't up yet: ${e.message}`);
-        setTimeout(startWebSpeech, 60 * 1000);
-      });
-  }
-
   function startMain() {
     exports.FlipfullMedia = FlipfullMedia;
-    if (featureOn('web-speech')) {
-      startWebSpeech();
-    }
     if (featureOn('outer-screen-music')) {
       watchMediaApp(nowPlayingFeed());
     } else if (featureOn('play-pause-button')) {
@@ -261,8 +232,8 @@
       });
 
       return date.getTime() - Date.now() > 20 * 3600 * 1000
-        ? `${date.toLocaleDateString([], { weekday: 'short' })} ${hm}`
-        : hm;
+          ? `${date.toLocaleDateString([], { weekday: 'short' })} ${hm}`
+          : hm;
     }
 
     function render() {

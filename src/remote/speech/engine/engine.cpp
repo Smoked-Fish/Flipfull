@@ -1,6 +1,5 @@
 #include "engine.h"
 
-#include "opus.h"
 #include "transcribe.h"
 #include "whisper.h"
 
@@ -222,98 +221,6 @@ bool decode_pcm(const uint8_t * d, size_t len, std::vector<float> & pcm, std::st
     return true;
 }
 
-bool decode_ogg_opus(const uint8_t * d, size_t len, std::vector<float> & pcm, std::string & err) {
-    constexpr int kMaxFrame = kSampleRate * 120 / 1000;
-    std::vector<float> frame(kMaxFrame);
-    std::string packet;
-    OpusDecoder * dec = nullptr;
-    int packets = 0;
-    int pre_skip = 0;
-    uint32_t serial = 0;
-    size_t pos = 0;
-
-    auto on_packet = [&]() -> bool {
-        const uint8_t * p = (const uint8_t *) packet.data();
-        const size_t n = packet.size();
-        if (packets++ == 0) {
-            if (n < 19 || memcmp(p, "OpusHead", 8) != 0) {
-                err = "not an Ogg/Opus stream";
-                return false;
-            }
-            if (p[18] != 0) {
-                err = "multichannel Opus is not supported";
-                return false;
-            }
-            pre_skip = p[10] | (p[11] << 8);
-            int e = 0;
-            dec = opus_decoder_create(kSampleRate, 1, &e);
-            if (!dec || e != OPUS_OK) {
-                err = "opus decoder init failed";
-                return false;
-            }
-            return true;
-        }
-        if (n >= 8 && memcmp(p, "OpusTags", 8) == 0) {
-            return true;
-        }
-        const int got = opus_decode_float(dec, p, (opus_int32) n, frame.data(), kMaxFrame, 0);
-        if (got < 0) {
-            err = std::string("opus: ") + opus_strerror(got);
-            return false;
-        }
-        pcm.insert(pcm.end(), frame.begin(), frame.begin() + got);
-        if (pcm.size() > kMaxSeconds * kSampleRate) {
-            err = "audio longer than 60 s";
-            return false;
-        }
-        return true;
-    };
-
-    bool ok = true;
-    while (ok && pos + 27 <= len) {
-        if (memcmp(d + pos, "OggS", 4) != 0) {
-            err = "bad Ogg page";
-            ok = false;
-            break;
-        }
-        uint32_t sn;
-        memcpy(&sn, d + pos + 14, 4);
-        const int nseg = d[pos + 26];
-        const uint8_t * lacing = d + pos + 27;
-        size_t off = pos + 27 + nseg;
-        size_t total = 0;
-        if (off <= len) {
-            for (int i = 0; i < nseg; i++) total += lacing[i];
-        }
-        if (off > len || off + total > len) {
-            err = "truncated Ogg page";
-            ok = false;
-            break;
-        }
-        if (pos == 0) serial = sn;
-        if (sn == serial) {
-            for (int i = 0; i < nseg && ok; i++) {
-                packet.append((const char *) d + off, lacing[i]);
-                off += lacing[i];
-                if (lacing[i] < 255) {
-                    ok = on_packet();
-                    packet.clear();
-                }
-            }
-        }
-        pos = pos + 27 + nseg + total;
-    }
-    if (dec) opus_decoder_destroy(dec);
-    if (!ok) return false;
-    if (packets == 0) {
-        err = "empty Ogg stream";
-        return false;
-    }
-    const size_t skip = std::min(pcm.size(), (size_t) pre_skip * kSampleRate / 48000);
-    pcm.erase(pcm.begin(), pcm.begin() + skip);
-    return true;
-}
-
 void set_err(char * err, size_t size, const std::string & why) {
     snprintf(err, size, "%s", why.c_str());
 }
@@ -362,8 +269,7 @@ extern "C" int stt_transcribe(stt_model * m, const uint8_t * audio, size_t len, 
                               size_t err_size) {
     std::vector<float> pcm;
     std::string why;
-    const bool ogg = len >= 4 && memcmp(audio, "OggS", 4) == 0;
-    if (!(ogg ? decode_ogg_opus(audio, len, pcm, why) : decode_pcm(audio, len, pcm, why))) {
+    if (!decode_pcm(audio, len, pcm, why)) {
         set_err(err, err_size, why);
         return 0;
     }

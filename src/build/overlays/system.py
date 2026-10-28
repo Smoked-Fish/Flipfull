@@ -10,11 +10,10 @@ SOUND_JS = "js/sound_manager.js"
 DIALER_JS = "js/dialer_agent.js"
 
 SYSTEM_SCRIPTS = script("js/live_wallpaper.js") + script("js/flipfull_system.js")
-MAPS_SCRIPT = script("js/flipfull_maps.js")  # WIP (doesn't work right rn)
 SCRIPTS = [
     insert_before("index.html", script("js/remote_helper.js"), FEATURES_SCRIPT),
     insert_before("index_remote.html", APP_ORIGIN_SCRIPT, FEATURES_SCRIPT),
-    insert_after("index.html", script("js/external_screen_manager.js"), SYSTEM_SCRIPTS + MAPS_SCRIPT),
+    insert_after("index.html", script("js/external_screen_manager.js"), SYSTEM_SCRIPTS),
     insert_after("index_remote.html", script("remote/dist/app.bundle.js"), SYSTEM_SCRIPTS),
 ]
 

@@ -188,7 +188,4 @@
     parseIni, parseState, parseRemovable, removableGroups, parseSet, sections, statusText, infoText,
     installedVersion, compareVersions, pickUpdate, parseUpdate,
   };
-  if (typeof module !== 'undefined') {
-    module.exports = exports.FlipfullModel;
-  }
-}(typeof window !== 'undefined' ? window : globalThis));
+}(globalThis));

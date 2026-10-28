@@ -3,14 +3,14 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 AB="${AB:-$HOME/ab}"
-OUT="${OUT:-$HERE/../../../userinit/bin/callcap}"
+OUT="${OUT:-$HERE/../../../../userinit/bin/callcap}"
 NDK="$AB/android-ndk-r27c/toolchains/llvm/prebuilt/linux-x86_64"
 CXX="$NDK/bin/armv7a-linux-androideabi34-clang++"
 A="$AB/aosp"
 DEVLIBS="$AB/devlibs"
 LIBS=(libaudioclient libbinder libutils libcutils liblog framework-permission-aidl-cpp)
 
-[ -x "$CXX" ] && [ -d "$AB/gen/include" ] || { echo "run src/native/android/setup.sh first" >&2; exit 1; }
+[ -x "$CXX" ] && [ -d "$AB/gen/include" ] || { echo "run src/remote/callrec/callcap/setup.sh first" >&2; exit 1; }
 
 mkdir -p "$DEVLIBS"
 for l in "${LIBS[@]}"; do
@@ -33,7 +33,7 @@ TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 "$CXX" -std=c++20 -Os -Wall -fno-rtti -Wno-unused-parameter -Wno-c99-designator -Wno-deprecated-declarations \
     -Wno-inconsistent-missing-override -Wno-deprecated-anon-enum-enum-conversion \
-    "${INCS[@]}" -c "$HERE/../callcap.cpp" -o "$TMP/callcap.o"
+    "${INCS[@]}" -c "$HERE/callcap.cpp" -o "$TMP/callcap.o"
 "$CXX" -s -static-libstdc++ -Wl,--allow-shlib-undefined "$TMP/callcap.o" \
     -L"$DEVLIBS" -laudioclient -l:framework-permission-aidl-cpp.so -lbinder -lutils -lcutils -llog -lmediandk \
     -o "$OUT"

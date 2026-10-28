@@ -62,12 +62,12 @@
 
   function videoOptions(list) {
     return list.filter((p) => sameAspect(aspectOf(p.width, p.height), 16 / 9) && Math.min(p.width, p.height) >= 720)
-      .sort((a, b) => b.height * b.width - a.height * a.width || b.fps - a.fps)
-      .map((p) => {
-        const lines = Math.min(p.width, p.height);
-        const name = RATE_NAMES[p.fps];
-        return { value: `${lines}/${p.fps}`, label: `${lines}p ${p.fps} fps${name ? `, ${name}` : ''}`, profile: p };
-      });
+        .sort((a, b) => b.height * b.width - a.height * a.width || b.fps - a.fps)
+        .map((p) => {
+          const lines = Math.min(p.width, p.height);
+          const name = RATE_NAMES[p.fps];
+          return { value: `${lines}/${p.fps}`, label: `${lines}p ${p.fps} fps${name ? `, ${name}` : ''}`, profile: p };
+        });
   }
 
   function mmsProfile(list) {
@@ -94,7 +94,7 @@
 
   function photoSizes(caps) {
     const four3 = caps.pictureSizes.filter((s) => sameAspect(aspectOf(s.width, s.height), 4 / 3))
-      .sort((a, b) => b.width * b.height - a.width * a.height);
+        .sort((a, b) => b.width * b.height - a.width * a.height);
     const full = four3[0];
     const out = [{ value: '4:3', label: `4:3 · ${megapixels(full.width, full.height)}`, size: full, crop: null }];
     [['16:9', 16 / 9], ['1:1', 1]].forEach(([value, aspect]) => {
@@ -144,7 +144,7 @@
       flash: {
         label: 'Flash',
         options: ['off', 'auto', 'on', 'torch'].filter((f) => flash.includes(f))
-          .map((value) => ({ value, label: FLASH_NAMES[value] })),
+            .map((value) => ({ value, label: FLASH_NAMES[value] })),
         default: 'off',
       },
       light: { label: 'Light', options: onOff, default: false },
@@ -182,7 +182,7 @@
       metering: {
         label: 'Metering',
         options: [{ value: 'average', label: 'Whole picture' }]
-          .concat(caps.maxMeteringAreas > 0 ? [{ value: 'spot', label: 'Centre spot' }] : []),
+            .concat(caps.maxMeteringAreas > 0 ? [{ value: 'spot', label: 'Centre spot' }] : []),
         default: 'average',
       },
       timer: {
@@ -277,12 +277,12 @@
     const vf = VIEWFINDERS.find((v) => v.value === want);
     const p = vf.fps ? viewfinderProfile(list, aspect, vf.fps) || viewfinderProfile(list, aspect, 24) : null;
     return p ? { mode: 'video', profile: p, aspect, pictureSize: size }
-      : { mode: 'picture', profile: null, aspect, pictureSize: size };
+        : { mode: 'picture', profile: null, aspect, pictureSize: size };
   }
 
   function previewSize(caps, aspect) {
     const fit = caps.previewSizes.filter((s) => sameAspect(aspectOf(s.width, s.height), aspect))
-      .sort(smallestFirst);
+        .sort(smallestFirst);
     return fit.find((s) => Math.min(s.width, s.height) >= 360) || fit[fit.length - 1] || caps.previewSizes[0];
   }
 
@@ -295,16 +295,16 @@
     switch (f) {
       case 'grayscale':
         return [0.2126 + 0.7874 * s, 0.7152 - 0.7152 * s, 0.0722 - 0.0722 * s, 0,
-        0.2126 - 0.2126 * s, 0.7152 + 0.2848 * s, 0.0722 - 0.0722 * s, 0,
-        0.2126 - 0.2126 * s, 0.7152 - 0.7152 * s, 0.0722 + 0.9278 * s, 0];
+          0.2126 - 0.2126 * s, 0.7152 + 0.2848 * s, 0.0722 - 0.0722 * s, 0,
+          0.2126 - 0.2126 * s, 0.7152 - 0.7152 * s, 0.0722 + 0.9278 * s, 0];
       case 'sepia':
         return [0.393 + 0.607 * s, 0.769 - 0.769 * s, 0.189 - 0.189 * s, 0,
-        0.349 - 0.349 * s, 0.686 + 0.314 * s, 0.168 - 0.168 * s, 0,
-        0.272 - 0.272 * s, 0.534 - 0.534 * s, 0.131 + 0.869 * s, 0];
+          0.349 - 0.349 * s, 0.686 + 0.314 * s, 0.168 - 0.168 * s, 0,
+          0.272 - 0.272 * s, 0.534 - 0.534 * s, 0.131 + 0.869 * s, 0];
       case 'saturate':
         return [0.213 + 0.787 * a, 0.715 - 0.715 * a, 0.072 - 0.072 * a, 0,
-        0.213 - 0.213 * a, 0.715 + 0.285 * a, 0.072 - 0.072 * a, 0,
-        0.213 - 0.213 * a, 0.715 - 0.715 * a, 0.072 + 0.928 * a, 0];
+          0.213 - 0.213 * a, 0.715 + 0.285 * a, 0.072 - 0.072 * a, 0,
+          0.213 - 0.213 * a, 0.715 - 0.715 * a, 0.072 + 0.928 * a, 0];
       case 'contrast':
         return [a, 0, 0, (1 - a) / 2, 0, a, 0, (1 - a) / 2, 0, 0, a, (1 - a) / 2];
       case 'brightness':
@@ -325,7 +325,7 @@
 
   function fileName(kind, date, ext, n) {
     const stamp = `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}_` +
-      `${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
+        `${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
     return `${DIR}${kind}_${stamp}${n ? `_${n}` : ''}.${ext}`;
   }
 
@@ -353,7 +353,4 @@
     formatEv, evSteps, choices, rows, settle, step, nudge, label, configuration, previewSize, fileName, duration,
     room,
   };
-  if (typeof module !== 'undefined') {
-    module.exports = exports.CameraModel;
-  }
-}(typeof window !== 'undefined' ? window : globalThis));
+}(globalThis));

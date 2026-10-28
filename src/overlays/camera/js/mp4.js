@@ -140,7 +140,7 @@
       sizes: Array.from({ length: stsz.getUint32(8) }, (_, i) => fixed || stsz.getUint32(12 + 4 * i)),
       chunks: table(body('stsc'), 3),
       offsets: wide ? Array.from({ length: view(wide).getUint32(4) }, (_, i) => Number(view(wide).getBigUint64(8 + 8 * i)))
-        : table(body('stco'), 1),
+          : table(body('stco'), 1),
     };
   }
 
@@ -265,7 +265,7 @@
     });
     const traks = first.moov.kids.filter((b) => b.type === 'trak');
     const lengths = traks.map((trak, i) => joinTrack(trak, parts.map((p) => p.tracks[i]), parts, starts, shifts,
-      first.scale));
+        first.scale));
     const mvhd = child(first.moov, 'mvhd');
     mvhd.body = withU32(mvhd.body, 16, Math.max(...lengths));
 
@@ -278,7 +278,4 @@
   }
 
   exports.CameraMp4 = { read, join };
-  if (typeof module !== 'undefined') {
-    module.exports = exports.CameraMp4;
-  }
-}(typeof window !== 'undefined' ? window : globalThis));
+}(globalThis));

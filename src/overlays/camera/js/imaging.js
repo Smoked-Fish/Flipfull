@@ -160,7 +160,7 @@
 
   function solve3(m, r) {
     const det = (a) => a[0] * (a[4] * a[8] - a[5] * a[7]) - a[1] * (a[3] * a[8] - a[5] * a[6]) +
-      a[2] * (a[3] * a[7] - a[4] * a[6]);
+        a[2] * (a[3] * a[7] - a[4] * a[6]);
     const d = det(m);
     if (Math.abs(d) < 1e-9) {
       return null;
@@ -212,7 +212,7 @@
     const points = tileMatches(ref, img, shift);
     if (points.length < 8) {
       return points.length ? translation(median(points.map((p) => p.u - p.x)), median(points.map((p) => p.v - p.y)))
-        : translation(shift.x, shift.y);
+          : translation(shift.x, shift.y);
     }
     let weights = points.map((p) => p.weight);
     let t = null;
@@ -460,7 +460,7 @@
         const o = (y * w + x) * 4;
         for (let c = 0; c < 3; c++) {
           out[o + c] = (rgba[i + c] * (1 - fx) + rgba[i + 4 + c] * fx) * (1 - fy) +
-            (rgba[j + c] * (1 - fx) + rgba[j + 4 + c] * fx) * fy;
+              (rgba[j + c] * (1 - fx) + rgba[j + 4 + c] * fx) * fy;
         }
         out[o + 3] = 255;
       }
@@ -473,7 +473,7 @@
     const h2 = (h + 1) >> 1;
     const tmp = new Float32Array(w2 * h);
     const edge = (o, c) => (src[o + Math.max(0, c - 2)] + 4 * src[o + Math.max(0, c - 1)] + 6 * src[o + c] +
-      4 * src[o + Math.min(w - 1, c + 1)] + src[o + Math.min(w - 1, c + 2)]) * 0.0625;
+        4 * src[o + Math.min(w - 1, c + 1)] + src[o + Math.min(w - 1, c + 2)]) * 0.0625;
     const inner = Math.max(1, (w - 3) >> 1);
     for (let y = 0; y < h; y++) {
       const o = y * w;
@@ -581,7 +581,7 @@
         const right = x < w - 1 ? y[i + 1] : y[i];
         const contrast = Math.abs(4 * y[i] - left - right - y[up + x] - y[dn + x]);
         out[i] = (contrast + 0.02) * (saturation[i] + 0.02) * EXPOSED[rgba[j]] * EXPOSED[rgba[j + 1]] *
-          EXPOSED[rgba[j + 2]] + 1e-6;
+            EXPOSED[rgba[j + 2]] + 1e-6;
       }
     }
     return out;
@@ -682,7 +682,7 @@
 
   function u32(b, o, le) {
     return (le ? b[o] | b[o + 1] << 8 | b[o + 2] << 16 | b[o + 3] << 24
-      : b[o] << 24 | b[o + 1] << 16 | b[o + 2] << 8 | b[o + 3]) >>> 0;
+        : b[o] << 24 | b[o + 1] << 16 | b[o + 2] << 8 | b[o + 3]) >>> 0;
   }
 
   function put16(b, o, v, le) {
@@ -713,7 +713,7 @@
 
   function exifOf(jpeg) {
     const s = segments(jpeg).find((g) => g.marker === 0xe1 &&
-      String.fromCharCode(...jpeg.subarray(g.start + 4, g.start + 8)) === 'Exif');
+        String.fromCharCode(...jpeg.subarray(g.start + 4, g.start + 8)) === 'Exif');
     return s ? jpeg.slice(s.start, s.end) : null;
   }
 
@@ -768,7 +768,4 @@
     quarterLuma, sharpness, align, invert, compose, toFull, mergeSpread, startMerge, sourceRows, addToMerge, finishMerge, sharpen, applyLook, warp, fuse, exifOf,
     withExif, segments,
   };
-  if (typeof module !== 'undefined') {
-    module.exports = exports.CameraImaging;
-  }
-}(typeof self !== 'undefined' ? self : globalThis));
+}(globalThis));

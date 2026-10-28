@@ -2,7 +2,7 @@
 
 const DAEMON = '127.0.0.1';
 
-export function offline(message) {
+function offline(message) {
   const e = new Error(message);
   e.offline = true;
   return e;

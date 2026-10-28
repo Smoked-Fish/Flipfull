@@ -9,11 +9,10 @@ dictionary Recording {
   ext: str
   seconds: int
   peak: int
-  size: int
 }
 
 #[rust:not-tracked]
-interface Callrec {
+interface CallRec {
   fn start() -> void, Failure
 
   fn stop() -> Recording, Failure
@@ -21,4 +20,4 @@ interface Callrec {
   fn read(offset: int) -> binary, Failure
 }
 
-service FlipfullCallrec: Callrec
+service FlipfullCallRec: CallRec

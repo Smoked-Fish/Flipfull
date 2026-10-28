@@ -1,6 +1,5 @@
 use crate::generated::common::*;
 use crate::generated::service::*;
-use common::traits::{EmptyConfig, EmptyState, Shared, SharedServiceState};
 use flipfull_remote::{own_dir, settle};
 use log::info;
 use std::fs::{self, File, OpenOptions};
@@ -31,15 +30,11 @@ struct State {
     last: Option<Recording>,
 }
 
-pub struct Callrec;
+pub struct CallRec;
 
 fn state() -> MutexGuard<'static, State> {
     static STATE: OnceLock<Mutex<State>> = OnceLock::new();
     STATE.get_or_init(Mutex::default).lock().unwrap()
-}
-
-fn failure(message: impl Into<String>) -> Failure {
-    Failure { message: message.into(), offline: false }
 }
 
 fn path(name: &str) -> PathBuf {
@@ -73,9 +68,7 @@ fn start() -> Result<(), Failure> {
     }
     state.last = None;
     let file = new_file().map_err(|e| failure(format!("can't make the recording's file: {}", e)))?;
-    let stream = flipfull_remote::ask(&Request::Record(file), None)
-        .and_then(|answer| answer.handed_over())
-        .map_err(|why| Failure { message: why, offline: true })?;
+    let stream = flipfull_remote::ask(&Request::Record(file), None)?.handed_over()?;
     let read = stream.try_clone().map_err(|e| failure(e.to_string()))?;
     read.set_read_timeout(Some(START_TIMEOUT)).map_err(|e| failure(e.to_string()))?;
     let mut lines = BufReader::new(read);
@@ -113,7 +106,7 @@ fn stop() -> Result<Recording, Failure> {
     fs::rename(path(PART), path(&file)).map_err(|e| failure(format!("the recording is gone: {}", e)))?;
     let size = fs::metadata(path(&file)).map(|m| m.len() as i64).unwrap_or(0);
     info!("recorded {} s as {} ({} bytes)", seconds, file, size);
-    let done = Recording { file, r#type: rec.r#type, ext: rec.ext, seconds, peak, size };
+    let done = Recording { file, r#type: rec.r#type, ext: rec.ext, seconds, peak };
     state.last = Some(done.clone());
     Ok(done)
 }
@@ -131,22 +124,18 @@ fn read(offset: u64) -> Result<Vec<u8>, Failure> {
     Ok(piece)
 }
 
-impl CallrecMethods for Callrec {
-    fn start(&mut self, responder: CallrecStartResponder) {
+impl CallRecMethods for CallRec {
+    fn start(&mut self, responder: CallRecStartResponder) {
         thread::spawn(move || settle!(responder, start(), ()));
     }
 
-    fn stop(&mut self, responder: CallrecStopResponder) {
+    fn stop(&mut self, responder: CallRecStopResponder) {
         thread::spawn(move || settle!(responder, stop()));
     }
 
-    fn read(&mut self, responder: CallrecReadResponder, offset: i64) {
+    fn read(&mut self, responder: CallRecReadResponder, offset: i64) {
         settle!(responder, read(offset.max(0) as u64));
     }
 }
 
-impl FlipfullCallrec for Callrec {}
-
-common::impl_shared_state!(Callrec, EmptyState, EmptyConfig);
-
-flipfull_remote::remote_service!(Callrec, |_origin| Callrec);
+flipfull_remote::remote_service!(CallRec: FlipfullCallRec, |_origin| CallRec);
