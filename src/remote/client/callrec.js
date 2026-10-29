@@ -1,12 +1,12 @@
 'use strict';
 
-import { FlipfullCallrec as lib } from '../callrec/client/generated/callrec_service.js';
+import { FlipfullCallRec as lib } from '../callrec/client/generated/callrec_service.js';
 import { service } from './connect.js';
 
 const START = 25 * 1000;
 const STOP = 35 * 1000;
 
-const callrec = service('FlipfullCallrec', lib);
+const callrec = service('FlipfullCallRec', lib);
 
 function file(rec) {
   const parts = [];
@@ -22,4 +22,4 @@ function file(rec) {
   return next(0);
 }
 
-window.FlipfullCallrecService = Object.assign(callrec.methods({ start: START, stop: STOP }), { file });
+window.FlipfullCallRec = Object.assign(window.FlipfullCallRec || {}, callrec.methods({ start: START, stop: STOP }), { file });

@@ -5,7 +5,6 @@ use crate::generated::service::*;
 use crate::libretro::{self, Frontend};
 use crate::settings;
 use crate::stream;
-use common::traits::{EmptyConfig, EmptyState, Shared, SharedServiceState};
 use common::JsonValue;
 use flipfull_remote::settle;
 use log::info;
@@ -63,10 +62,6 @@ fn bios() -> MutexGuard<'static, Option<Vec<String>>> {
     BIOS.get_or_init(Mutex::default).lock().unwrap()
 }
 
-fn failure(message: impl Into<String>) -> Failure {
-    Failure { message: message.into(), offline: false }
-}
-
 fn loaded_path() -> Result<String, Failure> {
     state().loaded().map(|g| g.path.clone())
 }
@@ -99,7 +94,7 @@ impl RetroMethods for Retro {
                 *bios() = Some(found);
                 responder.resolve(JsonValue::from(json!(games)))
             }
-            Err(why) => responder.reject(failure(why)),
+            Err(why) => responder.reject(why.into()),
         }
     }
 
@@ -107,7 +102,7 @@ impl RetroMethods for Retro {
         stream::stop();
         let rom = match Rom::open(&path) {
             Ok(r) => r,
-            Err(why) => return responder.reject(failure(why)),
+            Err(why) => return responder.reject(why.into()),
         };
         let save_path = files::sibling(&path, "sav");
         let save = files::read(&save_path).unwrap_or_default();
@@ -167,14 +162,14 @@ impl RetroMethods for Retro {
                 let path = s.loaded()?.path.clone();
                 (path, s.frontend.save_state().map_err(failure)?)
             };
-            files::write(&files::state_path(&path, n), &data).map_err(failure)
+            files::write(&files::state_path(&path, n), &data).map_err(Failure::from)
         });
         settle!(responder, saved, ());
     }
 
     fn load_state(&mut self, responder: RetroLoadStateResponder, n: i64) {
         let loaded = slot(n).and_then(|n| {
-            let data = files::read(&files::state_path(&loaded_path()?, n)).map_err(failure)?;
+            let data = files::read(&files::state_path(&loaded_path()?, n))?;
             let mut s = state();
             s.frontend.load_state(&data).map_err(failure)?;
             s.frontend.set_utc_offset(clock::utc_offset());
@@ -209,10 +204,6 @@ impl Drop for Retro {
     }
 }
 
-impl FlipfullRetro for Retro {}
-
-common::impl_shared_state!(Retro, EmptyState, EmptyConfig);
-
 static NEXT: AtomicU32 = AtomicU32::new(1);
 
-flipfull_remote::remote_service!(Retro, |_origin| Retro { id: NEXT.fetch_add(1, Ordering::Relaxed) });
+flipfull_remote::remote_service!(Retro: FlipfullRetro, |_origin| Retro { id: NEXT.fetch_add(1, Ordering::Relaxed) });

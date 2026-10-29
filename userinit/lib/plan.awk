@@ -67,7 +67,28 @@ function needs(id, items,    c, kk, k, w, j) {
         for (j = 1; j <= k; j++)
             items[++c] = KIND[kk] " " w[j]
     }
+    k = words(remote_of[id], w)
+    for (j = 1; j <= k; j++)
+        items[++c] = "remote " w[j]
     return c
+}
+
+function read_services(    line, name, eq, k, pair, j, w) {
+    if (services == "")
+        return
+    while ((getline line < services) > 0) {
+        line = trim(line)
+        if (line ~ /^\[/) {
+            name = substr(line, 2, index(line, "]") - 2)
+        } else if (line ~ /^admits *=/) {
+            eq = index(line, "=")
+            k = split(substr(line, eq + 1), pair, ",")
+            for (j = 1; j <= k; j++)
+                if (words(pair[j], w) == 2 && w[2] != "always")
+                    remote_of[w[2]] = remote_of[w[2]] " " name
+        }
+    }
+    close(services)
 }
 
 function read_choices(    line, eq) {
@@ -110,6 +131,12 @@ function print_plan(    i, id, c, items, j, seen) {
     }
 }
 
+# the word needs/KIND.sh's KIND_status gives a need, for a feature that needs it:
+#   now, restart, reopen  a change shows at once, when flipfull restarts the app, or when it's
+#                         opened again; the need itself stays applied until the next boot
+#   boot                  a change shows after the next boot
+#   reboot                it works after the next boot, so a feature that's on waits for one
+#   anything else         why it can't work on this phone
 function works(r) {
     return r == "" || r == "now" || r == "restart" || r == "reopen" || r == "boot"
 }
@@ -187,8 +214,8 @@ function print_list(    i, id, note) {
 }
 
 BEGIN {
-    NKINDS = split("overlays hosts prefs autoconfig services apps remote steps", KEY, " ")
-    split("overlay hosts prefs autoconfig service app remote step", KIND, " ")
+    NKINDS = split("overlays hosts prefs autoconfig services apps steps", KEY, " ")
+    split("overlay hosts prefs autoconfig service app step", KIND, " ")
     if (mode == "")
         mode = "plan"
 }
@@ -212,6 +239,7 @@ BEGIN {
 
 END {
     read_choices()
+    read_services()
     if (mode == "needs") {
         for (i = 1; i <= n; i++) {
             c = needs(ids[i], items)

@@ -70,7 +70,7 @@ plan_state() {
         printf 'google-client\t%s\n' "$(google_client_id)"
         printf 'release-repo\t%s\n' "$RELEASE_REPO"
     fi
-    awk -f "$PLAN_AWK" -v mode="$1" -v choices="$CHOICES" -v boot="$BOOT_PLAN" \
+    awk -f "$PLAN_AWK" -v mode="$1" -v choices="$CHOICES" -v services="$SERVICES_INI" -v boot="$BOOT_PLAN" \
         -v avail="$STATE/avail" -v pending=$pending "$REGISTRY"
 }
 

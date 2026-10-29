@@ -4,6 +4,7 @@ BOOT_PLAN=$USERINIT/state/boot-plan
 
 REGISTRY=$USERINIT/features.ini
 PLAN_AWK=$USERINIT/lib/plan.awk
+SERVICES_INI=$USERINIT/remote/services.ini
 CONFIG=$USERINIT/config
 STATE=$USERINIT/state
 CHOICES=$CONFIG/features
@@ -29,20 +30,14 @@ log() { echo "${LOG_TAG:+[$LOG_TAG] }$*"; }
 
 planned() { grep -qxF "$*" "$BOOT_PLAN" 2>/dev/null; }
 
-plan() { awk -f "$PLAN_AWK" -v choices="$CHOICES" "$REGISTRY"; }
+plan() { awk -f "$PLAN_AWK" -v choices="$CHOICES" -v services="$SERVICES_INI" "$REGISTRY"; }
 
-needs() { awk -f "$PLAN_AWK" -v mode=needs "$REGISTRY"; }
+needs() { awk -f "$PLAN_AWK" -v mode=needs -v services="$SERVICES_INI" "$REGISTRY"; }
 
-# the names of one need kind in a plan
 wanted() { echo "$2" | awk -v kind="$1" '$1 == kind { print $2 }'; }
 
-# the names under DIR/ that setup changed
 changed_in() { echo "$2" | sed -n "s|^$1/\([^/]*\)/.*|\1|p" | sort -u; }
 
-# needs/KIND.sh is one need kind: KIND_status NAME says whether it works here and what a
-# change takes (plan.awk's works()), KIND_apply WHEN PLAN [CHANGED] makes the phone match PLAN.
-# WHEN is post-fs-data or boot-completed (the boot plan), set (flipfull set, and uninstall with
-# no plan), setup (CHANGED: the files it changed) or uninstall (the boot that removes Flipfull)
 load_needs() {
     for f in "$USERINIT"/needs/*.sh; do
         [ -f "$f" ] && . "$f"

@@ -33,7 +33,7 @@ services() {
                 }
                 print s, "flipfull_" folder[s], folder[s], t
             }
-        }' "$HERE/services.ini"
+        }' "$UI/remote/services.ini"
 }
 LIST=$(services)
 mapfile -t SERVICES <<< "$LIST"
@@ -95,7 +95,7 @@ install -m 0755 "$CARGO_TARGET_DIR/$ARM32/release/toolboxd" "$UI/services/toolbo
 for s in "${SERVICES[@]}"; do
     set -- $s
     mkdir -p "$UI/remote/$1"
-    install -m 0755 "$CARGO_TARGET_DIR/$4/release/flipfull-$3" "$UI/remote/$1/daemon"
+    install -m 0755 "$CARGO_TARGET_DIR/$4/release/flipfull_$3" "$UI/remote/$1/daemon"
 done
 
 echo "Bundling the JS clients..."

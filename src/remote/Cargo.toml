@@ -2,6 +2,19 @@
 resolver = "2"
 members = ["flipfull_remote", "bridge", "callrec", "speech", "retro", "toolbox", "toolboxd"]
 
+[workspace.dependencies]
+bincode = "1.3"
+common = { path = "api-daemon/common" }
+flipfull_remote = { path = "flipfull_remote" }
+libc = "0.2"
+log = "0.4"
+nix = "0.19"
+parking_lot = "0.12"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sha2 = "0.10"
+toolbox = { path = "toolbox" }
+
 [patch.crates-io]
 actix = {git = "https://github.com/fabricedesre/actix.git", branch = "parking-lot-0.12"}
 pest = {git = "https://github.com/fabricedesre/pest.git"}

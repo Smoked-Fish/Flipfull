@@ -5,13 +5,11 @@ use std::os::unix::net::UnixStream;
 use std::path::PathBuf;
 use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use toolbox::{Answer, Request};
+use toolbox::{Answer, Request, USERINIT};
 
 mod skeleton;
 
-pub use skeleton::admit;
-
-pub const USERINIT: &str = "/data/local/userinit";
+pub use skeleton::{admit, Failed};
 
 const LOG_MAX: u64 = 256 * 1024;
 
@@ -70,6 +68,9 @@ fn connect(timeout: Option<Duration>) -> Result<UnixStream, String> {
     Ok(stream)
 }
 
-pub fn ask(request: &Request, timeout: Option<Duration>) -> Result<Answer, String> {
-    toolbox::ask(connect(timeout)?, request)
+// a toolboxd that can't be reached, or doesn't answer, is offline
+pub fn ask(request: &Request, timeout: Option<Duration>) -> Result<Answer, Failed> {
+    connect(timeout)
+        .and_then(|stream| toolbox::ask(stream, request))
+        .map_err(|message| Failed { message, offline: true })
 }

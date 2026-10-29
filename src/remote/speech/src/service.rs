@@ -1,7 +1,6 @@
 use crate::generated::common::*;
 use crate::generated::service::*;
 use crate::recognizer;
-use common::traits::{EmptyConfig, EmptyState, Shared, SharedServiceState};
 use common::JsonValue;
 use flipfull_remote::settle;
 use serde_json::{json, Value};
@@ -60,7 +59,7 @@ impl SpeechMethods for Speech {
 
     fn append(&mut self, responder: SpeechAppendResponder, audio: Vec<u8>) {
         if self.clip.len() + audio.len() > MAX_CLIP {
-            return responder.reject(Failure { message: "audio longer than 60 s".into(), offline: false });
+            return responder.reject(failure("audio longer than 60 s"));
         }
         self.clip.extend_from_slice(&audio);
         responder.resolve();
@@ -84,8 +83,4 @@ impl Drop for Speech {
     }
 }
 
-impl FlipfullSpeech for Speech {}
-
-common::impl_shared_state!(Speech, EmptyState, EmptyConfig);
-
-flipfull_remote::remote_service!(Speech, |_origin| Speech { session: false, clip: Vec::new() });
+flipfull_remote::remote_service!(Speech: FlipfullSpeech, |_origin| Speech { session: false, clip: Vec::new() });

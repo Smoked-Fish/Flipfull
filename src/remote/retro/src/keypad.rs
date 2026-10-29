@@ -1,3 +1,4 @@
+use flipfull_remote::Failed;
 use std::fs::File;
 use std::io::{ErrorKind, Read};
 use std::os::unix::io::AsRawFd;
@@ -25,7 +26,7 @@ fn held(file: &File) -> Vec<bool> {
 }
 
 impl Keypad {
-    pub fn open() -> Result<Keypad, String> {
+    pub fn open() -> Result<Keypad, Failed> {
         let file = flipfull_remote::ask(&Request::Keypad, Some(Duration::from_secs(10)))?.file()?;
         unsafe {
             let fd = file.as_raw_fd();

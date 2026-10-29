@@ -1,4 +1,4 @@
-use flipfull_remote::own_dir;
+use flipfull_remote::{own_dir, Failed};
 use log::{info, warn};
 use serde::Serialize;
 use std::collections::VecDeque;
@@ -18,12 +18,13 @@ const RETRIES: u32 = 3;
 const OPENING: Duration = Duration::from_secs(10);
 const LISTING: Duration = Duration::from_secs(20);
 
-fn open(path: &str) -> Result<File, String> {
-    flipfull_remote::ask(&Request::OpenGameFile(path.to_string()), Some(OPENING))?.file()
+fn open(path: &str) -> Result<File, Failed> {
+    Ok(flipfull_remote::ask(&Request::OpenGameFile(path.to_string()), Some(OPENING))?.file()?)
 }
 
-fn put(request: &Request) -> Result<(), String> {
-    flipfull_remote::ask(request, Some(LISTING))?.text().map(|_| ())
+fn put(request: &Request) -> Result<(), Failed> {
+    flipfull_remote::ask(request, Some(LISTING))?.text()?;
+    Ok(())
 }
 
 #[derive(Serialize, Clone)]
@@ -35,7 +36,7 @@ pub struct ListedGame {
     pub sd: bool,
 }
 
-pub fn games() -> Result<(Vec<ListedGame>, Vec<String>), String> {
+pub fn games() -> Result<(Vec<ListedGame>, Vec<String>), Failed> {
     let listing = flipfull_remote::ask(&Request::ListGames, Some(LISTING))?.text()?;
     let mut roots: Vec<(String, bool)> = Vec::new();
     let mut games = Vec::new();
@@ -82,7 +83,7 @@ pub fn state_path(game: &str, slot: u32) -> String {
     sibling(game, &games::state_extension(slot))
 }
 
-pub fn read(path: &str) -> Result<Vec<u8>, String> {
+pub fn read(path: &str) -> Result<Vec<u8>, Failed> {
     let mut file = open(path)?;
     let mut data = Vec::new();
     file.read_to_end(&mut data).map_err(|e| format!("{}: {}", path, e))?;
@@ -99,7 +100,7 @@ pub struct Rom {
 }
 
 impl Rom {
-    pub fn open(path: &str) -> Result<Rom, String> {
+    pub fn open(path: &str) -> Result<Rom, Failed> {
         let file = open(path)?;
         let len = file.metadata().map_err(|e| e.to_string())?.len() as usize;
         if len == 0 {
@@ -107,7 +108,7 @@ impl Rom {
         }
         let ptr = unsafe { libc::mmap(std::ptr::null_mut(), len, libc::PROT_READ, libc::MAP_PRIVATE, file.as_raw_fd(), 0) };
         if ptr == libc::MAP_FAILED {
-            return Err(format!("{}: {}", path, std::io::Error::last_os_error()));
+            return Err(format!("{}: {}", path, std::io::Error::last_os_error()).into());
         }
         Ok(Rom { ptr, len })
     }
@@ -212,7 +213,7 @@ pub fn written(within: Duration) {
     }
 }
 
-pub fn write(path: &str, data: &[u8]) -> Result<(), String> {
+pub fn write(path: &str, data: &[u8]) -> Result<(), Failed> {
     put(&Request::WriteGameFile { path: path.to_string(), data: data.to_vec() })
 }
 

@@ -10,11 +10,8 @@ use toolbox::games::{self, Row};
 const MAX_DEPTH: usize = 6;
 const MAX_FILES: usize = 20000;
 const MEDIA_RW: u32 = 1023;
-
-pub struct Storage {
-    media: PathBuf,
-    mounts: PathBuf,
-}
+const MEDIA: &str = "/data/media";
+const MOUNTS: &str = "/proc/mounts";
 
 fn unescape(s: &str) -> String {
     let b = s.as_bytes();
@@ -32,109 +29,103 @@ fn unescape(s: &str) -> String {
     String::from_utf8_lossy(&out).into_owned()
 }
 
-impl Storage {
-    pub fn phone() -> Storage {
-        Storage { media: PathBuf::from("/data/media"), mounts: PathBuf::from("/proc/mounts") }
-    }
-
-    fn storages(&self) -> Vec<(PathBuf, bool)> {
-        let mut found = vec![(self.media.clone(), false)];
-        if let Ok(mounts) = fs::read_to_string(&self.mounts) {
-            for line in mounts.lines() {
-                let mut f = line.split_whitespace();
-                if let (Some(dev), Some(dir)) = (f.next(), f.next()) {
-                    if dev.starts_with("/dev/block/vold/public") {
-                        found.push((PathBuf::from(unescape(dir)), true));
-                    }
+fn storages() -> Vec<(PathBuf, bool)> {
+    let mut found = vec![(PathBuf::from(MEDIA), false)];
+    if let Ok(mounts) = fs::read_to_string(MOUNTS) {
+        for line in mounts.lines() {
+            let mut f = line.split_whitespace();
+            if let (Some(dev), Some(dir)) = (f.next(), f.next()) {
+                if dev.starts_with("/dev/block/vold/public") {
+                    found.push((PathBuf::from(unescape(dir)), true));
                 }
             }
         }
-        found
     }
+    found
+}
 
-    fn roots(&self) -> Vec<(PathBuf, bool)> {
-        let mut roots: Vec<(PathBuf, bool)> = Vec::new();
-        for (storage, sd) in self.storages() {
-            let dir = match fs::read_dir(&storage) {
-                Ok(d) => d,
-                Err(_) => continue,
-            };
-            for e in dir.flatten() {
-                if !e.file_name().to_string_lossy().eq_ignore_ascii_case("roms") {
-                    continue;
-                }
-                if let Ok(path) = fs::canonicalize(e.path()) {
-                    if path.is_dir() && !roots.iter().any(|(r, _)| *r == path) {
-                        roots.push((path, sd));
-                    }
+fn roots() -> Vec<(PathBuf, bool)> {
+    let mut roots: Vec<(PathBuf, bool)> = Vec::new();
+    for (storage, sd) in storages() {
+        let dir = match fs::read_dir(&storage) {
+            Ok(d) => d,
+            Err(_) => continue,
+        };
+        for e in dir.flatten() {
+            if !e.file_name().to_string_lossy().eq_ignore_ascii_case("roms") {
+                continue;
+            }
+            if let Ok(path) = fs::canonicalize(e.path()) {
+                if path.is_dir() && !roots.iter().any(|(r, _)| *r == path) {
+                    roots.push((path, sd));
                 }
             }
         }
-        roots
     }
+    roots
+}
 
-    fn checked(&self, path: &str, may: fn(&str) -> bool) -> Result<PathBuf, String> {
-        let p = Path::new(path);
-        if !p.is_absolute() || p.components().any(|c| matches!(c, Component::ParentDir | Component::CurDir)) {
-            return Err(format!("Not a path: {}", path));
-        }
-        let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        if name.starts_with('.') || !may(&name) {
-            return Err(format!("Not a game's file: {}", name));
-        }
-        let parent = p.parent().and_then(|d| fs::canonicalize(d).ok()).ok_or_else(|| format!("No folder for {}", path))?;
-        if !self.roots().iter().any(|(r, _)| parent.starts_with(r)) {
-            return Err(format!("Not in a roms folder: {}", path));
-        }
-        Ok(parent.join(name))
+fn checked(path: &str, may: fn(&str) -> bool) -> Result<PathBuf, String> {
+    let p = Path::new(path);
+    if !p.is_absolute() || p.components().any(|c| matches!(c, Component::ParentDir | Component::CurDir)) {
+        return Err(format!("Not a path: {}", path));
     }
+    let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    if name.starts_with('.') || !may(&name) {
+        return Err(format!("Not a game's file: {}", name));
+    }
+    let parent = p.parent().and_then(|d| fs::canonicalize(d).ok()).ok_or_else(|| format!("No folder for {}", path))?;
+    if !roots().iter().any(|(r, _)| parent.starts_with(r)) {
+        return Err(format!("Not in a roms folder: {}", path));
+    }
+    Ok(parent.join(name))
+}
 
-    pub fn listing(&self) -> String {
-        let mut out = String::new();
-        let mut count = 0;
-        for (root, sd) in self.roots() {
-            let _ = writeln!(out, "{}", Row::Root { path: root.display().to_string(), sd });
-            walk(&root, 0, &mut out, &mut count);
-        }
-        out
+pub fn listing() -> String {
+    let mut out = String::new();
+    let mut count = 0;
+    for (root, sd) in roots() {
+        let _ = writeln!(out, "{}", Row::Root { path: root.display().to_string(), sd });
+        walk(&root, 0, &mut out, &mut count);
     }
+    out
+}
 
-    pub fn open(&self, path: &str) -> Result<File, String> {
-        let p = self.checked(path, games::readable)?;
-        OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW).open(&p).map_err(|e| format!("{}: {}", path, e))
-    }
+pub fn open(path: &str) -> Result<File, String> {
+    let p = checked(path, games::readable)?;
+    OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW).open(&p).map_err(|e| format!("{}: {}", path, e))
+}
 
-    // written next to it then renamed
-    pub fn write(&self, path: &str, data: &[u8]) -> Result<(), String> {
-        let written = self.checked(path, games::written).and_then(|p| {
-            let mut tmp = p.clone().into_os_string();
-            tmp.push(".flipfull-tmp");
-            let tmp = PathBuf::from(tmp);
-            OpenOptions::new()
-                .write(true)
-                .create(true)
-                .truncate(true)
-                .mode(0o664)
-                .custom_flags(libc::O_NOFOLLOW)
-                .open(&tmp)
-                .and_then(|mut f| {
-                    if p.starts_with(&self.media) {
-                        unsafe { libc::fchown(f.as_raw_fd(), 0, MEDIA_RW) };
-                    }
-                    f.write_all(data)?;
-                    f.sync_all()
-                })
-                .and_then(|_| fs::rename(&tmp, &p))
-                .map_err(|e| {
-                    let _ = fs::remove_file(&tmp);
-                    format!("{}: {}", path, e)
-                })
-        });
-        if let Err(why) = &written {
-            log(&format!("retro-write: {}", why));
-        }
-        written
+// written next to it then renamed
+pub fn write(path: &str, data: &[u8]) -> Result<(), String> {
+    let written = checked(path, games::written).and_then(|p| {
+        let mut tmp = p.clone().into_os_string();
+        tmp.push(".flipfull-tmp");
+        let tmp = PathBuf::from(tmp);
+        OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o664)
+            .custom_flags(libc::O_NOFOLLOW)
+            .open(&tmp)
+            .and_then(|mut f| {
+                if p.starts_with(MEDIA) {
+                    unsafe { libc::fchown(f.as_raw_fd(), 0, MEDIA_RW) };
+                }
+                f.write_all(data)?;
+                f.sync_all()
+            })
+            .and_then(|_| fs::rename(&tmp, &p))
+            .map_err(|e| {
+                let _ = fs::remove_file(&tmp);
+                format!("{}: {}", path, e)
+            })
+    });
+    if let Err(why) = &written {
+        log(&format!("retro-write: {}", why));
     }
+    written
 }
 
 fn walk(dir: &Path, depth: usize, out: &mut String, count: &mut usize) {

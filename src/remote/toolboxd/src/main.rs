@@ -7,13 +7,9 @@ use std::os::unix::process::CommandExt;
 use std::process::{Command, ExitStatus, Stdio};
 use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use toolbox::{Answer, Request, Role, Script, REGISTRY};
-
-const USERINIT: &str = "/data/local/userinit";
+use toolbox::{Answer, Grant, Reply, Request, Script, REGISTRY, USERINIT};
 
 mod retro;
-
-use retro::Storage;
 
 fn log(msg: &str) {
     let secs = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
@@ -58,12 +54,6 @@ fn peer_uid(stream: &UnixStream) -> Option<u32> {
     } else {
         None
     }
-}
-
-fn role(stream: &UnixStream) -> Result<Role, Option<u32>> {
-    let uid = peer_uid(stream);
-    let registry = fs::read_to_string(REGISTRY).unwrap_or_default();
-    uid.and_then(|u| Role::of_uid(u, &registry)).ok_or(uid)
 }
 
 fn output(path: &str, args: &[String]) -> std::io::Result<(ExitStatus, Vec<u8>)> {
@@ -140,40 +130,59 @@ fn record(stream: UnixStream, file: File) {
 }
 
 fn request(stream: &mut UnixStream) -> Result<Request, String> {
-    let role = role(stream).map_err(|uid| {
+    let uid = peer_uid(stream);
+    let registry = fs::read_to_string(REGISTRY).unwrap_or_default();
+    let grant = uid.and_then(|u| Grant::of_uid(u, &registry)).ok_or_else(|| {
         log(&format!("refused uid {:?}", uid));
         "Only Flipfull's services".to_string()
     })?;
     let request = Request::read(stream)?;
-    if role.allows(&request) {
+    if grant.allows(&request) {
         Ok(request)
     } else {
         Err("Not a command".into())
     }
 }
 
-fn handle(storage: &Storage, mut stream: UnixStream) {
-    let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
-    let answer = match request(&mut stream) {
-        Ok(Request::Record(file)) => {
-            let _ = stream.set_read_timeout(None);
-            return record(stream, file);
+fn send(stream: &mut UnixStream, reply: Reply, answer: Result<Answer, String>) -> bool {
+    match answer.unwrap_or_else(Answer::error).send(reply, stream) {
+        Ok(()) => true,
+        Err(e) => {
+            log(&format!("answer: {}", e));
+            false
         }
-        Ok(Request::Script(script)) => Ok(run_script(&script)),
-        Ok(Request::Keypad) => retro::keypad().map(Answer::File),
-        Ok(Request::ListGames) => Ok(Answer::ok(storage.listing())),
-        Ok(Request::OpenGameFile(path)) => storage.open(&path).map(Answer::File),
-        Ok(Request::WriteGameFile { path, data }) => storage.write(&path, &data).map(|()| Answer::ok("\n")),
-        Err(why) => Err(why),
-    };
-    if let Err(e) = answer.unwrap_or_else(Answer::error).send(&mut stream) {
-        log(&format!("answer: {}", e));
     }
+}
+
+fn handle(mut stream: UnixStream) {
+    let _ = stream.set_read_timeout(Some(Duration::from_secs(10)));
+    let request = match request(&mut stream) {
+        Ok(request) => request,
+        Err(why) => {
+            send(&mut stream, Reply::Text, Err(why));
+            return;
+        }
+    };
+    let reply = request.reply();
+    let answer = match request {
+        Request::Record(file) => {
+            if send(&mut stream, reply, Ok(Answer::ok(""))) {
+                let _ = stream.set_read_timeout(None);
+                record(stream, file);
+            }
+            return;
+        }
+        Request::Script(script) => Ok(run_script(&script)),
+        Request::Keypad => retro::keypad().map(Answer::File),
+        Request::ListGames => Ok(Answer::ok(retro::listing())),
+        Request::OpenGameFile(path) => retro::open(&path).map(Answer::File),
+        Request::WriteGameFile { path, data } => retro::write(&path, &data).map(|()| Answer::ok("\n")),
+    };
+    send(&mut stream, reply, answer);
 }
 
 fn main() {
     let socket = parse_args();
-    let storage: &'static Storage = Box::leak(Box::new(Storage::phone()));
     let _ = fs::remove_file(&socket);
     let listener = match UnixListener::bind(&socket) {
         Ok(l) => l,
@@ -187,7 +196,7 @@ fn main() {
     for stream in listener.incoming() {
         match stream {
             Ok(stream) => {
-                thread::spawn(move || handle(storage, stream));
+                thread::spawn(move || handle(stream));
             }
             Err(e) => {
                 log(&format!("accept: {}", e));

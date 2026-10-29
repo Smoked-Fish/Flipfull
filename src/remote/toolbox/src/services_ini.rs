@@ -1,4 +1,4 @@
-pub const SERVICES: &str = include_str!("../../services.ini");
+pub const SERVICES: &str = include_str!("../../../../userinit/remote/services.ini");
 
 fn entries(table: &str) -> impl Iterator<Item = (&str, &str, &str)> {
     let mut section = "";

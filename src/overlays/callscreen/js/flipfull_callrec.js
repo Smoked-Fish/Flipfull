@@ -1,10 +1,11 @@
 'use strict';
 
 (function(exports) {
+  // the client adds start, stop and file to FlipfullCallRec
   const SCRIPTS = [
-    ['ExternalAPI', 'http://127.0.0.1/api/v1/shared/core.js'],
-    ['lib_session', 'http://127.0.0.1/api/v1/shared/session.js'],
-    ['FlipfullCallrecService', 'http://127.0.0.1/flipfull/callrec.js'],
+    [() => exports.ExternalAPI, 'http://127.0.0.1/api/v1/shared/core.js'],
+    [() => exports.lib_session, 'http://127.0.0.1/api/v1/shared/session.js'],
+    [() => exports.FlipfullCallRec.start, 'http://127.0.0.1/flipfull/callrec.js'],
   ];
 
   let loading = null;
@@ -26,13 +27,13 @@
 
   function service() {
     if (!loading) {
-      loading = SCRIPTS.reduce((done, [name, src]) => done.then(() => exports[name] ? null : script(src)),
-        Promise.resolve());
+      loading = SCRIPTS.reduce((done, [loaded, src]) => done.then(() => loaded() ? null : script(src)),
+          Promise.resolve());
       loading.catch(() => {
         loading = null;
       });
     }
-    return loading.then(() => exports.FlipfullCallrecService);
+    return loading.then(() => exports.FlipfullCallRec);
   }
 
   function open() {
@@ -63,23 +64,23 @@
     this.state = 'inactive';
     this.stoppedAt = new Date();
     service()
-      .then(s => s.stop().then(info => {
-        log(`recorded ${info.seconds} s as ${info.file}, peak level ${info.peak}`);
-        exports.FlipfullCallRec.ext = info.ext;
-        return s.file(info);
-      }))
-      .then(blob => {
-        if (this.ondataavailable) {
-          this.ondataavailable({ data: blob });
-        }
-      })
-      .catch(e => log(`recording lost: ${e.message}`))
-      .then(() => {
-        if (this.onstop) {
-          this.onstop();
-        }
-      });
+        .then(s => s.stop().then(info => {
+          log(`recorded ${info.seconds} s as ${info.file}, peak level ${info.peak}`);
+          exports.FlipfullCallRec.ext = info.ext;
+          return s.file(info);
+        }))
+        .then(blob => {
+          if (this.ondataavailable) {
+            this.ondataavailable({ data: blob });
+          }
+        })
+        .catch(e => log(`recording lost: ${e.message}`))
+        .then(() => {
+          if (this.onstop) {
+            this.onstop();
+          }
+        });
   };
 
-  exports.FlipfullCallRec = { open, Recorder, ext: '' };
+  exports.FlipfullCallRec = Object.assign(exports.FlipfullCallRec || {}, { open, Recorder, ext: '' });
 })(window);
