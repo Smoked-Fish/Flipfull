@@ -1,6 +1,7 @@
 use crate::clock;
+use crate::cpu;
 use crate::keypad::Keypad;
-use crate::libretro::Game;
+use crate::libretro::Format;
 use crate::pacer::{between, shift, Pacer};
 use crate::panel::Panel;
 use crate::service::{self, State};
@@ -10,6 +11,7 @@ use crate::wire::{Grid, Header, Message, PlayOptions, SyncReport, WorkerMessage,
 use log::{info, warn};
 use std::io::Write;
 use std::net::{Shutdown, TcpStream};
+use std::sync::mpsc::{Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const FAST_MAX: u32 = 20;
@@ -42,7 +44,7 @@ struct Stats {
 struct Play {
     session: u64,
     out: TcpStream,
-    settings: settings::Play,
+    settings: settings::PlaySettings,
     keypad: Option<Keypad>,
     rate: f64,
     clock_in: u32,
@@ -66,7 +68,19 @@ impl Play {
     }
 }
 
-pub struct Player {
+pub fn run(commands: Receiver<Command>) {
+    cpu::fast();
+    let mut player = Player::new();
+    loop {
+        match commands.recv_timeout(player.wait()) {
+            Ok(command) => player.command(command),
+            Err(RecvTimeoutError::Timeout) => player.wake(),
+            Err(RecvTimeoutError::Disconnected) => break,
+        }
+    }
+}
+
+struct Player {
     client: Option<(u32, TcpStream)>,
     keys: u16,
     fast: bool,
@@ -78,7 +92,7 @@ pub struct Player {
 }
 
 impl Player {
-    pub fn new() -> Player {
+    fn new() -> Player {
         Player {
             client: None,
             keys: 0,
@@ -99,14 +113,14 @@ impl Player {
         (epoch_us() + between(Instant::now(), at) * 1e6).max(0.0) as u64
     }
 
-    pub fn wait(&self) -> Duration {
+    fn wait(&self) -> Duration {
         match self.play {
             Some(_) => self.pacer.until().saturating_duration_since(Instant::now()),
             None => IDLE,
         }
     }
 
-    pub fn wake(&mut self) {
+    fn wake(&mut self) {
         let now = Instant::now();
         self.pacer.check(now);
         if now >= self.pacer.deadline() {
@@ -120,7 +134,7 @@ impl Player {
         self.pacer.stop();
     }
 
-    pub fn command(&mut self, command: Command) {
+    fn command(&mut self, command: Command) {
         match command {
             Command::Client(id, connection) => {
                 if let Some((_, old)) = self.client.replace((id, connection)) {
@@ -169,8 +183,8 @@ impl Player {
     }
 
     fn play(&mut self, mut out: TcpStream, options: &PlayOptions) {
-        let game = service::state().game.as_ref().map(|g| g.info);
-        let Game { fps, rate, platform, .. } = match game {
+        let game = service::state().game.as_ref().map(|g| g.format);
+        let Format { fps, rate, platform, .. } = match game {
             Some(game) => game,
             None => {
                 let _ = out.write_all(self.message.paused());

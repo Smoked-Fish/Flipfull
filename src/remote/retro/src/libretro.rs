@@ -302,7 +302,7 @@ impl Platform {
 }
 
 #[derive(Clone, Copy)]
-pub struct Game {
+pub struct Format {
     pub width: u32,
     pub height: u32,
     pub fps: f64,
@@ -327,7 +327,7 @@ impl Frontend {
         }
     }
 
-    pub fn load(&mut self, rom: &[u8], save: &[u8]) -> Result<Game, String> {
+    pub fn load(&mut self, rom: &[u8], save: &[u8]) -> Result<Format, String> {
         start();
         self.unload();
         {
@@ -357,7 +357,7 @@ impl Frontend {
         self.video.forget();
         let mut av = AvInfo::default();
         unsafe { retro_get_system_av_info(&mut av) };
-        Ok(Game {
+        Ok(Format {
             width: av.geometry.base_width,
             height: av.geometry.base_height,
             fps: av.timing.fps,

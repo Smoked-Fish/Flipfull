@@ -535,10 +535,10 @@ impl Settings {
         Ok(true)
     }
 
-    pub fn play(&self, platform: Platform) -> Play {
+    pub fn play(&self, platform: Platform) -> PlaySettings {
         let keymap = self.keys.bits().into_iter().filter_map(|(k, bits)| Some((key_code(k)?, bits))).collect();
         let fast_keys = self.keys.keys_of("fast").iter().filter_map(|k| key_code(k)).collect();
-        Play {
+        PlaySettings {
             ahead: self.number(if platform == Platform::Gba { "ahead_gba" } else { "ahead_gb" }),
             mix: self.on("blend"),
             every: self.get("blend") == "none",
@@ -575,7 +575,7 @@ fn def(key: &str) -> Option<&'static Def> {
     DEFS.iter().find(|d| d.key == key)
 }
 
-pub struct Play {
+pub struct PlaySettings {
     pub ahead: u32,
     pub mix: bool,
     pub every: bool,
@@ -630,7 +630,7 @@ pub fn set(key: &str, value: &Value) -> Result<(), String> {
     Ok(())
 }
 
-pub fn play(platform: Platform) -> Play {
+pub fn play(platform: Platform) -> PlaySettings {
     shared().play(platform)
 }
 

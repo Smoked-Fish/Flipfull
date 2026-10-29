@@ -1,7 +1,7 @@
 from ..edits import Overlay, Patch, Rewrite, insert_before
 from ..snippets import FEATURES_SCRIPT, is_feature_on, script
 from ..textops import cut, remove_css_rules, remove_exact, replace_exact
-from .ads import MANIFESTS, no_ads, no_ads_dependency
+from ..ads import MANIFESTS, no_ads, no_ads_dependency
 
 
 @no_ads

@@ -17,7 +17,7 @@ import sys
 from functools import partial
 
 from . import zips
-from .camera import check_camera_profiles
+from .camera_profiles import check_camera_profiles
 from .errors import BuildError
 from .features import check_features, release_features
 from .overlays import OVERLAYS
@@ -28,7 +28,7 @@ __all__ = ["APPS", "OVERLAYS", "TARGETS", "BuildError", "build", "release_featur
 # Flipfull's own apps, by the folder that is zipped
 APPS = {
     "kaiva": SRC / "kaiva" / "app",
-    "flipfull": SRC / "toolbox" / "app",
+    "flipfull": SRC / "flipfull" / "app",
     "retro": SRC / "retro" / "app",
 }
 

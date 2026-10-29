@@ -3,7 +3,7 @@
 from ..edits import Overlay, Rewrite, insert_after, insert_before
 from ..snippets import FEATURES_SCRIPT, script
 from ..textops import cut, remove_css_rules, remove_exact, remove_if_block, remove_span, replace_exact
-from .ads import MANIFESTS, no_ads, no_ads_dependency
+from ..ads import MANIFESTS, no_ads, no_ads_dependency
 
 AD_STATES = '{NOT_INITIALIZED:"NOT_INITIALIZED",ERROR:"ERROR",LOADING:"LOADING",READY:"READY"}'
 

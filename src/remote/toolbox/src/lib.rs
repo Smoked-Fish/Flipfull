@@ -1,7 +1,7 @@
 mod fd;
 pub mod games;
 mod role;
-pub mod services;
+pub mod services_ini;
 
 pub use role::{Role, REGISTRY};
 

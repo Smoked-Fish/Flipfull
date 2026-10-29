@@ -1,4 +1,4 @@
-use crate::services;
+use crate::services_ini;
 use crate::Request;
 
 pub const REGISTRY: &str = "/data/local/service/api-daemon/remote_services.toml";
@@ -23,7 +23,7 @@ impl Role {
 
     pub fn of_uid(uid: u32, registry: &str) -> Option<Role> {
         let (name, _) = registry.lines().filter_map(entry).find(|&(_, n)| FIRST_UID + u32::from(n) == uid)?;
-        Role::named(services::value(name, "toolbox")?)
+        Role::named(services_ini::value(name, "toolbox")?)
     }
 
     pub fn allows(self, request: &Request) -> bool {

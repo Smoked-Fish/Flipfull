@@ -1,5 +1,4 @@
-use crate::cpu;
-use crate::player::{Command, Player};
+use crate::player::{self, Command};
 use crate::wire::{PlayOptions, WorkerMessage};
 use crate::ws;
 use log::{info, warn};
@@ -7,7 +6,7 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::mpsc::{channel, RecvTimeoutError, Sender};
+use std::sync::mpsc::{channel, Sender};
 use std::sync::{Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
@@ -46,21 +45,7 @@ fn start() -> Result<Stream, String> {
             }
         })
         .map_err(|e| e.to_string())?;
-    thread::Builder::new()
-        .name("retro-game".into())
-        .spawn(move || {
-            cpu::fast();
-            let mut player = Player::new();
-            loop {
-                let wait = player.wait();
-                match rx.recv_timeout(wait) {
-                    Ok(command) => player.command(command),
-                    Err(RecvTimeoutError::Timeout) => player.wake(),
-                    Err(RecvTimeoutError::Disconnected) => break,
-                }
-            }
-        })
-        .map_err(|e| e.to_string())?;
+    thread::Builder::new().name("retro-game".into()).spawn(move || player::run(rx)).map_err(|e| e.to_string())?;
     info!("frames on 127.0.0.1:{}", port);
     Ok(Stream { url, commands: Mutex::new(tx) })
 }

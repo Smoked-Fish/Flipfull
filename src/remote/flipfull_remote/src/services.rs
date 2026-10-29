@@ -1,9 +1,9 @@
 use crate::feature_on;
 use log::info;
-use toolbox::services::{self, SERVICES};
+use toolbox::services_ini::{self, SERVICES};
 
 fn admits<'a>(table: &'a str, service: &str) -> Vec<(&'a str, &'a str)> {
-    let list = services::value_in(table, service, "admits").unwrap_or("");
+    let list = services_ini::value_in(table, service, "admits").unwrap_or("");
     list.split(',').filter_map(|pair| pair.trim().split_once(' ')).map(|(o, f)| (o, f.trim())).collect()
 }
 

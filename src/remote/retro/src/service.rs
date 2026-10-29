@@ -20,7 +20,7 @@ const WRITTEN_WITHIN: Duration = Duration::from_secs(3);
 pub struct Loaded {
     pub path: String,
     pub save: SaveFile,
-    pub info: libretro::Game,
+    pub format: libretro::Format,
 }
 
 #[derive(Default)]
@@ -132,7 +132,7 @@ impl RetroMethods for Retro {
                 );
                 s.frontend.set_utc_offset(offset);
                 let data = s.frontend.save_data(false).to_vec();
-                s.game = Some(Loaded { path, save: SaveFile::new(save_path, &data), info: game });
+                s.game = Some(Loaded { path, save: SaveFile::new(save_path, &data), format: game });
                 s.owner = self.id;
                 responder.resolve(Game {
                     width: game.width as i64,

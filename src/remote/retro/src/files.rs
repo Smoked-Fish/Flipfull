@@ -27,7 +27,7 @@ fn put(request: &Request) -> Result<(), String> {
 }
 
 #[derive(Serialize, Clone)]
-pub struct Game {
+pub struct ListedGame {
     pub path: String,
     pub title: String,
     pub system: &'static str,
@@ -35,7 +35,7 @@ pub struct Game {
     pub sd: bool,
 }
 
-pub fn games() -> Result<(Vec<Game>, Vec<String>), String> {
+pub fn games() -> Result<(Vec<ListedGame>, Vec<String>), String> {
     let listing = flipfull_remote::ask(&Request::ListGames, Some(LISTING))?.text()?;
     let mut roots: Vec<(String, bool)> = Vec::new();
     let mut games = Vec::new();
@@ -63,7 +63,7 @@ pub fn games() -> Result<(Vec<Game>, Vec<String>), String> {
                 };
                 let inside = &path[root.len()..];
                 let folder = inside[..inside.len() - name.len()].to_string();
-                games.push(Game { path: path.to_string(), title: stem.to_string(), system, folder, sd });
+                games.push(ListedGame { path: path.to_string(), title: stem.to_string(), system, folder, sd });
             }
         }
     }

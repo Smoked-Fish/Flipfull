@@ -7,9 +7,9 @@ use std::sync::Mutex;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use toolbox::{Answer, Request};
 
-mod services;
+mod skeleton;
 
-pub use services::admit;
+pub use skeleton::admit;
 
 pub const USERINIT: &str = "/data/local/userinit";
 
