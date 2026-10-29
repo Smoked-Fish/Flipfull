@@ -1,5 +1,4 @@
 ﻿APPS_ALWAYS=flipfull
-DICTATE=http://dictate.localhost/manifest.webmanifest
 
 app_url() {
     m=$USERINIT/apps/$1/manifest.webmanifest
@@ -40,16 +39,6 @@ app_status() {
     fi
 }
 
-app_install() {
-    if [ "$1" = kaiva ]; then
-        case $2 in *"$DICTATE"*)
-            apps_ok "$(apps_cmd uninstall "$DICTATE")" && echo "uninstalled Dictate; KaiVA replaces it"
-            case $2 in *"$3"*) apps_cmd uninstall "$3" >/dev/null ;; esac ;;
-        esac
-    fi
-    install_zip "$USERINIT/apps/$1/application.zip" "$1"
-}
-
 app_apply() {
     case $1 in set|setup) ;; *) return 0 ;; esac
     _list=$(apps_cmd list)
@@ -59,13 +48,14 @@ app_apply() {
     fi
     _force=$(changed_in apps "$3")
     for _d in "$USERINIT"/apps/*/; do
-        _name=$(basename "$_d")
+        _name=${_d%/}
+        _name=${_name##*/}
         _url=$(app_url "$_name") || continue
         _installed=0
         case $_list in *"$_url"*) _installed=1 ;; esac
         if has_word "$APPS_ALWAYS" "$_name" || has_line "$2" "app $_name"; then
             if [ $_installed = 0 ] || has_line "$_force" "$_name"; then
-                app_install "$_name" "$_list" "$_url"
+                install_zip "$USERINIT/apps/$_name/application.zip" "$_name"
             fi
         elif [ $_installed = 1 ]; then
             app_uninstall "$_url" "$_name"
