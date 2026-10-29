@@ -349,7 +349,6 @@ fn read_map(map: &Value) -> Option<ButtonKeys> {
     Some(out)
 }
 
-#[derive(Clone, Debug, PartialEq)]
 struct Keys {
     active: usize,
     maps: Vec<ButtonKeys>,
@@ -437,7 +436,6 @@ impl Keys {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
 pub struct Settings {
     values: HashMap<String, String>,
     keys: Keys,
@@ -445,7 +443,7 @@ pub struct Settings {
 }
 
 impl Settings {
-    pub fn from_json(saved: &Value, palettes: Vec<String>) -> Settings {
+    pub fn from_json(saved: &Value) -> Settings {
         let mut values = HashMap::new();
         for def in DEFS {
             if let Some(v) = saved[def.key].as_str() {
@@ -454,7 +452,7 @@ impl Settings {
                 }
             }
         }
-        Settings { values, keys: Keys::from_json(&saved["keys"]), palettes }
+        Settings { values, keys: Keys::from_json(&saved["keys"]), palettes: libretro::gb_palettes() }
     }
 
     pub fn to_json(&self) -> Value {
@@ -601,7 +599,7 @@ fn load() -> Settings {
         }),
         Err(_) => Value::Null,
     };
-    Settings::from_json(&saved, libretro::gb_palettes())
+    Settings::from_json(&saved)
 }
 
 fn store(s: &Settings) {

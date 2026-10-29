@@ -1,8 +1,8 @@
-pub const SERVICES: &str = include_str!("../../../../userinit/remote/services.ini");
+const SERVICES: &str = include_str!("../../../../userinit/remote/services.ini");
 
-fn entries(table: &str) -> impl Iterator<Item = (&str, &str, &str)> {
+fn entries() -> impl Iterator<Item = (&'static str, &'static str, &'static str)> {
     let mut section = "";
-    table.lines().map(str::trim).filter(|line| !line.is_empty() && !line.starts_with('#')).filter_map(move |line| {
+    SERVICES.lines().map(str::trim).filter(|line| !line.is_empty() && !line.starts_with('#')).filter_map(move |line| {
         match line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
             Some(name) => {
                 section = name;
@@ -13,10 +13,6 @@ fn entries(table: &str) -> impl Iterator<Item = (&str, &str, &str)> {
     })
 }
 
-pub fn value_in<'a>(table: &'a str, service: &str, key: &str) -> Option<&'a str> {
-    entries(table).find(|&(s, k, _)| s == service && k == key).map(|(_, _, value)| value)
-}
-
 pub fn value(service: &str, key: &str) -> Option<&'static str> {
-    value_in(SERVICES, service, key)
+    entries().find(|&(s, k, _)| s == service && k == key).map(|(_, _, value)| value)
 }

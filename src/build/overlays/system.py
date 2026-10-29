@@ -1,7 +1,7 @@
 """keys, volume, notifications, updates, sign-in, and the outer screen"""
 
 from ..edits import Overlay, Patch, append, insert_after, insert_before
-from ..snippets import APP_ORIGIN_SCRIPT, FEATURES_SCRIPT, is_feature_on, script
+from ..snippets import is_feature_on, script
 
 BUNDLE = "dist/app.bundle.js"
 REMOTE_BUNDLE = "remote/dist/app.bundle.js"
@@ -11,8 +11,6 @@ DIALER_JS = "js/dialer_agent.js"
 
 SYSTEM_SCRIPTS = script("js/live_wallpaper.js") + script("js/flipfull_system.js")
 SCRIPTS = [
-    insert_before("index.html", script("js/remote_helper.js"), FEATURES_SCRIPT),
-    insert_before("index_remote.html", APP_ORIGIN_SCRIPT, FEATURES_SCRIPT),
     insert_after("index.html", script("js/external_screen_manager.js"), SYSTEM_SCRIPTS),
     insert_after("index_remote.html", script("remote/dist/app.bundle.js"), SYSTEM_SCRIPTS),
 ]
@@ -192,7 +190,7 @@ POWER_OFF_ANIMATION = [
                  'v.onerror=()=>t(f.slice(1));v.src=f[0]})(' + POWER_OFF_FILES + ');'),
 ]
 
-OVERLAY = Overlay(edits=[
+OVERLAY = Overlay(shows="boot", edits=[
     *SCRIPTS,
     *GOOGLE_ACCOUNTS,
     *BLOCK_TELEMETRY,

@@ -29,15 +29,6 @@ struct GameInfo {
 }
 
 #[repr(C)]
-struct SystemInfo {
-    library_name: *const c_char,
-    library_version: *const c_char,
-    valid_extensions: *const c_char,
-    need_fullpath: bool,
-    block_extract: bool,
-}
-
-#[repr(C)]
 #[derive(Default)]
 struct Geometry {
     base_width: c_uint,
@@ -75,7 +66,6 @@ extern "C" {
     fn retro_set_input_poll(cb: extern "C" fn());
     fn retro_set_input_state(cb: extern "C" fn(c_uint, c_uint, c_uint, c_uint) -> i16);
     fn retro_init();
-    fn retro_get_system_info(info: *mut SystemInfo);
     fn retro_get_system_av_info(info: *mut AvInfo);
     fn retro_load_game(game: *const GameInfo) -> bool;
     fn retro_unload_game();
@@ -242,18 +232,6 @@ fn text(p: *const c_char) -> String {
     } else {
         unsafe { CStr::from_ptr(p) }.to_string_lossy().into_owned()
     }
-}
-
-pub fn info() -> (String, String, String) {
-    let mut i = SystemInfo {
-        library_name: ptr::null(),
-        library_version: ptr::null(),
-        valid_extensions: ptr::null(),
-        need_fullpath: false,
-        block_extract: false,
-    };
-    unsafe { retro_get_system_info(&mut i) };
-    (text(i.library_name), text(i.library_version), text(i.valid_extensions))
 }
 
 pub fn gb_palettes() -> Vec<String> {

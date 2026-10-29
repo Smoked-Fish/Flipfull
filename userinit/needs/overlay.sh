@@ -1,6 +1,4 @@
-﻿OVERLAYS_AT_BOOT="system"
-OVERLAYS_RESTART="launcher settings video"
-HTTP_CACHE=/data/cache/cache2
+﻿HTTP_CACHE=/data/cache/cache2
 
 overlays_read() {
     PRELOADED=$("$SQLITE" -init /dev/null "$APPS_DB" 'SELECT name FROM apps WHERE preloaded = 1' 2>/dev/null)
@@ -74,14 +72,8 @@ overlay_status() {
     case $_how in
         app) echo now ;;
         mount) echo reboot ;;
-        *)
-            if has_word "$OVERLAYS_AT_BOOT" "$1"; then
-                echo boot
-            elif has_word "$OVERLAYS_RESTART" "$1"; then
-                echo restart
-            else
-                echo reopen
-            fi ;;
+        # the build writes how a change to the overlay shows: reopen, restart or boot
+        *) cat "$USERINIT/overlays/$1/shows" 2>/dev/null || echo reopen ;;
     esac
 }
 

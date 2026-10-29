@@ -1,6 +1,5 @@
-from ..edits import Overlay, Patch, Rewrite, insert_before
-from ..snippets import FEATURES_SCRIPT, is_feature_on, script
-from ..textops import cut, remove_css_rules, remove_exact, replace_exact
+from ..edits import Overlay, Patch, Rewrite, cut, remove_css_rules, remove_exact, replace_exact
+from ..snippets import is_feature_on, script
 from ..ads import MANIFESTS, no_ads, no_ads_dependency
 
 
@@ -84,9 +83,9 @@ NO_YOUTUBE = [
 ]
 
 OVERLAY = Overlay(
+    shows="restart",
     edits=[
         *NO_ADS,
-        insert_before("index.html", script("http://shared.localhost/js/utils/l10n/l10n.js"), FEATURES_SCRIPT),
         *NO_YOUTUBE,
     ],
     remove=["js/ads/kaiads.v5.min.js", "js/ads/fullscreen.js", ".KaiAds.appinfo.json"],

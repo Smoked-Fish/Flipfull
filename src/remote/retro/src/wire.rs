@@ -11,7 +11,7 @@ pub const HOLD: u8 = 4;
 pub const HEADER: usize = 32;
 pub const PREFIX: usize = 4;
 
-#[derive(Default, Debug, PartialEq)]
+#[derive(Default)]
 pub struct Header {
     pub flags: u8,
     pub width: u16,
@@ -77,7 +77,7 @@ impl Message {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct Grid {
     pub tick_us: f64,
     pub period_us: f64,
@@ -92,7 +92,7 @@ fn grid(tick: Option<f64>, period: Option<f64>) -> Option<Grid> {
     }
 }
 
-#[derive(Deserialize, Default, Debug, PartialEq)]
+#[derive(Deserialize, Default)]
 #[serde(default)]
 pub struct PlayOptions {
     pub session: u64,
@@ -111,7 +111,7 @@ impl PlayOptions {
     }
 }
 
-#[derive(Deserialize, Default, Debug, PartialEq)]
+#[derive(Deserialize, Default)]
 #[serde(default)]
 pub struct SyncReport {
     tick: Option<f64>,
@@ -126,7 +126,7 @@ impl SyncReport {
     }
 }
 
-#[derive(Deserialize, Default, Debug, PartialEq)]
+#[derive(Deserialize, Default)]
 #[serde(default)]
 pub struct WorkerMessage {
     pub keys: Option<u16>,

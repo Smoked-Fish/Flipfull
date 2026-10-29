@@ -1,8 +1,8 @@
 """No ads, and the song and play state for the outer screen (FlipfullNowPlaying)"""
 
-from ..edits import Overlay, Rewrite, insert_after, insert_before
-from ..snippets import FEATURES_SCRIPT, script
-from ..textops import cut, remove_css_rules, remove_exact, remove_if_block, remove_span, replace_exact
+from ..edits import (Overlay, Rewrite, cut, insert_after, remove_css_rules, remove_exact, remove_if_block, remove_span,
+                     replace_exact)
+from ..snippets import script
 from ..ads import MANIFESTS, no_ads, no_ads_dependency
 
 AD_STATES = '{NOT_INITIALIZED:"NOT_INITIALIZED",ERROR:"ERROR",LOADING:"LOADING",READY:"READY"}'
@@ -94,7 +94,6 @@ NOW_PLAYING = [
 OVERLAY = Overlay(
     edits=[
         *NO_ADS,
-        insert_before("index.html", "    <!-- Shared code -->\n", FEATURES_SCRIPT),
         *NOW_PLAYING,
     ],
     remove=[

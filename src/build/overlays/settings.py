@@ -1,5 +1,5 @@
 from ..edits import Overlay, Patch, insert_after, insert_before
-from ..snippets import APP_ORIGIN_SCRIPT, FEATURES_SCRIPT, is_feature_on
+from ..snippets import is_feature_on
 
 LIST_ELEMENTS = "        listElements = panel.querySelectorAll('li');\n"
 
@@ -80,8 +80,7 @@ OUTER_SCREEN_TIMEOUT = [
                   hide_unless("#flipfull-subscreen-timeout", "outer-screen-timeout")),
 ]
 
-OVERLAY = Overlay(edits=[
-    insert_before("index.html", APP_ORIGIN_SCRIPT, FEATURES_SCRIPT),
+OVERLAY = Overlay(shows="restart", edits=[
     *HOME_SHORTCUTS,
     *CALL_RECORDING,
     *NETWORK_TYPE,

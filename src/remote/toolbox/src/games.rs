@@ -30,7 +30,6 @@ pub fn readable(name: &str) -> bool {
     listed(name) || written(name)
 }
 
-#[derive(Clone, Debug, PartialEq)]
 pub enum Row {
     Root { path: String, sd: bool },
     File { path: String, size: u64, mtime: i64 },

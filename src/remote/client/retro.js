@@ -9,7 +9,6 @@ const SLOW = 60 * 1000;
 const retro = service('FlipfullRetro', lib);
 
 window.FlipfullRetro = retro.methods({
-    info: QUICK,
     stream: QUICK,
     games: SLOW,
     load: SLOW,

@@ -6,14 +6,10 @@ dictionary Failure {
 dictionary Game {
   width: int
   height: int
-  frame_ns: int
-  rate: int
 }
 
 #[rust:not-tracked]
 interface Retro {
-  fn info() -> json
-
   fn stream() -> str, Failure
 
   fn games() -> json, Failure

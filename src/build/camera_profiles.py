@@ -2,7 +2,7 @@
 
 import xml.etree.ElementTree as ET
 
-from .errors import BuildError
+from .edits import BuildError
 from .paths import ROOT, USERINIT
 
 PROFILES = USERINIT / "etc" / "camera" / "profiles.xml"

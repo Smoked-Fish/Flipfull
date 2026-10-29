@@ -75,15 +75,6 @@ fn slot(n: i64) -> Result<u32, Failure> {
 }
 
 impl RetroMethods for Retro {
-    fn info(&mut self, responder: RetroInfoResponder) {
-        let (name, version, extensions) = libretro::info();
-        responder.resolve(JsonValue::from(json!({
-            "name": name,
-            "version": version,
-            "extensions": extensions.split('|').collect::<Vec<_>>(),
-        })));
-    }
-
     fn stream(&mut self, responder: RetroStreamResponder) {
         settle!(responder, stream::url().map_err(failure));
     }
@@ -129,12 +120,7 @@ impl RetroMethods for Retro {
                 let data = s.frontend.save_data(false).to_vec();
                 s.game = Some(Loaded { path, save: SaveFile::new(save_path, &data), format: game });
                 s.owner = self.id;
-                responder.resolve(Game {
-                    width: game.width as i64,
-                    height: game.height as i64,
-                    frame_ns: (1e9 / game.fps).round() as i64,
-                    rate: game.rate.round() as i64,
-                })
+                responder.resolve(Game { width: game.width as i64, height: game.height as i64 })
             }
             Err(why) => responder.reject(failure(why)),
         }

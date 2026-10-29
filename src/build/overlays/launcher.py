@@ -1,7 +1,7 @@
 """The home screen."""
 
-from ..edits import Overlay, Patch, append, insert_after, insert_before, prepend
-from ..snippets import FEATURES_SCRIPT, is_feature_on, script
+from ..edits import Overlay, Patch, append, insert_after, prepend
+from ..snippets import is_feature_on
 
 BUNDLE = "dist/app.bundle.js"
 STYLE = "dist/app.style.css"
@@ -78,8 +78,7 @@ METRO_NAME = [
           + '&&"string"==typeof u?u.replace(/Metro by T-Mobile/gi,"Metro"):u,stateL10nId:l,isVoWifi:h})'),
 ]
 
-OVERLAY = Overlay(edits=[
-    insert_before("index.html", script("js/debug_helper.js", attrs=""), FEATURES_SCRIPT),
+OVERLAY = Overlay(shows="restart", edits=[
     *HOME_SHORTCUTS,
     *KAIVA_IN_APP_LIST,
     *NO_SIDE_MENU,

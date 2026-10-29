@@ -1,7 +1,6 @@
 import functools
 
-from .errors import PatchError
-from .textops import remove_exact
+from .edits import PatchError, remove_exact
 
 AD_WORDS = ("getKaiAd", "BannerAd", "RadioAd", "banner-ad", "FullscreenAd", "kaiads",
             "BANNER_AD", "RADIO_AD", "musicBannerAd", "radioBannerAd", "ads-sdk",

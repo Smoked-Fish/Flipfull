@@ -8,4 +8,3 @@ def script(src, attrs='defer=""'):
 
 # features.js, written on the phone, sets window.FlipfullFeatures
 FEATURES_SCRIPT = script("http://127.0.0.1/flipfull/features.js", attrs="")
-APP_ORIGIN_SCRIPT = script("http://shared.localhost/js/utils/common/app_origin.js", attrs="")
