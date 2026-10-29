@@ -11,8 +11,6 @@ overlay_target() { readlink -f "$VROOT/$1" 2>/dev/null; }
 
 overlay_is_app() { [ -n "$PRELOADED" ] && ! has_line "$PRELOADED" "$1"; }
 
-same_dir() { [ "$(stat -c %d:%i "$1" 2>/dev/null)" = "$(stat -c %d:%i "$2" 2>/dev/null)" ]; }
-
 stock_matches() {
     [ -f "$1/stock.md5" ] || return 0
     id=$(stat -c '%d:%i:%s:%Y' "$2" 2>/dev/null) || return 1
@@ -53,7 +51,7 @@ overlay_check() {
         echo "the phone has no $1 app"
         return 1
     fi
-    if same_dir "$_src" "$_dst"; then
+    if same_file "$_src" "$_dst"; then
         echo mounted
         return 0
     fi

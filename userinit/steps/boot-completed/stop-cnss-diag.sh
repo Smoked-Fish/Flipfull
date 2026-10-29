@@ -1,0 +1,1 @@
+﻿stop_service vendor.cnss_diag

@@ -122,6 +122,8 @@ label_system_file() {
 
 mounted_on() { grep -qs " $1 " /proc/mounts; }
 
+same_file() { [ "$(stat -c %d:%i "$1" 2>/dev/null)" = "$(stat -c %d:%i "$2" 2>/dev/null)" ]; }
+
 # whether a line of $1 matches the case pattern $2, without starting a grep, ugly
 has_line() {
     case "

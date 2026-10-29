@@ -139,7 +139,7 @@ function work_out_state(    line, w, i, id, c, items, j, b, changed, pend, bad, 
         b = (id in at_boot) ? at_boot[id] : "-"
         c = needs(id, items)
         changed = (st_now[i] != (b == "-" ? "off" : b))
-        pend = (changed && val[id, "reboot"] == "yes")
+        pend = 0
         total = bad = 0
         why = ""
         for (j = 1; j <= c; j++) {
@@ -187,8 +187,8 @@ function print_list(    i, id, note) {
 }
 
 BEGIN {
-    NKINDS = split("overlays hosts prefs autoconfig services apps remote", KEY, " ")
-    split("overlay hosts prefs autoconfig service app remote", KIND, " ")
+    NKINDS = split("overlays hosts prefs autoconfig services apps remote steps", KEY, " ")
+    split("overlay hosts prefs autoconfig service app remote step", KIND, " ")
     if (mode == "")
         mode = "plan"
 }
