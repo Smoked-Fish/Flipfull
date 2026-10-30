@@ -278,16 +278,17 @@
         message(M.infoText(item), item.title);
     }
 
-    function rebootPending() {
-        return !!(state.reboot || state.removablePending);
+    function uiPending() {
+        return !!(state.ui || state.removablePending);
     }
 
+    const RESTART_UI = "Restart the phone's UI";
     const MENU = [
         ['Check for updates', () => checkUpdates()],
         ['Preinstalled apps', () => showRemovable()],
         ['Google sign-in client', () => show('google')],
+        [RESTART_UI, () => restartUi()],
         ['Reboot', () => reboot()],
-        ["Restart the phone's UI", () => restartUi()],
         ['Boot log', () => showLog()],
         ['About Flipfull', () => show('about')],
         ['Remove Flipfull', () => removeFlipfull()],
@@ -296,7 +297,7 @@
     function renderMenu() {
         el.menuItems.textContent = '';
         MENU.forEach(([name]) => {
-            const r = row(name, null, name === 'Reboot' && rebootPending() ? 'Some changes wait for it' : '');
+            const r = row(name, null, name === RESTART_UI && uiPending() ? 'Some changes wait for it' : '');
             r.querySelector('.status').classList.add('waiting');
             el.menuItems.appendChild(r);
         });
@@ -312,7 +313,7 @@
             group.apps.forEach((app) => {
                 let status = app.core ? `The phone needs it: ${app.core}` : '';
                 if (app.chosen !== app.removable) {
-                    status = `${status ? `${status}. ` : ''}Changes at the next reboot`;
+                    status = `${status ? `${status}. ` : ''}Changes when the phone's UI restarts`;
                 }
                 el.removableItems.appendChild(row(app.title, app.chosen, status, app.about || app.name));
             });
@@ -323,7 +324,7 @@
     function renderGoogle() {
         const f = state.features['google-accounts'];
         el.googleClient.textContent = (state.googleClient ? `Your client: ${state.googleClient}.` : 'No client yet.') +
-            (f ? ` Google accounts is ${f.on ? 'on' : 'off'}${f.pending ? ' after a reboot' : ''}.` : '');
+            (f ? ` Google accounts is ${f.on ? 'on' : 'off'}${f.pending ? ' after a UI restart' : ''}.` : '');
         updateKeys();
     }
 
@@ -457,11 +458,14 @@
             return;
         }
         sending = ready.then(() => run('set', ...batch.flatMap(([id, on]) => [id, on ? 'on' : 'off'])))
-            .then((out) => refresh().then(() => report(M.parseSet(out))),
-                (e) => refresh().catch(() => {
-                }).then(() => {
-                    throw e;
-                }))
+            .then((out) => {
+                state = M.parseState(out);
+                remember(out);
+                report(M.parseSet(out));
+            }, (e) => refresh().catch(() => {
+            }).then(() => {
+                throw e;
+            }))
             .catch(failed)
             .finally(() => {
                 batch.forEach(([id, on]) => {
@@ -490,9 +494,9 @@
 
     function leave() {
         const close = () => {
-            if (changed && rebootPending()) {
-                ask('Some changes wait for a reboot. Reboot now?', 'Reboot', () => work('Rebooting…', () => run('reboot')),
-                    'Later', () => window.close());
+            if (changed && uiPending()) {
+                ask("Some changes wait for the phone's UI to restart, which takes about 15 seconds. Restart it now?",
+                    'Restart', () => work('Restarting…', () => run('restart')), 'Later', () => window.close());
             } else {
                 window.close();
             }
@@ -505,8 +509,8 @@
     }
 
     function restartUi() {
-        ask("The screen goes black for about 15 seconds while the phone's UI starts again, and this app closes. " +
-            'Features that wait for a reboot still do. Restart it now?', 'Restart', () => work('Restarting…', () => run('restart')));
+        ask("The screen goes black for about 15 seconds while the phone's UI starts again with every change, " +
+            'and this app closes. Restart it now?', 'Restart', () => work('Restarting…', () => run('restart')));
     }
 
     function showLog() {
@@ -549,7 +553,7 @@
 
     function installUpdate() {
         ask(`Download ${mb(release.asset.size)} and install Flipfull ${release.tag}? If the update replaces this ` +
-            "app, it closes; open it again when it's done. Some changes wait for a reboot.", 'Install', () =>
+            "app, it closes; open it again when it's done. Some changes may wait for the phone's UI to restart.", 'Install', () =>
             work('Starting…', () => run('update', 'start', release.tag, release.asset.name, release.asset.sha256).then(() => {
                 update = {status: 'running', detail: 'Downloading', bytes: 0, log: []};
                 renderUpdate();
@@ -579,7 +583,7 @@
                     renderUpdate();
                     if (update.status === 'done') {
                         changed = true;
-                        toast(`Flipfull is updated to ${M.installedVersion(state.version)}.${state.reboot ? ' Reboot to finish.' : ''}`);
+                        toast(`Flipfull is updated to ${M.installedVersion(state.version)}.${state.ui ? " Restart the phone's UI to finish." : ''}`);
                     } else {
                         message(`The update failed: ${update.detail}`);
                     }
@@ -623,7 +627,13 @@
             appsChanged = false;
             changed = true;
             show('menu');
-            toast(state.removablePending ? 'Saved. The next reboot applies it.' : 'Saved.');
+            if (state.removablePending) {
+                toast('Saved. The home screen reloads in a moment with the change.');
+                setTimeout(() => refresh().then(render, () => {
+                }), 5000);
+            } else {
+                toast('Saved.');
+            }
         }));
     }
 

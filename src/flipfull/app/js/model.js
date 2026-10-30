@@ -38,7 +38,7 @@
         case 'removable': state.removablePending = f[1] === 'pending'; break;
         case 'google-client': state.googleClient = f[1] === '-' ? '' : f[1]; break;
         case 'release-repo': state.releaseRepo = f[1]; break;
-        case 'reboot': state.reboot = f[1] === 'yes'; break;
+        case 'ui': state.ui = f[1] === 'yes'; break;
         case 'feature':
           state.features[f[1]] = {
             on: f[2] === 'on',
@@ -118,7 +118,7 @@
       return `Can't work on this phone: ${item.reason}`;
     }
     if (item.pending) {
-      return item.on ? 'On after a reboot' : 'Off after a reboot';
+      return item.on ? 'On after a UI restart' : 'Off after a UI restart';
     }
     if (item.usable === 'partly') {
       return `Partly works here: ${item.reason}`;

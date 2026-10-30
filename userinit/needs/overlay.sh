@@ -29,67 +29,105 @@ stock_matches() {
     return 1
 }
 
-# how an overlay applies (app, mounted, mount), or why it can't (status 1)
 overlay_check() {
-    _src=$USERINIT/overlays/$1
-    if [ -e "$_src/disabled" ]; then
-        echo "switched off on this phone (overlays/$1/disabled)"
+    _csrc=$USERINIT/overlays/$1
+    if [ -e "$_csrc/disabled" ]; then
+        HOW="switched off on this phone (overlays/$1/disabled)"
         return 1
     fi
-    if [ ! -f "$_src/application.zip" ]; then
-        echo "not on the phone"
+    if [ ! -f "$_csrc/application.zip" ]; then
+        HOW="not on the phone"
         return 1
     fi
     if overlay_is_app "$1"; then
-        echo app
+        HOW=app
         return 0
     fi
-    _dst=$(overlay_target "$1")
-    if [ -z "$_dst" ] || [ ! -d "$_dst" ]; then
-        echo "the phone has no $1 app"
+    # sh's -ef doesn't follow the vroot link
+    _cdst=$(overlay_target "$1")
+    if [ -z "$_cdst" ] || [ ! -d "$_cdst" ]; then
+        HOW="the phone has no $1 app"
         return 1
     fi
-    if same_file "$_src" "$_dst"; then
-        echo mounted
+    if same_file "$_csrc" "$_cdst"; then
+        HOW=mounted
         return 0
     fi
     case $MOUNTS in
-        *" $_dst "*)
-            echo "something else is mounted over the phone's $1 app"
+        *" $_cdst "*)
+            HOW="something else is mounted over the phone's $1 app"
             return 1 ;;
     esac
-    if stock_matches "$_src" "$_dst/application.zip"; then
-        echo mount
+    if stock_matches "$_csrc" "$_cdst/application.zip"; then
+        HOW=mount
         return 0
     fi
-    echo "made for another version of the phone's $1 app"
+    HOW="made for another version of the phone's $1 app"
     return 1
 }
 
+overlay_live() { case $1 in system|shared) return 1 ;; esac; }
+
 overlay_status() {
     [ -n "$MOUNTS" ] || overlays_read
-    _how=$(overlay_check "$1") || { echo "$_how"; return 1; }
-    case $_how in
+    overlay_check "$1" || { echo "$HOW"; return 1; }
+    _shows=reopen
+    # the build writes how a change to the overlay shows: reopen, restart or ui
+    [ -f "$USERINIT/overlays/$1/shows" ] && read -r _shows < "$USERINIT/overlays/$1/shows"
+    case $HOW in
         app) echo now ;;
-        mount) echo reboot ;;
-        # the build writes how a change to the overlay shows: reopen, restart or boot
-        *) cat "$USERINIT/overlays/$1/shows" 2>/dev/null || echo reopen ;;
+        mount) overlay_live "$1" && echo "$_shows" || echo later ;;
+        *) echo "$_shows" ;;
     esac
 }
 
 overlay_apply() {
     case $1 in
         post-fs-data) overlay_mount "$2" ;;
-        set) overlay_apps "$2" ;;
+        ui) overlay_mount "$2" ui ;;
+        set)
+            overlay_apps "$2"
+            overlay_set "$2" ;;
         setup)
             overlay_label
             overlay_apps "$2" "$(changed_in overlays "$3")" ;;
     esac
 }
 
+overlay_set() {
+    overlays_read
+    _want=$(wanted overlay "$1")
+    for _src in "$USERINIT"/overlays/*; do
+        _name=${_src##*/}
+        overlay_live "$_name" && [ -f "$_src/application.zip" ] && ! overlay_is_app "$_name" || continue
+        _dst=$(overlay_target "$_name")
+        [ -n "$_dst" ] || continue
+        if has_line "$_want" "$_name"; then
+            same_file "$_src" "$_dst" && continue
+            overlay_check "$_name" && [ "$HOW" = mount ] || continue
+            mount -o bind "$_src" "$_dst" || { echo "error: couldn't mount the $_name overlay"; continue; }
+        elif same_file "$_src" "$_dst"; then
+            umount "$_dst" 2>/dev/null || umount -l "$_dst" || continue
+        else
+            continue
+        fi
+        sh "$USERINIT/tools/restart.sh" "$_name" >/dev/null && echo "restarted $_name"
+        RESTARTED="$RESTARTED $_name"
+    done
+}
+
 overlay_mount() {
     overlays_read
     _planned=$(wanted overlay "$1")
+    if [ "$2" = ui ]; then
+        for _src in "$USERINIT"/overlays/*; do
+            _name=${_src##*/}
+            has_line "$_planned" "$_name" && continue
+            _dst=$(overlay_target "$_name")
+            [ -n "$_dst" ] && same_file "$_src" "$_dst" || continue
+            umount "$_dst" && log "overlay $_name: unmounted, the stock app is back"
+        done
+    fi
     has_line "$_planned" system && _planned="system $_planned"
     _todo=
     _now=
@@ -97,16 +135,18 @@ overlay_mount() {
     for _name in $_planned; do
         has_word "$_seen" "$_name" && continue
         _seen="$_seen$_name "
-        _how=$(overlay_check "$_name")
-        case $_how in
+        overlay_check "$_name"
+        _src=$USERINIT/overlays/$_name
+        case $HOW in
             mount)
-                _src=$USERINIT/overlays/$_name
                 _todo="$_todo$_name $_src $(overlay_target "$_name")
 "
                 _now="$_now$_name $(stat -c '%i %s %Y' "$_src/application.zip") " ;;
-            mounted) log "overlay $_name: already mounted" ;;
+            mounted)
+                _now="$_now$_name $(stat -c '%i %s %Y' "$_src/application.zip") "
+                log "overlay $_name: already mounted" ;;
             app) log "overlay $_name: not an app the phone came with, installed as an app instead" ;;
-            *) log "overlay $_name: $_how - not mounted" ;;
+            *) log "overlay $_name: $HOW - not mounted" ;;
         esac
     done
     if [ "$_now" != "$(cat "$STATE/overlays-mounted" 2>/dev/null)" ]; then

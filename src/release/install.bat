@@ -30,7 +30,7 @@ if errorlevel 1 goto fail
 if errorlevel 1 goto fail
 "%ADB%" shell rm -rf %STAGING%
 echo.
-echo Done. Open Flipfull on the phone, pick what you want, then reboot.
+echo Done. Open Flipfull on the phone and turn on what you want.
 pause
 exit /b 0
 

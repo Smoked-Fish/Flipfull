@@ -8,20 +8,33 @@ remote_status() {
     elif grep -q "^$1 *=" "$REMOTE_REGISTRY" 2>/dev/null; then
         echo now
     else
-        echo reboot
+        echo later
     fi
 }
 
 remote_apply() {
     case $1 in
-        post-fs-data)
+        post-fs-data|ui)
             remote_install
             remote_remove ;;
         setup)
-            remote_install live
-            remote_remove ;;
+            remote_install
+            remote_remove
+            remote_register ;;
         uninstall) remote_remove all ;;
     esac
+}
+
+# api-daemon only finds new remote services as it starts
+remote_register() {
+    _new=
+    for _d in "$REMOTE"/Flipfull*; do
+        [ -d "$_d" ] || continue
+        grep -q "^${_d##*/} *=" "$REMOTE_REGISTRY" 2>/dev/null || _new="$_new ${_d##*/}"
+    done
+    [ -n "$_new" ] || return 0
+    api_daemon_restart
+    log "restarted api-daemon so it has$_new"
 }
 
 remote_install() {
@@ -32,11 +45,9 @@ remote_install() {
         _name=${_name##*/}
         _dst=$REMOTE/$_name
         cmp -s "$_src" "$_dst/daemon" && continue
-        _later=
-        [ "$1" = live ] && [ ! -d "$_dst" ] && _later=" - api-daemon uses it from the next boot"
         if mkdir -p "$_dst" && cp "$_src" "$_dst/daemon.tmp" && chmod 0755 "$_dst/daemon.tmp" &&
             mv -f "$_dst/daemon.tmp" "$_dst/daemon"; then
-            log "installed $_name$_later"
+            log "installed $_name"
             pkill -f "^$_dst/daemon" 2>/dev/null
         else
             log "error: couldn't install $_name"

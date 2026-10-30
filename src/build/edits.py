@@ -121,7 +121,7 @@ class Overlay:
 
     edits      made to the matching stock files
     remove     stock files left out of the zip, or globs
-    shows      when a change to a feature shows: reopen (the app), restart (flipfull restarts it) or boot
+    shows      when a change to a feature shows: reopen (the app), restart (flipfull restarts it) or ui (a UI restart)
     stock_md5  the md5 of the phone's stock application.zip, no overlay if it doesn't match stock
 
     The files in src/overlays/<name>/ go into the zip, except Splice sources, and the index pages

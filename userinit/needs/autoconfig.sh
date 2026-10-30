@@ -10,14 +10,20 @@ autoconfig_status() {
         echo "the phone has no $AUTOCONFIG_AT to put Gecko's autoconfig on"
         return 1
     fi
-    echo boot
+    echo ui
 }
 
 # bind-mounted over two files b2g has but doesn't need
 autoconfig_apply() {
-    [ "$1" = post-fs-data ] || return 0
+    case $1 in post-fs-data|ui) ;; *) return 0 ;; esac
     _names=$(wanted autoconfig "$2")
+    _ours=0
+    same_file "$STATE/autoconfig.cfg" "$AUTOCONFIG_AT" && _ours=1
     if [ -z "$_names" ]; then
+        if [ $_ours = 1 ]; then
+            umount "$AUTOCONFIG_PREFS_AT"
+            umount "$AUTOCONFIG_AT"
+        fi
         log "autoconfig: no feature that's on needs it"
         return 0
     fi
@@ -26,7 +32,7 @@ autoconfig_apply() {
             log "autoconfig: $_f missing - not set up"
             return 0
         fi
-        if mounted_on "$_f"; then
+        if [ $_ours = 0 ] && mounted_on "$_f"; then
             log "autoconfig: $_f already has something mounted on it - not set up"
             return 0
         fi
@@ -42,6 +48,10 @@ autoconfig_apply() {
             fi
         done
     } > "$STATE/autoconfig.cfg"
+    if [ $_ours = 1 ]; then
+        log "autoconfig: now" $_names
+        return 0
+    fi
     # sandbox_enabled so a broken autoconfig file is only a console warning
     {
         awk 1 "$AUTOCONFIG_PREFS_AT"

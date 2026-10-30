@@ -1,14 +1,14 @@
 """Build Flipfull and manage it on the phone from the PC.
 
     python flip4.py build [target ...]   rebuild overlays + apps into userinit/
-    python flip4.py install [--reboot]   put userinit/ on the phone (builds first)
+    python flip4.py install [--restart]  put userinit/ on the phone (builds first)
     python flip4.py release [DIR]        a zip anyone with a rooted phone can install,
                                          and the smaller one the phone updates from;
                                          without comments or dev features, app code minified
     python flip4.py features             the features, and which are on
-    python flip4.py on ID... [--reboot]  turn features on (off: the same)
+    python flip4.py on ID... [--restart] turn features on (off: the same)
     python flip4.py status               what is installed, mounted and running
-    python flip4.py restart [app ...]    restart the UI (b2g), or just those apps
+    python flip4.py restart [app ...]    restart the UI with what waits for it, or just those apps
     python flip4.py mon NAME...          memory and CPU of processes, every second
     python flip4.py removable [...]      pick which preloaded apps can be uninstalled
     python flip4.py google-client [FILE] use your own Google sign-in client
@@ -163,7 +163,7 @@ def cmd_install(args):
     client = google_client_file()
     if client:
         import_google_client(client)
-    finish(args, "installed")
+    finish(args, "installed", needs_restart=ui_waits())
 
 
 def cmd_release(args):
@@ -258,8 +258,7 @@ def cmd_set(args):
     rc = flipfull("set", *(f"{i} {value}" for i in args.ids), live=True)
     if rc != 0:
         sys.exit(1)
-    waiting = any(line == "reboot\tyes" for line in flipfull("state").splitlines())
-    finish(args, "done", needs_reboot=waiting)
+    finish(args, "done", needs_restart=ui_waits())
 
 
 def cmd_google_client(args):
@@ -271,7 +270,7 @@ def cmd_google_client(args):
         sys.exit("no client_secret*.json in the repo root; name the file")
     if import_google_client(path) != 0:
         sys.exit(1)
-    print("Turn on the google-accounts feature (flip4.py on google-accounts --reboot) if it's off.")
+    print("Turn on the google-accounts feature (flip4.py on google-accounts --restart) if it's off.")
 
 
 def cmd_status(args):
@@ -299,7 +298,11 @@ def cmd_mon(args):
 def cmd_uninstall(args):
     require_flipfull()
     flipfull("uninstall", live=True)
-    finish(args, "uninstall scheduled")
+    if args.reboot:
+        adb("reboot")
+        print("uninstall scheduled; rebooting")
+    else:
+        print("uninstall scheduled; the next boot finishes it (adb reboot)")
 
 
 def parse_picks(answer, count):
@@ -391,12 +394,12 @@ def cmd_removable(args):
     if flipfull("removable", "set", *sorted(chosen), live=True) != 0:
         sys.exit(1)
     if gained:
-        print("can be uninstalled after the reboot:", ", ".join(gained))
+        print("can be uninstalled in a moment, when the home screen reloads:", ", ".join(gained))
         print("Uninstall them from the app list (Options > Uninstall). An update to the phone's "
               "software may bring an uninstalled app back.")
     if lost:
         print("can't be uninstalled any more:", ", ".join(lost))
-    finish(args, "saved")
+    print("saved")
 
 
 def phone_build():
@@ -499,12 +502,16 @@ def cmd_restore(args):
     print("restored; the phone is rebooting")
 
 
-def finish(args, what, needs_reboot=True):
-    if getattr(args, "reboot", False):
-        adb("reboot")
-        print(f"{what}; rebooting")
-    elif needs_reboot:
-        print(f"{what}; reboot to apply (adb reboot)")
+def ui_waits():
+    return any(line == "ui\tyes" for line in flipfull("state").splitlines())
+
+
+def finish(args, what, needs_restart):
+    if needs_restart and args.restart:
+        print(f"{what}; restarting the phone's UI")
+        flipfull("restart", live=True)
+    elif needs_restart:
+        print(f"{what}; restart the phone's UI to apply it (flip4.py restart)")
     else:
         print(what)
 
@@ -517,7 +524,7 @@ def main():
     b.add_argument("targets", nargs="*")
     i = sub.add_parser("install", help="install / update Flipfull on the phone")
     i.add_argument("--no-build", action="store_true", help="push userinit/ as it is")
-    i.add_argument("--reboot", action="store_true")
+    i.add_argument("--restart", action="store_true", help="restart the phone's UI if a change waits for it")
     rl = sub.add_parser("release", help="build a zip with install.sh / install.bat (default dist/)")
     rl.add_argument("dir", nargs="?")
     rl.add_argument("--no-build", action="store_true", help="zip userinit/ as it is")
@@ -527,10 +534,10 @@ def main():
     for name in ("on", "off"):
         s = sub.add_parser(name, help=f"turn features {name} (ids: `flip4.py features`)")
         s.add_argument("ids", nargs="+", metavar="ID")
-        s.add_argument("--reboot", action="store_true", help="reboot if a change waits for one")
+        s.add_argument("--restart", action="store_true", help="restart the phone's UI if a change waits for it")
     sub.add_parser("status", help="show what is installed and running")
-    rt = sub.add_parser("restart", help="restart the phone's UI (b2g) without a reboot, "
-                        "or only the named apps (launcher, settings, ...)")
+    rt = sub.add_parser("restart", help="restart the phone's UI (b2g and api-daemon) with what waits for "
+                        "it, in about 15 seconds, or only the named apps (launcher, settings, ...)")
     rt.add_argument("apps", nargs="*", metavar="APP")
     ia = sub.add_parser("install-app", help="install a local application.zip on the phone")
     ia.add_argument("application", metavar="application.zip",
@@ -550,7 +557,6 @@ def main():
     g.add_argument("--list", action="store_true", help="show which are removable")
     r.add_argument("--add", nargs="+", default=[], metavar="APP")
     r.add_argument("--remove", nargs="+", default=[], metavar="APP")
-    r.add_argument("--reboot", action="store_true")
     gc = sub.add_parser("google-client", help="use your own Google sign-in client "
                         "(default: client_secret*.json in the repo root)")
     gc.add_argument("file", nargs="?")

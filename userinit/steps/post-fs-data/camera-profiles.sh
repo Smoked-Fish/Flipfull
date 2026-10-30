@@ -1,10 +1,12 @@
 ﻿block=$USERINIT/etc/camera/profiles.xml
 open='<CamcorderProfiles cameraId="0">'
 
-# Gecko reads more than one of these (the variant files), so each gets its
-# own back camera section swapped for etc/camera/profiles.xml
 for dst in /vendor/etc/media_profiles*.xml; do
     [ -f "$dst" ] || continue
+    if mounted_on "$dst"; then
+        log "$dst already has something mounted on it - skipped"
+        continue
+    fi
     if [ "$(grep -cF "$open" "$dst")" != 1 ]; then
         log "$dst: no single back camera section - stock profiles"
         continue

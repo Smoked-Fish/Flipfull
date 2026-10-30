@@ -11,7 +11,7 @@ from .paths import BASE, OVERLAY_SRC, ROOT, USERINIT
 from .snippets import FEATURES_SCRIPT
 
 ZIP_DATE = (2026, 1, 1, 0, 0, 0)
-SHOWS = ("reopen", "restart", "boot")
+SHOWS = ("reopen", "restart", "ui")
 INDEX_PAGE = re.compile(r"index[^/]*\.html")
 HEAD = re.compile(r"<head(\s[^>]*)?>\n?")
 

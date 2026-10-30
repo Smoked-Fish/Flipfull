@@ -104,19 +104,6 @@ function read_choices(    line, eq) {
     close(choices)
 }
 
-function make_plan(    i, id, c, items, j) {
-    resolve()
-    for (i = 1; i <= n; i++) {
-        id = ids[i]
-        planned["feature " id " " (on[id] ? "on" : "off")] = 1
-        if (!on[id])
-            continue
-        c = needs(id, items)
-        for (j = 1; j <= c; j++)
-            planned[items[j]] = 1
-    }
-}
-
 function print_plan(    i, id, c, items, j, seen) {
     for (i = 1; i <= n; i++)
         print "feature", ids[i], (on[ids[i]] ? "on" : "off")
@@ -131,25 +118,11 @@ function print_plan(    i, id, c, items, j, seen) {
     }
 }
 
-# the word needs/KIND.sh's KIND_status gives a need, for a feature that needs it:
-#   now, restart, reopen  a change shows at once, when flipfull restarts the app, or when it's
-#                         opened again; the need itself stays applied until the next boot
-#   boot                  a change shows after the next boot
-#   reboot                it works after the next boot, so a feature that's on waits for one
-#   anything else         why it can't work on this phone
 function works(r) {
-    return r == "" || r == "now" || r == "restart" || r == "reopen" || r == "boot"
+    return r == "" || r == "now" || r == "restart" || r == "reopen" || r == "ui"
 }
 
-function work_out_state(    line, w, i, id, c, items, j, b, changed, pend, bad, total, why, sp, r) {
-    while ((getline line < boot) > 0) {
-        split(line, w, " ")
-        if (w[1] == "feature")
-            at_boot[w[2]] = w[3]
-        else
-            booted[line] = 1
-    }
-    close(boot)
+function read_avail(    line, w, sp) {
     while ((getline line < avail) > 0) {
         if (line ~ /^#/)
             continue
@@ -158,8 +131,18 @@ function work_out_state(    line, w, i, id, c, items, j, b, changed, pend, bad, 
         usable[w[1] " " w[2]] = trim(substr(line, sp))
     }
     close(avail)
+}
 
-    reboot_any = pending
+function work_out_state(    line, w, i, id, c, items, j, b, changed, pend, bad, total, why, r) {
+    while ((getline line < boot) > 0) {
+        split(line, w, " ")
+        if (w[1] == "feature")
+            at_boot[w[2]] = w[3]
+    }
+    close(boot)
+    read_avail()
+
+    ui_any = pending
     for (i = 1; i <= n; i++) {
         id = ids[i]
         st_now[i] = on[id] ? "on" : "off"
@@ -172,19 +155,18 @@ function work_out_state(    line, w, i, id, c, items, j, b, changed, pend, bad, 
         for (j = 1; j <= c; j++) {
             total++
             r = usable[items[j]]
-            if (r == "reboot") {
+            if (r == "later") {
                 if (on[id])
                     pend = 1
             } else if (!works(r)) {
                 bad++
                 if (why == "")
                     why = r
-            } else if (changed && (r == "boot" || ((r == "restart" || r == "reopen") &&
-                                                    (items[j] in booted) && !(items[j] in planned)))) {
+            } else if (changed && r == "ui") {
                 pend = 1
             }
         }
-        reboot_any = reboot_any || pend
+        ui_any = ui_any || pend
         st_boot[i] = b
         st_pend[i] = pend
         st_usable[i] = bad == 0 ? "yes" : bad == total ? "no" : "partly"
@@ -192,8 +174,14 @@ function work_out_state(    line, w, i, id, c, items, j, b, changed, pend, bad, 
     }
 }
 
-function print_state(    i) {
-    print "reboot\t" (reboot_any ? "yes" : "no")
+function print_state(    i, k, h, sp) {
+    k = split(head, h, "|")
+    for (i = 1; i <= k; i++) {
+        sp = index(h[i], " ")
+        print substr(h[i], 1, sp - 1) "\t" substr(h[i], sp + 1)
+    }
+    print "removable\t" (pending ? "pending" : "saved")
+    print "ui\t" (ui_any ? "yes" : "no")
     for (i = 1; i <= n; i++)
         print "feature\t" ids[i] "\t" st_now[i] "\t" st_boot[i] "\t" (st_pend[i] ? "yes" : "no") "\t" \
               st_usable[i] "\t" st_why[i]
@@ -204,13 +192,26 @@ function print_list(    i, id, note) {
         id = ids[i]
         if (val[id, "section"] != "")
             print "\n" val[id, "section"]
-        note = st_pend[i] ? "  (after a reboot)" : ""
+        note = st_pend[i] ? "  (after a UI restart)" : ""
         if (st_usable[i] != "yes")
             note = note "  - " (st_usable[i] == "no" ? "unusable" : "partly") ": " st_why[i]
         printf "  [%s] %-20s %s%s\n", (st_now[i] == "on" ? "x" : " "), id, val[id, "title"], note
     }
-    if (reboot_any)
-        print "\nSome changes wait for a reboot."
+    if (ui_any)
+        print "\nSome changes wait for the phone's UI to restart (flipfull restart)."
+}
+
+function print_restarts(    k, lines, w, j, c, items, m, seen) {
+    read_avail()
+    k = split(ENVIRON["PLAN_DIFF"], lines, "\n")
+    for (j = 1; j <= k; j++) {
+        if (split(lines[j], w, " ") != 3 || w[1] != "feature" || seen[w[2]]++)
+            continue
+        c = needs(w[2], items)
+        for (m = 1; m <= c; m++)
+            if (usable[items[m]] == "restart" && !seen[items[m]]++)
+                print substr(items[m], index(items[m], " ") + 1)
+    }
 }
 
 BEGIN {
@@ -265,8 +266,10 @@ END {
         for (i = 1; i <= n; i++)
             if ((ids[i] in also) && !(ids[i] in asked))
                 print "also", ids[i], also[ids[i]]
+    } else if (mode == "restarts") {
+        print_restarts()
     } else if (mode == "state" || mode == "list") {
-        make_plan()
+        resolve()
         work_out_state()
         if (mode == "state")
             print_state()

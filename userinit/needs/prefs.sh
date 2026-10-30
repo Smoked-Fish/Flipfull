@@ -2,7 +2,7 @@
 
 prefs_status() {
     if [ -f "$USERINIT/etc/prefs.d/$1.js" ]; then
-        echo boot
+        echo ui
     else
         echo "not on the phone"
         return 1
@@ -14,7 +14,7 @@ pref_names() {
 }
 
 prefs_apply() {
-    case $1 in post-fs-data|uninstall) ;; *) return 0 ;; esac
+    case $1 in post-fs-data|ui|uninstall) ;; *) return 0 ;; esac
     _prefs=$STATE/user-prefs.js
     mkdir -p "$STATE"
     for _g in $(wanted prefs "$2"); do

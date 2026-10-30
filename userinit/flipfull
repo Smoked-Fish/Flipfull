@@ -6,16 +6,18 @@ flipfull - turns Flipfull's features on and off, and installs, updates and
 removes Flipfull.
 
   flipfull features               the feature list (features.ini)
-  flipfull state                  each feature: on / off, at the last boot, usable on this phone, what waits for a reboot
+  flipfull state                  each feature: on / off, at the last UI start, usable on this phone,
+                                  what waits for the UI to restart
   flipfull list                   each feature in its section, with its title
-  flipfull set ID on|off ...      turn features on / off
+  flipfull set ID on|off ...      turn features on / off, then the state
   flipfull plan                   what the features that are on need
   flipfull removable [set NAME...]    preloaded apps that can be uninstalled
   flipfull google-client [import [FILE] | remove]
                                   your own Google sign-in client
   flipfull status                 a summary to read (flip4.py status)
   flipfull log [LINES]            the boot log
-  flipfull restart [APP...]       restart the UI, or only those apps
+  flipfull restart [APP...]       restart the UI (b2g and api-daemon, applying what waits for it),
+                                  or only those apps
   flipfull reboot
   flipfull install-app ZIP        install an application.zip through api-daemon
   flipfull setup [--from DIR]     install or update from DIR, a copy of
@@ -43,15 +45,19 @@ GOOGLE_REDIRECT=http://localhost/redirect/loginpages/redirect.html
 RELEASE_REPO=Smoked-Fish/Flipfull
 UPDATE_DIR=/data/local/tmp/flipfull-update
 
+# printf isn't built into the phone's sh, each one is a process
 availability() {
+    overlays_read
     needs | awk '{ print $2, $3 }' | sort -u | while read -r kind name; do
-        echo "$kind $name $("${kind}_status" "$name")"
+        echo -n "$kind $name "
+        "${kind}_status" "$name"
     done
 }
 
+# a UI restart and a reboot start it again
 cached_availability() {
     read -r boot < /proc/sys/kernel/random/boot_id
-    key="# $boot $(stat -c %Y "$MANIFEST" "$APPS_DB" "$APPS_DB-wal" 2>/dev/null | tr '\n' ' ')"
+    key="# $boot $(stat -c %Y "$MANIFEST" "$REMOTE_REGISTRY" 2>/dev/null | tr '\n' ' ')"
     first=
     [ -f "$STATE/avail" ] && IFS= read -r first < "$STATE/avail"
     [ "$first" = "$key" ] && return 0
@@ -59,19 +65,23 @@ cached_availability() {
 }
 
 plan_state() {
-    mkdir -p "$STATE"
+    [ -d "$STATE" ] || mkdir -p "$STATE"
     cached_availability
     pending=0
     removable_pending && pending=1
+    head=
     if [ "$1" = state ]; then
-        printf 'version\t%s\n' "$(version)"
-        printf 'hook\t%s\n' "$(hook_file >/dev/null && echo yes || echo no)"
-        printf 'removable\t%s\n' "$([ $pending = 1 ] && echo pending || echo saved)"
-        printf 'google-client\t%s\n' "$(google_client_id)"
-        printf 'release-repo\t%s\n' "$RELEASE_REPO"
+        v=
+        [ -f "$MANIFEST" ] && read -r v < "$MANIFEST"
+        v=${v:-# Flipfull (not installed)}
+        hook=no
+        hook_file >/dev/null && hook=yes
+        google=-
+        [ -f "$GOOGLE_CLIENT" ] && google=$(google_client_id)
+        head="version ${v#"# "}|hook $hook|google-client $google|release-repo $RELEASE_REPO"
     fi
     awk -f "$PLAN_AWK" -v mode="$1" -v choices="$CHOICES" -v services="$SERVICES_INI" -v boot="$BOOT_PLAN" \
-        -v avail="$STATE/avail" -v pending=$pending "$REGISTRY"
+        -v avail="$STATE/avail" -v pending=$pending -v head="$head" "$REGISTRY"
 }
 
 cmd_state() { plan_state state; }
@@ -86,35 +96,65 @@ cmd_set() {
     out=$(awk -f "$PLAN_AWK" -v mode=choose -v choices="$CHOICES" -v changes="$changes" "$REGISTRY") ||
         die "${out#error }"
     before=$(plan)
-    mkdir -p "$CONFIG"
-    echo "$out" | awk '$1 == "choice" { print $2 "=" $3 }' > "$CHOICES.tmp" && mv -f "$CHOICES.tmp" "$CHOICES"
-    echo "$out" | awk '$1 == "also" { print "also " $2 " " $3 }'
+    [ -d "$CONFIG" ] || mkdir -p "$CONFIG"
+    echo "$out" | awk -v to="$CHOICES.tmp" '
+        BEGIN { printf "" > to }
+        $1 == "choice" { print $2 "=" $3 > to }
+        $1 == "also" { print "also " $2 " " $3 }' && mv -f "$CHOICES.tmp" "$CHOICES"
     after=$(plan)
     publish "$after" || echo "error: couldn't write features.js in $(http_root)"
-    needs_apply set "$after"
-    if has_line "$(printf '%s\n%s\n' "$before" "$after" | sort | uniq -u)" 'feature ostore *'; then
-        reconcile_store "$after"
-    fi
-    restart_changed "$before" "$after"
+    diff=$(printf '%s\n%s\n' "$before" "$after" | sort | uniq -u)
+    # only the need kinds whose lines changed have something to do
+    RESTARTED=
+    for f in "$USERINIT"/needs/*.sh; do
+        f=${f##*/}
+        f=${f%.sh}
+        has_line "$diff" "$f *" && "${f}_apply" set "$after"
+    done
+    has_line "$diff" 'feature ostore *' && reconcile_store "$after"
+    restart_changed "$diff"
+    plan_state state
 }
 
 # the apps whose need says restart, for the features that changed
 restart_changed() {
-    changed=$(printf '%s\n%s\n' "$1" "$2" | awk '$1 == "feature"' | sort | uniq -u | awk '{ print $2 }' | sort -u)
-    [ -n "$changed" ] || return 0
+    has_line "$1" 'feature *' || return 0
     cached_availability
-    apps=$(needs | awk -v ids=" $(echo $changed) " -v avail="$STATE/avail" '
-        BEGIN {
-            while ((getline line < avail) > 0)
-                if (split(line, w, " ") == 3 && w[3] == "restart")
-                    restart[w[1] " " w[2]] = 1
-        }
-        index(ids, " " $1 " ") && (($2 " " $3) in restart) { print $3 }' | sort -u)
-    for app in $apps; do
+    # the phone's awk takes no newlines in -v
+    for app in $(PLAN_DIFF=$1 awk -f "$PLAN_AWK" -v mode=restarts -v avail="$STATE/avail" \
+                     -v services="$SERVICES_INI" "$REGISTRY"); do
+        has_word "$RESTARTED" "$app" && continue
         if sh "$USERINIT/tools/restart.sh" "$app" >/dev/null; then
             echo "restarted $app"
         fi
     done
+}
+
+# b2g and api-daemon start again with what a boot would give them, in about 15 seconds
+ui_restart() {
+    now=$(plan)
+    echo "restarting the phone's UI"
+    stop b2g
+    svc_wait b2g stopped
+    api_daemon_restart ui_apply "$now"
+    start b2g
+    needs_apply boot-completed "$now"
+    rm -f "$STATE/avail"
+    cached_availability
+    echo "the phone's UI restarted"
+}
+
+ui_apply() {
+    [ -f "$REMOVABLE" ] && sh "$USERINIT/post-fs-data.d/02-removable-apps.sh"
+    echo "$1" > "$BOOT_PLAN"
+    publish "$1" || echo "error: couldn't write features.js in $(http_root)"
+    needs_apply ui "$1"
+}
+
+cmd_restart() {
+    [ $# -eq 0 ] || exec sh "$USERINIT/tools/restart.sh" "$@"
+    echo "==== $(date) : the phone's UI restarts ====" >> "$USERINIT/run.log"
+    ui_restart 2>&1 | tee -a "$USERINIT/run.log"
 }
 
 app_info() {
@@ -168,7 +208,6 @@ app_info() {
         wallpaper) rank=4 core="wallpaper picker" about="" ;;
         ringtones) rank=4 core="ringtone picker" about="" ;;
     esac
-    printf '%s\t%s\t%s' "$core" "$rank" "$about"
 }
 
 preloaded() {
@@ -178,12 +217,12 @@ preloaded() {
 
 app_title() { app_manifest "$1" | json_value name; }
 
-removable_wanted() {
-    if [ -f "$REMOVABLE" ]; then
-        grep -qx "$1" "$REMOVABLE"
-    else
-        [ "$2" = 1 ]
-    fi
+# the names in the apps' manifests, kept since only a system update changes them
+app_titles() {
+    known=$(cat "$STATE/app-titles" 2>/dev/null)
+    echo "$1" | while read -r name flag; do
+        has_line "$known" "$name$T*" || echo "$name$T$(app_title "$name")"
+    done >> "$STATE/app-titles"
 }
 
 removable_pending() {
@@ -199,9 +238,24 @@ cmd_removable() {
     apps=$(preloaded)
     [ -n "$apps" ] || die "couldn't read the apps from $APPS_DB"
     if [ "$1" != set ]; then
+        T=$(printf '\t')
+        mkdir -p "$STATE"
+        app_titles "$apps"
+        titles="
+$(cat "$STATE/app-titles")"
+        chosen=
+        [ -f "$REMOVABLE" ] && chosen=$(cat "$REMOVABLE")
         echo "$apps" | while read -r name flag; do
-            removable_wanted "$name" "$flag" && want=1 || want=0
-            printf 'app\t%s\t%s\t%s\t%s\t%s\n' "$name" "$flag" "$want" "$(app_title "$name")" "$(app_info "$name")"
+            want=$flag
+            if [ -f "$REMOVABLE" ]; then
+                has_line "$chosen" "$name" && want=1 || want=0
+            fi
+            title=${titles#*"
+$name$T"}
+            title=${title%%"
+"*}
+            app_info "$name"
+            echo "app$T$name$T$flag$T$want$T$title$T$core$T$rank$T$about"
         done
         return
     fi
@@ -211,7 +265,17 @@ cmd_removable() {
     done
     mkdir -p "$CONFIG"
     for name; do echo "$name"; done | sort -u > "$REMOVABLE.tmp" && mv -f "$REMOVABLE.tmp" "$REMOVABLE"
-    echo "saved $# removable apps; the next boot applies it"
+    echo "saved $# removable apps"
+    # after this answer is back, the bridge goes with api-daemon
+    setsid sh "$USERINIT/flipfull" removable-apply </dev/null >>"$USERINIT/run.log" 2>&1 &
+}
+
+# api-daemon reads which apps are removable as it starts, the launcher as it starts
+removable_apply() {
+    sleep 1
+    removable_pending || return 0
+    api_daemon_restart sh "$USERINIT/post-fs-data.d/02-removable-apps.sh"
+    sh "$USERINIT/tools/restart.sh" launcher
 }
 
 google_client_id() {
@@ -316,12 +380,19 @@ cmd_setup() {
     now=$(plan)
     needs_apply setup "$now" "$(cat "$STATE/changed" 2>/dev/null)"
     reconcile_store "$now"
+    cmd_removable >/dev/null 2>&1
 
     hook_file >/dev/null ||
         echo "WARNING: no boot hook runs $USERINIT/run.sh - nothing here starts at boot (src/boot-hook/README.md)"
     version
-    cmd_state | awk -F '\t' '$1 == "reboot" && $2 == "yes" {
-        print "Some features apply at the next boot: reboot the phone" }'
+    # the first install applies the default features without a reboot
+    if [ ! -f "$BOOT_PLAN" ]; then
+        echo "The phone's UI restarts now, about 15 seconds"
+        cmd_restart
+        return
+    fi
+    cmd_state | awk -F '\t' '$1 == "ui" && $2 == "yes" {
+        print "Some features wait for the phone\047s UI to restart: Flipfull > Options > Restart the phone\047s UI" }'
 }
 
 cmd_uninstall() {
@@ -443,10 +514,11 @@ case $cmd in
     set) cmd_set "$@" ;;
     plan) plan ;;
     removable) cmd_removable "$@" ;;
+    removable-apply) removable_apply ;;
     google-client) cmd_google_client "$@" ;;
     status) cmd_status ;;
     log) tail -n "${1:-200}" "$USERINIT/run.log" ;;
-    restart) sh "$USERINIT/tools/restart.sh" "$@" ;;
+    restart) cmd_restart "$@" ;;
     reboot)
         echo "rebooting"
         setsid sh -c 'sleep 1; sync; reboot' </dev/null >/dev/null 2>&1 & ;;

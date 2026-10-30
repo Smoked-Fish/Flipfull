@@ -60,17 +60,16 @@ http_root() {
 # features.js tells the overlays which features are on, state/features tells the remote services
 publish() {
     dir=$(http_root)/flipfull
-    mkdir -p "$dir" "$STATE" || return 1
-    { if [ -n "$1" ]; then echo "$1"; else plan; fi; } | awk '$1 == "feature" && $3 == "on" { print $2 }' \
-        > "$STATE/features.tmp" && chmod 0644 "$STATE/features.tmp" && mv -f "$STATE/features.tmp" "$STATE/features" || return 1
-    awk -v src="$USERINIT/flipfull" '
-        BEGIN {
-            print "// Written by " src ": the Flipfull features that are on."
-            printf "window.FlipfullFeatures = {"
-        }
-        { printf "%s\"%s\": true", n++ ? ", " : "", $1 }
-        END { print "};" }' "$STATE/features" > "$dir/features.js.tmp" &&
-        chmod 0644 "$dir/features.js.tmp" && mv -f "$dir/features.js.tmp" "$dir/features.js"
+    [ -d "$dir" ] && [ -d "$STATE" ] || mkdir -p "$dir" "$STATE" || return 1
+    { if [ -n "$1" ]; then echo "$1"; else plan; fi; } | awk -v list="$STATE/features.tmp" -v js="$dir/features.js.tmp" \
+        -v src="$USERINIT/flipfull" '
+        $1 == "feature" && $3 == "on" { print $2 > list; on = on (n++ ? ", " : "") "\"" $2 "\": true" }
+        END {
+            printf "" > list
+            print "// Written by " src ": the Flipfull features that are on." > js
+            print "window.FlipfullFeatures = {" on "};" > js
+        }' && chmod 0644 "$STATE/features.tmp" "$dir/features.js.tmp" &&
+        mv -f "$STATE/features.tmp" "$STATE/features" && mv -f "$dir/features.js.tmp" "$dir/features.js"
 }
 
 apps_cmd() {
@@ -117,7 +116,30 @@ label_system_file() {
 
 mounted_on() { grep -qs " $1 " /proc/mounts; }
 
-same_file() { [ "$(stat -c %d:%i "$1" 2>/dev/null)" = "$(stat -c %d:%i "$2" 2>/dev/null)" ]; }
+same_file() { [ "$1" -ef "$2" ]; }
+
+# init's stop and start return before the service has
+svc_wait() {
+    _i=0
+    while [ "$(getprop "init.svc.$1")" != "$2" ] && [ $_i -lt 100 ]; do
+        sleep 0.1
+        _i=$((_i + 1))
+    done
+}
+
+# runs "$@" while api-daemon is stopped; b2g reconnects to it on its own
+api_daemon_restart() {
+    stop api-daemon
+    svc_wait api-daemon stopped
+    "$@"
+    start api-daemon
+    svc_wait api-daemon running
+    _i=0
+    until echo '{"cmd":"list"}' | nc -U -W 5 "$APPS_SOCK" 2>/dev/null | grep -q '"success"' || [ $_i -ge 50 ]; do
+        sleep 0.2
+        _i=$((_i + 1))
+    done
+}
 
 # whether a line of $1 matches the case pattern $2, without starting a grep, ugly
 has_line() {

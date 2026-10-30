@@ -29,4 +29,4 @@ echo "Copying Flipfull to the phone..."
 "$ADB" shell sh "$STAGING/flipfull" setup --from "$STAGING"
 "$ADB" shell rm -rf "$STAGING"
 echo
-echo "Done. Open Flipfull on the phone, pick what you want, then reboot."
+echo "Done. Open Flipfull on the phone and turn on what you want."

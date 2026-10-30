@@ -190,7 +190,7 @@ POWER_OFF_ANIMATION = [
                  'v.onerror=()=>t(f.slice(1));v.src=f[0]})(' + POWER_OFF_FILES + ');'),
 ]
 
-OVERLAY = Overlay(shows="boot", edits=[
+OVERLAY = Overlay(shows="ui", edits=[
     *SCRIPTS,
     *GOOGLE_ACCOUNTS,
     *BLOCK_TELEMETRY,
