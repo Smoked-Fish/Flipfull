@@ -10,8 +10,9 @@ SOUND_JS = "js/sound_manager.js"
 DIALER_JS = "js/dialer_agent.js"
 
 SYSTEM_SCRIPTS = script("js/live_wallpaper.js") + script("js/flipfull_system.js")
+TASKS_SCRIPT = script("js/flipfull_tasks.js")
 SCRIPTS = [
-    insert_after("index.html", script("js/external_screen_manager.js"), SYSTEM_SCRIPTS),
+    insert_after("index.html", script("js/external_screen_manager.js"), SYSTEM_SCRIPTS + TASKS_SCRIPT),
     insert_after("index_remote.html", script("remote/dist/app.bundle.js"), SYSTEM_SCRIPTS),
 ]
 
@@ -101,6 +102,19 @@ HARDWARE_BUTTONS = [
           'case"sms-button-release":if(this.hardwareButtons.shouldLaunchApp()){',
           'case"sms-button-release":if(-1===(Service.query("getTopMostWindow").manifestUrl||"")'
           '.indexOf("retro.localhost")&&this.hardwareButtons.shouldLaunchApp()){'),
+]
+
+APP_SWITCHER = [
+    # with the phone open, the quick access button opens it
+    insert_after(BUTTONS_JS,
+                 '"qd-call-button-press"===t&&("mozbrowserafterkeydown"===e.type||"keydown"===e.type)){',
+                 'if(!this._isCalling&&window.FlipfullTasks&&FlipfullTasks.quickPress())return;'),
+    # End goes home and leaves the app open
+    Patch(BUTTONS_JS,
+          '"endcall-button-release"===e&&this.hardwareButtons.publish("home",{kill:!0})',
+          '"endcall-button-release"===e&&this.hardwareButtons.publish("home",{kill:!' + is_feature_on("app-switcher") + '})'),
+    # above the apps, so they can't take focus while it's up
+    insert_before("js/hierarchy_manager.js", "      'AppWindowManager'\n", "      'FlipfullTasks',\n"),
 ]
 
 NO_BATTERY_FULL = [
@@ -196,6 +210,7 @@ OVERLAY = Overlay(shows="ui", edits=[
     *BLOCK_TELEMETRY,
     *BLOCK_UPDATES,
     *HARDWARE_BUTTONS,
+    *APP_SWITCHER,
     *NO_BATTERY_FULL,
     *OUTER_SCREEN_TIMEOUT,
     *ALERT_VOLUME,

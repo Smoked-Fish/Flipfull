@@ -106,7 +106,7 @@ fn stop() -> Result<Recording, Failure> {
     fs::rename(path(PART), path(&file)).map_err(|e| failure(format!("the recording is gone: {}", e)))?;
     let size = fs::metadata(path(&file)).map(|m| m.len() as i64).unwrap_or(0);
     info!("recorded {} s as {} ({} bytes)", seconds, file, size);
-    let done = Recording { file, r#type: rec.r#type, ext: rec.ext, seconds, peak, size };
+    let done = Recording { file, r#type: rec.r#type, ext: rec.ext, seconds, peak };
     state.last = Some(done.clone());
     Ok(done)
 }
