@@ -8,6 +8,10 @@
   "orientation": "natural",
   "theme_color": "#000000",
   "background_color": "#000000",
+  "icons": [
+    { "src": "/img/gba_56.png", "type": "image/png", "sizes": "56x56" },
+    { "src": "/img/gba_112.png", "type": "image/png", "sizes": "112x112" }
+  ],
   "b2g_features": {
     "version": "1.0.0",
     "origin": "retro",
