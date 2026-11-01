@@ -42,7 +42,7 @@ if [ -z "$STAGE" ]; then
 fi
 
 if [ "$STAGE" = post-fs-data ] && [ -e "$BASE/uninstall" ]; then
-    if [ -f "$BASE/config/removable-apps" ] && [ -f "$BASE/post-fs-data.d/02-removable-apps.sh" ]; then
+    if [ -f "$BASE/post-fs-data.d/02-removable-apps.sh" ]; then
         sh "$BASE/post-fs-data.d/02-removable-apps.sh" reset >> "$LOG" 2>&1
     fi
     if [ -f "$BASE/post-fs-data.d/03-features.sh" ]; then

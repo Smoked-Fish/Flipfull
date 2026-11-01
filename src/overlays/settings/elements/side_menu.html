@@ -1,0 +1,47 @@
+<element name="side_menu" extends="section">
+  <template>
+
+    <gaia-header data-href="#home_screen">
+      <h1 slot="text">Side Menu</h1>
+    </gaia-header>
+
+    <div>
+      <ul role="menu">
+        <li role="menuitem">
+          <span>Side menu</span>
+          <div class="button icon icon-dialog">
+            <select data-name="flipfull.sidemenu.enabled" data-value-type="boolean">
+              <option data-l10n-id="on" value="true" selected="selected"></option>
+              <option data-l10n-id="off" value="false"></option>
+            </select>
+          </div>
+        </li>
+        <li role="menuitem" class="side-menu-on">
+          <span>Hidden until opened</span>
+          <div class="button icon icon-dialog">
+            <select data-name="flipfull.sidemenu.hidden" data-value-type="boolean">
+              <option data-l10n-id="on" value="true"></option>
+              <option data-l10n-id="off" value="false" selected="selected"></option>
+            </select>
+          </div>
+        </li>
+      </ul>
+      <header class="side-menu-on">
+        <h2>Apps</h2>
+      </header>
+      <ul role="menu">
+        <li role="menuitem" class="side-menu-on" data-place="0"><span>App 1</span><div class="button icon icon-dialog"><select></select></div></li>
+        <li role="menuitem" class="side-menu-on" data-place="1"><span>App 2</span><div class="button icon icon-dialog"><select></select></div></li>
+        <li role="menuitem" class="side-menu-on" data-place="2"><span>App 3</span><div class="button icon icon-dialog"><select></select></div></li>
+        <li role="menuitem" class="side-menu-on" data-place="3"><span>App 4</span><div class="button icon icon-dialog"><select></select></div></li>
+        <li role="menuitem" class="side-menu-on" data-place="4"><span>App 5</span><div class="button icon icon-dialog"><select></select></div></li>
+        <li role="menuitem" class="side-menu-on" data-place="5"><span>App 6</span><div class="button icon icon-dialog"><select></select></div></li>
+        <li role="menuitem" class="side-menu-on" data-place="6"><span>App 7</span><div class="button icon icon-dialog"><select></select></div></li>
+        <li role="menuitem" class="side-menu-on" data-place="7"><span>App 8</span><div class="button icon icon-dialog"><select></select></div></li>
+      </ul>
+    </div>
+
+    <panel data-path="panels/side_menu/panel"></panel>
+
+  </template>
+</element>

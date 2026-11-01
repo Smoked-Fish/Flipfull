@@ -35,10 +35,11 @@
       switch (f[0]) {
         case 'version': state.version = f[1]; break;
         case 'hook': state.hook = f[1] === 'yes'; break;
-        case 'removable': state.removablePending = f[1] === 'pending'; break;
         case 'google-client': state.googleClient = f[1] === '-' ? '' : f[1]; break;
         case 'release-repo': state.releaseRepo = f[1]; break;
         case 'ui': state.ui = f[1] === 'yes'; break;
+        case 'setting': state.setting = f[1] === 'yes'; break;
+        case 'apps-waiting': state.appsWaiting = f[1] === 'yes'; break;
         case 'feature':
           state.features[f[1]] = {
             on: f[2] === 'on',
@@ -53,34 +54,43 @@
     return state;
   }
 
-  const RANKS = { 1: 'Extras', 2: 'Hidden tools', 3: 'Apps', 4: 'The phone needs these' };
-
   function parseRemovable(text) {
     return text.split('\n').filter((line) => line.startsWith('app\t')).map((line) => {
       const f = line.replace(/\r$/, '').split('\t');
       return {
         name: f[1],
-        removable: f[2] === '1',
-        chosen: f[3] === '1',
-        title: f[4] || f[1],
-        core: f[5],
-        rank: Number(f[6]),
-        about: f[7],
+        installed: f[2] === '1',
+        // uninstalls at once; the rest waits for the phone's UI to restart
+        removable: f[3] === '1',
+        // install or uninstall, at that restart
+        pending: f[4] === '-' ? '' : f[4],
+        title: f[5] || f[1],
+        system: f[6] === '1',
+        core: f[7],
       };
-    }).sort((a, b) => a.rank - b.rank || a.title.localeCompare(b.title));
+    }).sort((a, b) => a.system - b.system || a.title.localeCompare(b.title));
   }
 
   function removableGroups(apps) {
     const out = [];
     apps.forEach((app) => {
       let group = out[out.length - 1];
-      if (!group || group.rank !== app.rank) {
-        group = { rank: app.rank, name: RANKS[app.rank], apps: [] };
+      if (!group || group.system !== app.system) {
+        group = { system: app.system, name: app.system ? 'System' : 'Apps', apps: [] };
         out.push(group);
       }
       group.apps.push(app);
     });
     return out;
+  }
+
+  function appOn(app) {
+    return app.pending ? app.pending === 'install' : app.installed;
+  }
+
+  function appStatus(app) {
+    return { install: 'Installs when you apply', uninstall: 'Uninstalls when you apply' }[app.pending] ||
+      (app.installed ? '' : 'Uninstalled');
   }
 
   function parseSet(text) {
@@ -185,7 +195,8 @@
   }
 
   exports.FlipfullModel = {
-    parseIni, parseState, parseRemovable, removableGroups, parseSet, sections, statusText, infoText,
+    parseIni, parseState, parseRemovable, removableGroups, appOn, appStatus, parseSet, sections,
+    statusText, infoText,
     installedVersion, compareVersions, pickUpdate, parseUpdate,
   };
 }(globalThis));

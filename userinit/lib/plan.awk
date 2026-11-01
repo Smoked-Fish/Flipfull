@@ -142,7 +142,7 @@ function work_out_state(    line, w, i, id, c, items, j, b, changed, pend, bad, 
     close(boot)
     read_avail()
 
-    ui_any = pending
+    ui_any = 0
     for (i = 1; i <= n; i++) {
         id = ids[i]
         st_now[i] = on[id] ? "on" : "off"
@@ -180,7 +180,6 @@ function print_state(    i, k, h, sp) {
         sp = index(h[i], " ")
         print substr(h[i], 1, sp - 1) "\t" substr(h[i], sp + 1)
     }
-    print "removable\t" (pending ? "pending" : "saved")
     print "ui\t" (ui_any ? "yes" : "no")
     for (i = 1; i <= n; i++)
         print "feature\t" ids[i] "\t" st_now[i] "\t" st_boot[i] "\t" (st_pend[i] ? "yes" : "no") "\t" \

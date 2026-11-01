@@ -1,0 +1,22 @@
+<element name="home_screen" extends="section">
+  <template>
+
+    <gaia-header data-href="#root">
+      <h1 slot="text">Home Screen Settings</h1>
+    </gaia-header>
+
+    <div>
+      <ul role="menu">
+        <li role="menuitem" id="home-screen-shortcuts">
+          <a class="menu-item" href="#home_shortcuts">Shortcuts</a>
+        </li>
+        <li role="menuitem" id="home-screen-side-menu">
+          <a class="menu-item" href="#side_menu">Side Menu</a>
+        </li>
+      </ul>
+    </div>
+
+    <panel data-path="panels/home_screen/panel"></panel>
+
+  </template>
+</element>

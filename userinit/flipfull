@@ -11,7 +11,7 @@ removes Flipfull.
   flipfull list                   each feature in its section, with its title
   flipfull set ID on|off ...      turn features on / off, then the state
   flipfull plan                   what the features that are on need
-  flipfull removable [set NAME...]    preloaded apps that can be uninstalled
+  flipfull removable [install|uninstall NAME...]
   flipfull google-client [import [FILE] | remove]
                                   your own Google sign-in client
   flipfull status                 a summary to read (flip4.py status)
@@ -39,7 +39,10 @@ HERE=$(cd "$(dirname "$0")" && pwd)
 LOG_TAG=
 load_needs
 
-REMOVABLE=$CONFIG/removable-apps
+SET_LOCK=$STATE/set.lock
+SYSTEM_WEBAPPS=/system/b2g/webapps
+APPS_WAITING=$STATE/apps-waiting
+APPS_APPLYING=$STATE/apps-applying
 GOOGLE_CLIENT=$CONFIG/google-client.json
 GOOGLE_REDIRECT=http://localhost/redirect/loginpages/redirect.html
 RELEASE_REPO=Smoked-Fish/Flipfull
@@ -61,14 +64,13 @@ cached_availability() {
     first=
     [ -f "$STATE/avail" ] && IFS= read -r first < "$STATE/avail"
     [ "$first" = "$key" ] && return 0
-    { echo "$key"; availability; } > "$STATE/avail.tmp" && mv -f "$STATE/avail.tmp" "$STATE/avail"
+    # a state can run while a set does
+    { echo "$key"; availability; } > "$STATE/avail.$$" && mv -f "$STATE/avail.$$" "$STATE/avail"
 }
 
 plan_state() {
     [ -d "$STATE" ] || mkdir -p "$STATE"
     cached_availability
-    pending=0
-    removable_pending && pending=1
     head=
     if [ "$1" = state ]; then
         v=
@@ -78,13 +80,39 @@ plan_state() {
         hook_file >/dev/null && hook=yes
         google=-
         [ -f "$GOOGLE_CLIENT" ] && google=$(google_client_id)
-        head="version ${v#"# "}|hook $hook|google-client $google|release-repo $RELEASE_REPO"
+        setting=no
+        lock_held "$SET_LOCK" && setting=yes
+        waiting=no
+        [ -n "$(apps_todo "$APPS_WAITING")" ] && waiting=yes
+        head="version ${v#"# "}|hook $hook|google-client $google|release-repo $RELEASE_REPO|setting $setting"
+        head="$head|apps-waiting $waiting"
     fi
     awk -f "$PLAN_AWK" -v mode="$1" -v choices="$CHOICES" -v services="$SERVICES_INI" -v boot="$BOOT_PLAN" \
-        -v avail="$STATE/avail" -v pending=$pending -v head="$head" "$REGISTRY"
+        -v avail="$STATE/avail" -v head="$head" "$REGISTRY"
 }
 
 cmd_state() { plan_state state; }
+
+lock_held() {
+    pid= boot= now=
+    read -r pid boot 2>/dev/null < "$1/pid"
+    read -r now < /proc/sys/kernel/random/boot_id
+    [ -n "$pid" ] && [ "$boot" = "$now" ] && kill -0 "$pid" 2>/dev/null
+}
+
+take_lock() {
+    mkdir "$1" 2>/dev/null ||
+        { [ -f "$1/pid" ] && ! lock_held "$1" && rm -rf "$1" && mkdir "$1" 2>/dev/null; } || return 1
+    read -r now < /proc/sys/kernel/random/boot_id
+    echo "$$ $now" > "$1/pid"
+}
+
+set_lock() {
+    until take_lock "$SET_LOCK"; do
+        sleep 0.2
+    done
+    trap 'rm -rf "$SET_LOCK"' EXIT
+}
 
 cmd_set() {
     [ $# -gt 0 ] && [ $(($# % 2)) -eq 0 ] || die "usage: flipfull set ID on|off ..."
@@ -93,6 +121,8 @@ cmd_set() {
         changes="$changes $1=$2"
         shift 2
     done
+    [ -d "$STATE" ] || mkdir -p "$STATE"
+    set_lock
     out=$(awk -f "$PLAN_AWK" -v mode=choose -v choices="$CHOICES" -v changes="$changes" "$REGISTRY") ||
         die "${out#error }"
     before=$(plan)
@@ -130,7 +160,6 @@ restart_changed() {
     done
 }
 
-# b2g and api-daemon start again with what a boot would give them, in about 15 seconds
 ui_restart() {
     now=$(plan)
     echo "restarting the phone's UI"
@@ -141,11 +170,12 @@ ui_restart() {
     needs_apply boot-completed "$now"
     rm -f "$STATE/avail"
     cached_availability
+    apps_finish
     echo "the phone's UI restarted"
 }
 
 ui_apply() {
-    [ -f "$REMOVABLE" ] && sh "$USERINIT/post-fs-data.d/02-removable-apps.sh"
+    removable_boot
     echo "$1" > "$BOOT_PLAN"
     publish "$1" || echo "error: couldn't write features.js in $(http_root)"
     needs_apply ui "$1"
@@ -158,124 +188,228 @@ cmd_restart() {
 }
 
 app_info() {
-    core= rank=3 about=
+    core= system=0
     case $1 in
-        kaios-news) rank=1 about="KaiOS's news reader" ;;
-        kaios-weather) rank=1 about="KaiOS's weather forecast app" ;;
-        kaios-pay) rank=1 about="KaiOS's mobile payment wallet I assume, not visible in apps list" ;;
-        kaios-todo) rank=1 about="A to-do list" ;;
-        youtube) rank=1 about="Opens m.youtube.com in the browser" ;;
-        googlesearch) rank=1 about="Opens Google Search in the browser" ;;
-        maps) rank=1 about="Google Maps" ;;
-        kaios-2048|kaios-birdy|kaios-gems|kaios-guardians|kaios-whackamole|brickbreaker2018)
-            rank=1 about="KaiOS preinstalled game" ;;
-        engmode) rank=2 about="Engineering mode, hidden tests" ;;
-        mmitest) rank=2 about="The factory's hardware test" ;;
-        logmanager) rank=2 about="Saves logs for bug reports" ;;
-        tctfota) rank=2 about="TCL's system updater" ;;
-        antitheft) rank=2 about="Kill Switch app" ;;
-        download) rank=2 about="Lets other apps attach a file you downloaded." ;;
-        kaios-store) about="The stock appstore" ;;
-        calculator) about="" ;;
-        calendar) about="" ;;
-        camera) about="" ;;
-        clock) about="Alarms, timer and stopwatch" ;;
-        communications) about="Your recent calls" ;;
-        contact) about="Your phone contacts" ;;
-        email) about="" ;;
-        filemanager) about="Browses the phone's storage and the SD card" ;;
-        fm) about="FM radio" ;;
-        gallery) about="Your photos" ;;
-        music) about="Music player and Icecast internet radio." ;;
-        notes) about="" ;;
-        soundrecorder) about="Voice recording" ;;
-        video) about="" ;;
-        sms) rank=4 core="text messages" about="Text and picture messages (SMS, MMS)" ;;
-        bluetooth) rank=4 core="Bluetooth pairing" about="Bluetooth pairing requests and file transfers" ;;
-        system) rank=4 core="the whole phone UI" about="The phones base UI" ;;
-        shared) rank=4 core="code every app uses" about="Fonts, sounds, wallpapers and code the other apps load" ;;
-        launcher) rank=4 core="home screen" about="The home screen, the app list and the dialer" ;;
-        keyboard) rank=4 core="typing" about="Typing in every text field." ;;
-        settings) rank=4 core="Settings" about="" ;;
-        callscreen) rank=4 core="phone calls" about="The screen during a call." ;;
-        emergency-call) rank=4 core="emergency calls" about="Emergency calls from the lock screen" ;;
-        network-alerts) rank=4 core="emergency alerts" about="Wireless emergency alerts, AMBER, extreme weather" ;;
-        ftu) rank=4 core="first-run setup" about="The setup the phone runs when it first starts, and after a reset" ;;
-        customization) rank=4 core="carrier setup" about="Applies the carrier's settings for the SIM you put in" ;;
-        loginpages) rank=4 core="account sign-in" about="The sign-in pages of Settings > Accounts." ;;
-        stk) rank=4 core="SIM menus" about="SIM Toolkit" ;;
-        wappush) rank=4 core="carrier messages" about="Receives the carrier's WAP push and settings messages" ;;
-        wallpaper) rank=4 core="wallpaper picker" about="" ;;
-        ringtones) rank=4 core="ringtone picker" about="" ;;
+        engmode|mmitest|logmanager|tctfota|antitheft|download) system=1 ;;
+        sms) system=1 core="text messages" ;;
+        bluetooth) system=1 core="Bluetooth pairing" ;;
+        system) system=1 core="the whole phone UI" ;;
+        shared) system=1 core="code every app uses" ;;
+        launcher) system=1 core="home screen" ;;
+        keyboard) system=1 core="typing" ;;
+        settings) system=1 core="Settings" ;;
+        callscreen) system=1 core="phone calls" ;;
+        emergency-call) system=1 core="emergency calls" ;;
+        network-alerts) system=1 core="emergency alerts" ;;
+        ftu) system=1 core="first-run setup" ;;
+        customization) system=1 core="carrier setup" ;;
+        loginpages) system=1 core="account sign-in" ;;
+        stk) system=1 core="SIM menus" ;;
+        wappush) system=1 core="carrier messages" ;;
+        wallpaper) system=1 core="wallpaper picker" ;;
+        ringtones) system=1 core="ringtone picker" ;;
     esac
 }
 
 preloaded() {
-    "$SQLITE" -init /dev/null -separator ' ' "$APPS_DB" \
-        'SELECT name, removable FROM apps WHERE preloaded = 1 ORDER BY name' 2>/dev/null
+    awk -F '"' '
+        $2 == "name" { name = $4 }
+        $2 == "manifest_url" { url = $4 }
+        /}/ { if (name != "") print name, url; name = url = "" }' "$SYSTEM_WEBAPPS/webapps.json"
 }
 
-app_title() { app_manifest "$1" | json_value name; }
+preloaded_url() { echo "$1" | awk -v name="$2" '$1 == name { print $2 }'; }
 
-# the names in the apps' manifests, kept since only a system update changes them
+installed_apps() { "$SQLITE" -init /dev/null "$APPS_DB" 'SELECT manifest_url, removable FROM apps'; }
+
+removable_boot() {
+    [ -f "$APPS_DB" ] && [ -x "$SQLITE" ] || return 0
+    in=
+    if [ "$1" != reset ]; then
+        for name in $(preloaded | awk '{ print $1 }'); do
+            app_info "$name"
+            [ $system = 1 ] || in="$in,'$name'"
+        done
+    fi
+    "$SQLITE" -init /dev/null "$APPS_DB" \
+        "UPDATE apps SET removable = CASE WHEN name IN (${in#,}) THEN 1 ELSE 0 END WHERE preloaded = 1"
+    [ "$1" = reset ] || apps_start
+}
+
+app_title() {
+    { app_manifest "$1" || cat "$SYSTEM_WEBAPPS/$1/manifest.webmanifest" ||
+        unzip -p "$SYSTEM_WEBAPPS/$1/application.zip" manifest.webmanifest; } 2>/dev/null | json_value name
+}
+
 app_titles() {
     known=$(cat "$STATE/app-titles" 2>/dev/null)
-    echo "$1" | while read -r name flag; do
+    echo "$1" | while read -r name url; do
         has_line "$known" "$name$T*" || echo "$name$T$(app_title "$name")"
     done >> "$STATE/app-titles"
 }
 
-removable_pending() {
-    [ -f "$REMOVABLE" ] || return 1
-    preloaded | awk -v list="$REMOVABLE" '
-        BEGIN { while ((getline name < list) > 0) want[name] = 1 }
-        ($1 in want) != ($2 == 1) { differs = 1; exit }
-        END { exit !differs }'
+apps_todo() {
+    [ -s "$1" ] || return 0
+    apps=$(preloaded)
+    have=$(installed_apps) || return 1
+    for change in $(awk '{ w[$2] = $1 } END { for (n in w) print w[n] ":" n }' "$1"); do
+        name=${change#*:}
+        url=$(preloaded_url "$apps" "$name")
+        case ${change%%:*} in
+            uninstall) has_line "$have" "$url|*" && echo "uninstall $name" ;;
+            install) has_line "$have" "$url|*" || echo "install $name" ;;
+        esac
+    done
+}
+
+removable_list() {
+    T=$(printf '\t')
+    mkdir -p "$STATE"
+    apps=$(preloaded)
+    [ -n "$apps" ] || die "couldn't read the apps from $SYSTEM_WEBAPPS/webapps.json"
+    have=$(installed_apps) || die "couldn't read the apps from $APPS_DB"
+    app_titles "$apps"
+    titles="
+$(cat "$STATE/app-titles")"
+    todo="
+$(apps_todo "$APPS_APPLYING"; apps_todo "$APPS_WAITING")"
+    echo "$apps" | while read -r name url; do
+        installed=0 removable=0
+        has_line "$have" "$url|*" && installed=1
+        has_line "$have" "$url|1" && removable=1
+        pending=-
+        has_line "$todo" "install $name" && pending=install
+        has_line "$todo" "uninstall $name" && pending=uninstall
+        title=${titles#*"
+$name$T"}
+        title=${title%%"
+"*}
+        app_info "$name"
+        echo "app$T$name$T$installed$T$removable$T$pending$T$title$T$system$T$core"
+    done
 }
 
 cmd_removable() {
     [ -x "$SQLITE" ] || die "$SQLITE is missing"
-    apps=$(preloaded)
-    [ -n "$apps" ] || die "couldn't read the apps from $APPS_DB"
-    if [ "$1" != set ]; then
-        T=$(printf '\t')
-        mkdir -p "$STATE"
-        app_titles "$apps"
-        titles="
-$(cat "$STATE/app-titles")"
-        chosen=
-        [ -f "$REMOVABLE" ] && chosen=$(cat "$REMOVABLE")
-        echo "$apps" | while read -r name flag; do
-            want=$flag
-            if [ -f "$REMOVABLE" ]; then
-                has_line "$chosen" "$name" && want=1 || want=0
-            fi
-            title=${titles#*"
-$name$T"}
-            title=${title%%"
-"*}
-            app_info "$name"
-            echo "app$T$name$T$flag$T$want$T$title$T$core$T$rank$T$about"
-        done
-        return
-    fi
-    shift
-    for name; do
-        echo "$apps" | grep -q "^$name " || die "$name isn't a preloaded app"
-    done
-    mkdir -p "$CONFIG"
-    for name; do echo "$name"; done | sort -u > "$REMOVABLE.tmp" && mv -f "$REMOVABLE.tmp" "$REMOVABLE"
-    echo "saved $# removable apps"
-    # after this answer is back, the bridge goes with api-daemon
-    setsid sh "$USERINIT/flipfull" removable-apply </dev/null >>"$USERINIT/run.log" 2>&1 &
+    case $1 in
+        '') ;;
+        install|uninstall)
+            what=$1
+            shift
+            [ $# -gt 0 ] || die "usage: flipfull removable install|uninstall NAME..."
+            apps=$(preloaded)
+            for name; do
+                has_line "$apps" "$name *" || die "$name isn't an app the phone came with"
+            done
+            have=$(installed_apps) || die "couldn't read the apps from $APPS_DB"
+            mkdir -p "$STATE"
+            for name; do
+                echo "$what $name" >> "$APPS_WAITING"
+                # one of the Apps uninstalls at once; the rest waits for the UI to restart
+                url=$(preloaded_url "$apps" "$name")
+                if [ $what = uninstall ] && has_line "$have" "$url|1"; then
+                    app_uninstall "$url" "$name"
+                fi
+            done ;;
+        *)
+            die "usage: flipfull removable [install|uninstall NAME...]" ;;
+    esac
+    removable_list
 }
 
-# api-daemon reads which apps are removable as it starts, the launcher as it starts
-removable_apply() {
+apps_start() {
+    todo=$(apps_todo "$APPS_WAITING") || return 0
+    rm -f "$APPS_WAITING"
+    [ -n "$todo" ] || return 0
+    echo "$todo" > "$APPS_APPLYING"
+    drop=$(echo "$todo" | awk '$1 == "uninstall" { printf " %s", $2 }')
+    add=$(echo "$todo" | awk '$1 == "install" { printf " %s", $2 }')
+    log "apps: uninstalling${drop:- none}, installing${add:- none}"
+    apps_prepare "$drop" "$add"
+}
+
+apps_finish() {
+    [ -f "$APPS_APPLYING" ] || return 0
+    apps=$(preloaded)
+    drop=$(awk '$1 == "uninstall" { printf " %s", $2 }' "$APPS_APPLYING")
+    add=$(awk '$1 == "install" { printf " %s", $2 }' "$APPS_APPLYING")
+    if [ -n "$add" ]; then
+        apps_added "$add"
+        umount "$SYSTEM_WEBAPPS/webapps.json"
+    fi
+    if [ -n "$drop" ]; then
+        # Gecko forgets an uninstalled app's permissions and data only while b2g is connected
+        ui_up
+        for name in $drop; do
+            app_uninstall "$(preloaded_url "$apps" "$name")" "$name"
+        done
+    fi
+    rm -f "$APPS_APPLYING"
+}
+
+ui_up() {
+    _i=0
+    until grep -qx launcher /proc/[0-9]*/comm 2>/dev/null || [ $_i -ge 150 ]; do
+        sleep 0.2
+        _i=$((_i + 1))
+    done
     sleep 1
-    removable_pending || return 0
-    api_daemon_restart sh "$USERINIT/post-fs-data.d/02-removable-apps.sh"
-    sh "$USERINIT/tools/restart.sh" launcher
+}
+
+apps_prepare() {
+    if [ -n "$1" ]; then
+        in=$(echo $1 | sed "s/[^ ]*/'&'/g; s/ /,/g")
+        "$SQLITE" -init /dev/null "$APPS_DB" "UPDATE apps SET removable = 1 WHERE name IN ($in)"
+    fi
+    [ -n "$2" ] || return 0
+    apps_loose=
+    for name in $2; do
+        app_info "$name"
+        [ $system = 1 ] || apps_loose="$apps_loose $name"
+    done
+
+    awk -v want=" $2 " -v loose=" $apps_loose " '
+        BEGIN { print "[" }
+        /{/ { inside = 1; head = $0; block = ""; name = ""; next }
+        inside && !/"removable"/ {
+            line = $0
+            sub(/},?[ \t]*$/, "}", line)
+            block = block "\n" line
+            split($0, f, "\"")
+            if (f[2] == "name") name = f[4]
+        }
+        inside && /}/ {
+            inside = 0
+            if (index(loose, " " name " ")) head = head "\n    \"removable\": true,"
+            if (index(want, " " name " ")) printf "%s%s%s", (n++ ? ",\n" : ""), head, block
+        }
+        END { print "\n]" }' "$SYSTEM_WEBAPPS/webapps.json" > "$STATE/webapps.json"
+    label_system_file "$STATE/webapps.json"
+    mount -o bind "$STATE/webapps.json" "$SYSTEM_WEBAPPS/webapps.json" ||
+        { echo "error: couldn't mount the list of apps to put back"; return 1; }
+    fingerprint '"flipfull"'
+}
+
+fingerprint() {
+    "$SQLITE" -init /dev/null "$API_DAEMON/settings.sqlite" \
+        "UPDATE settings SET value = '$1' WHERE name = 'system.saved.fingerprint'"
+}
+
+apps_added() {
+    _i=0
+    while [ $_i -lt 150 ]; do
+        have=$(installed_apps)
+        missing=
+        for name in $1; do
+            has_line "$have" "$(preloaded_url "$apps" "$name")|*" || missing="$missing $name"
+        done
+        [ -n "$missing" ] || { echo "installed$1"; return 0; }
+        sleep 0.2
+        _i=$((_i + 1))
+    done
+    echo "error:$missing didn't install"
+    fingerprint "\"$(getprop ro.system.build.fingerprint)\""
+    return 1
 }
 
 google_client_id() {
@@ -323,7 +457,6 @@ version() {
     echo "${v#"# "}"
 }
 
-# my main phone has userinit in odm, one grep for all .rc files
 hook_file() {
     grep -ls "$USERINIT/run.sh" /system/etc/init/*.rc /vendor/etc/init/*.rc /odm/etc/init/*.rc \
         /product/etc/init/*.rc /system_ext/etc/init/*.rc | { read -r f && echo "$f"; }
@@ -400,8 +533,8 @@ cmd_uninstall() {
     needs_apply set ""
     reconcile_store ""
     list=$(apps_cmd list)
-    echo "Everything else is removed at the next boot (preloaded apps you made removable go back"
-    echo "to stock); the phone then boots stock. Changed your mind before rebooting? Install again."
+    echo "Everything else is removed at the next boot; the phone then boots stock (preloaded apps you"
+    echo "uninstalled stay uninstalled). Changed your mind before rebooting? Install again."
     url=$(app_url flipfull)
     if [ "$1" = --reboot ]; then
         setsid sh -c "sleep 1; echo '{\"cmd\":\"uninstall\",\"param\":\"$url\"}' | nc -U -W 60 $APPS_SOCK;
@@ -478,7 +611,6 @@ cmd_status() {
         echo "boot hook: MISSING - nothing here runs at boot (src/boot-hook/README.md)"
     [ -e "$USERINIT/uninstall" ] && echo "uninstall pending: the next boot removes everything"
     echo
-    removable_pending && echo "removable apps: changed, the next boot applies it"
     id=$(google_client_id)
     echo "Google sign-in client: $([ "$id" = - ] && echo none || echo "$id")"
     echo
@@ -514,7 +646,8 @@ case $cmd in
     set) cmd_set "$@" ;;
     plan) plan ;;
     removable) cmd_removable "$@" ;;
-    removable-apply) removable_apply ;;
+    removable-boot) removable_boot "$@" ;;
+    removable-finish) apps_finish ;;
     google-client) cmd_google_client "$@" ;;
     status) cmd_status ;;
     log) tail -n "${1:-200}" "$USERINIT/run.log" ;;

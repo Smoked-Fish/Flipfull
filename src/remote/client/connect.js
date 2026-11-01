@@ -24,11 +24,15 @@ function failed(name, err) {
 export function service(name, lib) {
   let pending = null;
   let session = null;
+  const waiting = new Set();
 
   function drop(s) {
     if (session === s) {
       session = null;
       pending = null;
+      const calls = [...waiting];
+      waiting.clear();
+      calls.forEach((lost) => lost(offline(`${name} lost its connection`)));
     }
     try {
       s.close();
@@ -77,19 +81,20 @@ export function service(name, lib) {
   function call(fn, timeoutMs) {
     return get().then((svc) => new Promise((resolve, reject) => {
       const s = session;
+      const settle = (then) => (v) => {
+        clearTimeout(timer);
+        waiting.delete(lost);
+        then(v);
+      };
+      const lost = settle(reject);
       const timer = setTimeout(() => {
+        lost(offline(`${name} didn't answer`));
         if (s) {
           drop(s);
         }
-        reject(offline(`${name} didn't answer`));
       }, timeoutMs);
-      fn(svc).then((v) => {
-        clearTimeout(timer);
-        resolve(v);
-      }, (err) => {
-        clearTimeout(timer);
-        reject(failed(name, err));
-      });
+      waiting.add(lost);
+      fn(svc).then(settle(resolve), (err) => lost(failed(name, err)));
     }));
   }
 
@@ -101,5 +106,11 @@ export function service(name, lib) {
     return out;
   }
 
-  return { call, methods };
+  function reset() {
+    if (session) {
+      drop(session);
+    }
+  }
+
+  return { call, methods, reset };
 }

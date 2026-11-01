@@ -20,6 +20,8 @@
     };
     const SCROLL = 40;
     const POLL = 2000;
+    const SET_CHECK = 5000;
+    const RESENDS = 2;
     const CACHE = 'cache';
 
     const loaded = new Promise((resolve) => document.addEventListener('DOMContentLoaded', resolve));
@@ -39,13 +41,13 @@
     const sectionFocus = {};
     let listItems = [];
     let apps = [];
-    let appsChanged = false;
     let release = null;
     let update = null;
     let pollTimer = null;
     let changed = false;
     const wanted = {};
     let sending = null;
+    let resends = 0;
 
     function run(...words) {
         return loaded.then(() => {
@@ -279,7 +281,7 @@
     }
 
     function uiPending() {
-        return !!(state.ui || state.removablePending);
+        return !!(state.ui || state.appsWaiting);
     }
 
     const RESTART_UI = "Restart the phone's UI";
@@ -311,11 +313,7 @@
             head.textContent = group.name;
             el.removableItems.appendChild(head);
             group.apps.forEach((app) => {
-                let status = app.core ? `The phone needs it: ${app.core}` : '';
-                if (app.chosen !== app.removable) {
-                    status = `${status ? `${status}. ` : ''}Changes when the phone's UI restarts`;
-                }
-                el.removableItems.appendChild(row(app.title, app.chosen, status, app.about || app.name));
+                el.removableItems.appendChild(row(app.title, M.appOn(app), M.appStatus(app)));
             });
         });
         moveFocus('removable', 0);
@@ -392,9 +390,16 @@
                 break;
             case 'removable': {
                 const app = apps[focus.removable];
-                const leave = () => (appsChanged ? ask('Leave without saving?', 'Leave', () => show('menu')) : show('menu'));
-                keys = {left: leave, center: app && (() => toggleApp(app)), right: saveApps, back: leave};
-                softkeys('Back', app ? (app.chosen ? 'Turn off' : 'Turn on') : '', 'Save');
+                const menu = () => show('menu');
+                const waiting = apps.some((a) => a.pending);
+                keys = {
+                    left: menu,
+                    center: app && (() => toggleApp(app)),
+                    right: waiting && applyApps,
+                    back: menu,
+                };
+                softkeys('Back', app ? (app.pending ? 'Cancel' : app.installed ? 'Uninstall' : 'Install') : '',
+                    waiting ? 'Apply' : '');
                 break;
             }
             case 'google':
@@ -445,6 +450,43 @@
         }
     }
 
+    function watchSet() {
+        let timer = null;
+        let stopped = false;
+        const lose = () => {
+            if (!stopped) {
+                stopped = true;
+                FlipfullBridge.reset();
+            }
+        };
+        const check = () => {
+            timer = setTimeout(() => {
+                timer = setTimeout(lose, SET_CHECK);
+                run('state').then((text) => {
+                    clearTimeout(timer);
+                    if (stopped) {
+                        return;
+                    }
+                    if (M.parseState(text).setting) {
+                        check();
+                    } else {
+                        timer = setTimeout(lose, SET_CHECK);
+                    }
+                }, () => {
+                    clearTimeout(timer);
+                    if (!stopped) {
+                        check();
+                    }
+                });
+            }, SET_CHECK);
+        };
+        check();
+        return () => {
+            stopped = true;
+            clearTimeout(timer);
+        };
+    }
+
     function sendWanted() {
         Object.keys(wanted).forEach((id) => {
             const f = state.features[id];
@@ -457,22 +499,37 @@
             render();
             return;
         }
-        sending = ready.then(() => run('set', ...batch.flatMap(([id, on]) => [id, on ? 'on' : 'off'])))
+        let stopWatch = () => {
+        };
+        let again = false;
+        sending = ready.then(() => {
+            stopWatch = watchSet();
+            return run('set', ...batch.flatMap(([id, on]) => [id, on ? 'on' : 'off']));
+        })
             .then((out) => {
+                resends = 0;
                 state = M.parseState(out);
                 remember(out);
                 report(M.parseSet(out));
-            }, (e) => refresh().catch(() => {
-            }).then(() => {
+            }, (e) => refresh().then(() => {
+                if (e.offline && resends++ < RESENDS) {
+                    again = true;
+                    return;
+                }
+                throw e;
+            }, () => {
                 throw e;
             }))
             .catch(failed)
             .finally(() => {
-                batch.forEach(([id, on]) => {
-                    if (wanted[id] === on) {
-                        delete wanted[id];
-                    }
-                });
+                stopWatch();
+                if (!again) {
+                    batch.forEach(([id, on]) => {
+                        if (wanted[id] === on) {
+                            delete wanted[id];
+                        }
+                    });
+                }
                 sending = null;
                 render();
                 if (Object.keys(wanted).length) {
@@ -601,40 +658,42 @@
     function showRemovable() {
         work('Loading…', () => run('removable').then((text) => {
             apps = M.parseRemovable(text);
-            appsChanged = false;
             focus.removable = 0;
             show('removable');
         }));
     }
 
     function toggleApp(app) {
-        const flip = () => {
-            app.chosen = !app.chosen;
-            appsChanged = true;
-            renderRemovable();
-        };
-        if (!app.chosen && app.core) {
-            ask(`The phone needs ${app.title} (${app.core}). Without it the phone may not work. ` +
-                'Let it be uninstallable anyway?', 'Yes', flip);
+        const what = M.appOn(app) ? 'uninstall' : 'install';
+        const go = () => changeApp(app, what);
+        if (what === 'uninstall' && app.system && !app.pending) {
+            ask(`${app.core ? `The phone needs ${app.title} for ${app.core}. Without it the phone may not work.` :
+                `${app.title} is a system app.`} Uninstall it anyway?`, 'Uninstall', go);
         } else {
-            flip();
+            go();
         }
     }
 
-    function saveApps() {
-        const names = apps.filter((a) => a.chosen).map((a) => a.name);
-        work('Saving…', () => run('removable', 'set', ...names).then(refresh).then(() => {
-            appsChanged = false;
-            changed = true;
-            show('menu');
-            if (state.removablePending) {
-                toast('Saved. The home screen reloads in a moment with the change.');
-                setTimeout(() => refresh().then(render, () => {
-                }), 5000);
-            } else {
-                toast('Saved.');
-            }
-        }));
+    function changeApp(app, what) {
+        work(what === 'uninstall' && app.removable ? 'Uninstalling…' : 'Saving…', () =>
+            run('removable', what, app.name).then((text) => {
+                apps = M.parseRemovable(text);
+                changed = true;
+                const now = apps.find((a) => a.name === app.name);
+                if (what === 'uninstall' && app.removable && now.installed && !now.pending) {
+                    toast(`${app.title} didn't uninstall. The boot log says why.`, true);
+                }
+                renderRemovable();
+                return refresh();
+            }));
+    }
+
+    function applyApps() {
+        const n = (what) => apps.filter((a) => a.pending === what).length;
+        const parts = [n('install') && `install ${n('install')}`, n('uninstall') && `uninstall ${n('uninstall')}`];
+        ask(`Restart the phone's UI to ${parts.filter(Boolean).join(' and ')} ` +
+            `app${n('install') + n('uninstall') > 1 ? 's' : ''}? It takes about 15 seconds, and this app closes.`,
+        'Restart', () => work('Restarting…', () => run('restart')));
     }
 
     function importClient() {

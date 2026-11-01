@@ -4,24 +4,24 @@ from ..snippets import is_feature_on
 LIST_ELEMENTS = "        listElements = panel.querySelectorAll('li');\n"
 
 
-def hide_unless(selector, feature, parent=False):
-    """Hides a settings entry while its feature is off."""
+def hide_unless(selector, *features, parent=False):
+    """Hides a settings entry while its features are off."""
     node = f"panel.querySelector('{selector}')" + (".parentNode" if parent else "")
-    return f"        {node}.classList.toggle('hidden', !" + is_feature_on(feature) + ");\n"
+    return f"        {node}.classList.toggle('hidden', !(" + "||".join(map(is_feature_on, features)) + "));\n"
 
 
 #ugly
 DISPLAY_ITEM = ('              <a id="menuItem-display" class="menu-item" href="#display" '
                 'data-l10n-id="display">Display</a>\n            </li>\n')
 
-HOME_SHORTCUTS_ITEM = ('            <li role="menuitem">\n'
-                       '              <a id="menuItem-homeShortcuts" class="menu-item" '
-                       'href="#home_shortcuts">Home Screen Shortcuts</a>\n'
-                       '            </li>\n')
-HOME_SHORTCUTS = [
-    insert_after("index.html", DISPLAY_ITEM, HOME_SHORTCUTS_ITEM),
+HOME_SCREEN_ITEM = ('            <li role="menuitem">\n'
+                    '              <a id="menuItem-homeScreen" class="menu-item" '
+                    'href="#home_screen">Home Screen Settings</a>\n'
+                    '            </li>\n')
+HOME_SCREEN = [
+    insert_after("index.html", DISPLAY_ITEM, HOME_SCREEN_ITEM),
     insert_after("js/panels/root/panel.js", "        RootManager.init();\n",
-                 hide_unless("#menuItem-homeShortcuts", "home-shortcuts", parent=True)),
+                 hide_unless("#menuItem-homeScreen", "home-shortcuts", "side-menu", parent=True)),
 ]
 
 ASSISTED_DIALING_ITEM = "        <li role=\"menuitem\" id='menuItem-assisted-dialing' class=\"hidden\">\n"
@@ -81,7 +81,7 @@ OUTER_SCREEN_TIMEOUT = [
 ]
 
 OVERLAY = Overlay(shows="restart", edits=[
-    *HOME_SHORTCUTS,
+    *HOME_SCREEN,
     *CALL_RECORDING,
     *NETWORK_TYPE,
     *OUTER_SCREEN_TIMEOUT,

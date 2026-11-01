@@ -11,4 +11,5 @@ window.FlipfullBridge = {
   run(...words) {
     return bridge.call((svc) => svc.run(words), TIMEOUT);
   },
+  reset: bridge.reset,
 };

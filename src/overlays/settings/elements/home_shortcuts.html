@@ -1,8 +1,8 @@
 <element name="home_shortcuts" extends="section">
   <template>
 
-    <gaia-header data-href="#root">
-      <h1 slot="text">Home Screen Shortcuts</h1>
+    <gaia-header data-href="#home_screen">
+      <h1 slot="text">Shortcuts</h1>
     </gaia-header>
 
     <div>
@@ -33,6 +33,10 @@
       <ul role="menu">
         <li role="menuitem" data-list="hold" data-key="0">
           <span>Hold 0</span>
+          <div class="button icon icon-dialog"><select></select></div>
+        </li>
+        <li role="menuitem" data-list="hold" data-key="1">
+          <span>Hold 1</span>
           <div class="button icon icon-dialog"><select></select></div>
         </li>
         <li role="menuitem" data-list="hold" data-key="2">
@@ -66,9 +70,6 @@
         <li role="menuitem" data-list="hold" data-key="9">
           <span>Hold 9</span>
           <div class="button icon icon-dialog"><select></select></div>
-        </li>
-        <li role="menuitem" class="description none-select text-paragraph">
-          <span>An app set for a number replaces its speed dial contact. Holding 1 always calls voicemail.</span>
         </li>
       </ul>
     </div>
