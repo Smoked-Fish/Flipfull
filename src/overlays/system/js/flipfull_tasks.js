@@ -2,7 +2,7 @@
 
 // app switcher, a keypad rework of the task manager in the KaiOS 2.5.4 8110 system app
 // (github.com/dotrihoang2012/KaiOS-2.5.4-in-nokia-8110-4G, MIT)
-(function (exports) {
+(function () {
     if (!(window.FlipfullFeatures && window.FlipfullFeatures['app-switcher'])) {
         return;
     }
@@ -222,7 +222,7 @@
         delete opened[id];
         dropCard(evt.detail);
     });
-    // closing the app on screen brings the homescreen up under the switcher
+
     window.addEventListener('appopen', evt => evt.detail.isHomescreen || hide());
     ['home', 'attentionopened', 'lockscreen-appopened'].forEach(type => window.addEventListener(type, hide));
     Service.request('registerHierarchy', {
@@ -232,18 +232,63 @@
         setHierarchy: top => top && view.focus()
     });
 
-    exports.FlipfullTasks = {
-        quickPress() {
-            if (ScreenManager.lidOpened === false || !ScreenManager.screenEnabled ||
-                Service.query('locked') || Service.query('isFtuRunning')) {
-                return false;
-            }
-            if (active()) {
-                open(Service.currentApp);
-            } else {
-                show();
-            }
-            return true;
+    const KEY_SETTING = 'flipfull.tasks.key';
+    const HOLD_HOME = 500;
+    // apps that use the button themselves keep it
+    const KEY_USERS = {}; // todo gba app
+    let switchKey = 'favoritecontacts';
+    let pressed = false;
+    let holdTimer = null;
+
+    function canSwitch() {
+        if (ScreenManager.lidOpened === false || !ScreenManager.screenEnabled || Service.query('locked') ||
+            Service.query('isFtuRunning') || (window.hardwareButtons && hardwareButtons._isCalling)) {
+            return false;
         }
-    };
-}(window));
+
+        const app = Service.currentApp;
+        const url = (!active() && app && app.manifestUrl) || '';
+        return !(KEY_USERS[switchKey] || []).some(origin => url.includes(origin));
+    }
+
+    function onSwitchKey(evt) {
+        if (!evt.key || evt.key.toLowerCase() !== switchKey) {
+            return;
+        }
+        if (evt.type === 'keydown') {
+            if (!pressed) {
+                if (!canSwitch()) {
+                    return;
+                }
+                pressed = true;
+                holdTimer = setTimeout(() => {
+                    holdTimer = null;
+                    navigator.vibrate(50);
+                    goHome();
+                }, HOLD_HOME);
+            }
+        } else {
+            if (!pressed) {
+                return;
+            }
+            pressed = false;
+            if (holdTimer) {
+                clearTimeout(holdTimer);
+                holdTimer = null;
+                if (active()) {
+                    open(Service.currentApp);
+                } else {
+                    show();
+                }
+            }
+        }
+        evt.preventDefault();
+        evt.stopImmediatePropagation();
+    }
+
+    SettingsObserver.observe(KEY_SETTING, 'qdcall', value => {
+        switchKey = value || 'qdcall';
+    });
+    window.addEventListener('keydown', onSwitchKey, true);
+    window.addEventListener('keyup', onSwitchKey, true);
+}());

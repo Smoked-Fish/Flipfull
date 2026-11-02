@@ -105,14 +105,6 @@ HARDWARE_BUTTONS = [
 ]
 
 APP_SWITCHER = [
-    # with the phone open, the quick access button opens it
-    insert_after(BUTTONS_JS,
-                 '"qd-call-button-press"===t&&("mozbrowserafterkeydown"===e.type||"keydown"===e.type)){',
-                 'if(!this._isCalling&&window.FlipfullTasks&&FlipfullTasks.quickPress())return;'),
-    # End goes home and leaves the app open
-    Patch(BUTTONS_JS,
-          '"endcall-button-release"===e&&this.hardwareButtons.publish("home",{kill:!0})',
-          '"endcall-button-release"===e&&this.hardwareButtons.publish("home",{kill:!' + is_feature_on("app-switcher") + '})'),
     # above the apps, so they can't take focus while it's up
     insert_before("js/hierarchy_manager.js", "      'AppWindowManager'\n", "      'FlipfullTasks',\n"),
 ]

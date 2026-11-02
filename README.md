@@ -19,77 +19,85 @@ From the repo:
 <!-- FEATURES:START -->
 ## Features
 
-### Ads and Privacy
+### Privacy and Updates
 
 | Feature | About |
 |---|---|
 | **Block system updates** | A system update removes root and Flipfull. This keeps the system updater off, blocks TCL's and KaiOS's update servers and stops the phone's update checks. |
-| **Block ads** | Apps that ask KaiAds for an ad get none. The ad servers are blocked and the ads SDK is replaced with a stub. |
 | **Block KaiStore auto-updates** | Apps stop updating on their own. You can still update them in KaiStore. |
-
-### Gecko Preferences
-
-| Feature | About |
-|---|---|
+| **Block ads** | Apps that ask KaiAds for an ad get none. The ad servers are blocked and the ads SDK is replaced with a stub. |
 | **Block usage reports** | KaiOS's event logger, api-daemon app usage reports, Mozilla's telemetry, and the servers KaiOS and TCL send reports to are blocked. |
 | **Tracker blocking** | The browser and apps block known trackers, with Mozilla's lists that are already on the phone. |
-| **Speech recognition for websites** | Websites that use the Web Speech API get their speech recognized on the phone, by KaiVA's speech service, with a model downloaded in KaiVA. I don't know if this will ever be used. |
-| **Smoother apps** | The JavaScript memory manager is tuned for 1.6 GB of RAM instead of 256 MB |
-| **Website crash fix** | Prevents websites that send both Cross-Origin-Opener-Policy and Cross-Origin-Embedder-Policy from crashing |
-| **User Agent Override** | Makes websites think you are on desktop |
-| **WebAssembly in apps** | The Firefox 123 update blocked WebAssembly in apps by default. This adds 'wasm-unsafe-eval' to the CSP so WebAssembly works again. (gecko-b2g issue #66) |
 
 ### Home Screen
 
 | Feature | About |
 |---|---|
-| **Home screen shortcuts** | Settings > Display > Home Screen Shortcuts picks an app for each arrow key, and for holding 0 or 2-9 in the dialer. |
-| **No side menu** | Removes side menu on the home screen, and the clock and carrier name are centered. |
+| **Home Screen Shortcuts** | Settings > Personalization > Home Screen Settings > Shortcuts picks an app for each arrow key, and an app or Voicemail for holding 0-9 in the dialer. Voicemail starts on 1. |
+| **Side Menu Options** | Settings > Personalization > Home Screen Settings > Side Menu: turn the side menu off, hide it until Left opens it, and pick up to 8 apps for it. Places 1-4 start as the stock side menu's apps. Off or hidden, the clock and carrier name are centered. |
 | **No App Folders** | Games and utilities are listed with the other apps instead of in two folders. Turn it off to get the folders back. |
 | **Seconds on the clock** | The home screen clock shows the seconds next to the minutes. |
 | **Carrier name: Metro** | The home screen calls a Metro by T-Mobile SIM just Metro (and Metro Wi-Fi Calling with Wi-Fi Calling). |
 | **Animated wallpapers** | MP4, GIF and WebP wallpapers, set like any other. They play only while you can see them. MP4 and WebP support is unfinished. |
 
-### Outer Screen
+### Phone Closed
 
 | Feature | About |
 |---|---|
 | **Next alarm on the outer screen** | The outer screen shows your next alarm under the clock. |
 | **Album cover on the outer screen** | While Music plays, the outer screen shows the song's album cover behind the clock, with a bar for how far into the song you are. It needs Music without ads, which is turned on with it. |
+| **Outer screen timeout** | Settings > Display > Sub-screen timeout: how long the outer screen stays lit, from 10 seconds (default) up to 10 minutes, or never if you really want that for some reason. Longer times use more battery. |
 | **Skip tracks with the phone closed** | While music plays and the phone is closed, hold Volume up for the next track or Volume down for the previous one. If the outer screen is dark, the first press only lights it, unless Volume keys with the screen off is on. |
 | **Volume keys with the screen off** | While music plays, Volume up and down change the volume at the first press even when the screen is off, open or closed, instead of only lighting the screen. |
 | **Pause with the quick access button** | With the phone closed and the outer screen lit, one press of the quick access button on the outside pauses the music, and another plays it again. With the outer screen dark, a press only lights it. Two presses (camera) and three (quick call) work as before. |
-| **Outer screen timeout** | Settings > Display > Sub-screen timeout: how long the outer screen stays lit, from 10 seconds (default) up to 10 minutes, or never if you really want that for some reason. Longer times use more battery. |
 
 ### Calls and Voice
 
 | Feature | About |
 |---|---|
-| **Call recording** | Settings > Call Settings > Call Recording: record both sides of a call when you press Left, or every call. Recordings are .m4a files in the callrecording folder. There is about a half second of delay when turning on call recording. Recording laws differ, some places require everyone on the call to agree. |
 | **KaiVA voice assistant** | A voice assistant that works without the internet once you download a speech model in KaiVA's Settings. Until then it uses KaiOS's online speech recognition, like the stock assistant. Adds many more settings for you to explore in the KaiVA app too. |
 | **Dictation in text fields** | Hold OK in any text field except passwords to dictate with KaiVA. |
+| **Call recording** | Settings > Call Settings > Call Recording: record both sides of a call when you press Left, or every call. Recordings are .m4a files in the callrecording folder. There is about a half second of delay when turning on call recording. Recording laws differ, some places require everyone on the call to agree. |
 
 ### Apps
 
 | Feature | About |
 |---|---|
-| **OStore app store** | Installs OStore, an app store that installs and updates apps through Flipfull's services. Needs the internet when you turn it on. |
+| **OStore app store** | Installs OStore, a custom app store. Needs the internet when you turn it on. |
+| **GBA Emulator** | Installs a remote service and an app that will run mGBA's libretro core |
+| **Messages redesign** | A denser Messages app: about six conversations or a screenful of texts at a time instead of three, a dark theme, and settings for text size, accent color, spacing, message style and times. They are at the top of Messages > Options > Settings. |
+| **Camera rework** | The stock Camera reworked: a viewfinder that stays at 24 frames a second in the dark instead of dropping to 10, photos in under a second, Night photos merged from six shots, color looks, exposure, white balance, 16:9 and square photos, and 1080p or 720p video at 30 or 24 fps that can be paused. Options > Keys lists every key. |
 | **Music without ads** | No banner or radio ads in the Music app. |
 | **Video without ads** | Video keeps its YouTube picks, without the ad at start, the ad above the video list or the ads code. |
 | **Video without YouTube** | Video no longer suggests YouTube searches. It needs Video without ads, which is turned on with it. |
-| **Messages redesign** | A denser Messages app: about six conversations or a screenful of texts at a time instead of three, a dark theme, and settings for text size, accent color, spacing, message style and times. They are at the top of Messages > Options > Settings. |
-| **Camera rework** | The stock Camera reworked: a viewfinder that stays at 24 frames a second in the dark instead of dropping to 10, photos in under a second, Night photos merged from six shots, colour looks, exposure, white balance, 16:9 and square photos, and 1080p or 720p video at 30 or 24 fps that can be paused. Options > Keys lists every key. |
+
+### Start-up and Power-off
+
+| Feature | About |
+|---|---|
+| **Your start-up animation** | The start-up animation in the boot folder of the phone's storage (bootanimation.zip, and bootanimation_external.zip for the outer screen) instead of the carrier's. |
+| **Your start-up logo** | The logo shown after the start-up animation while the phone loads (initlogo.png) in the boot folder of the phone's storage, instead of the carrier's. |
+| **Your start-up sound** | The start-up sound in the boot folder of the phone's storage (poweron-sound.wav) instead of the carrier's. A short silent file makes the phone start silently. |
+| **Your power-off animation** | The power-off animation in the boot folder of the phone's storage (carrier_power_off.mp4) instead of the carrier's. The MP4 also controlls the power off sound. |
+
+### Web and Performance
+
+| Feature | About |
+|---|---|
+| **Smoother apps** | The JavaScript memory manager is tuned for 1.6 GB of RAM instead of 256 MB |
+| **Website crash fix** | Prevents websites that send both Cross-Origin-Opener-Policy and Cross-Origin-Embedder-Policy from crashing |
+| **WebAssembly in apps** | The Firefox 123 update blocked WebAssembly in apps by default. This adds 'wasm-unsafe-eval' to the CSP so WebAssembly works again. (gecko-b2g issue #66) |
+| **WebGL 2** | Websites and apps can use WebGL 2. Gecko's GPU blocklist turns it off on this phone, even though the GPU supports OpenGL ES 3.2. |
+| **Shared memory for apps and games** | Apps and websites get SharedArrayBuffer, Atomics and WebAssembly threads, and full-precision timers instead of 1 millisecond ones. It removes a Spectre protection for every page, the browser too, this is more for testing. |
 
 ### System
 
 | Feature | About |
 |---|---|
-| **Google accounts** | Google blocks KaiOS's own sign-in, so adding a Google account needs your own sign-in client: see Options > Google sign-in client. Accounts added with it stop syncing if you turn this off. |
-| **Your start-up animation** | The start-up animation in the boot folder of the phone's storage (bootanimation.zip, and bootanimation_external.zip for the outer screen) instead of the carrier's. |
-| **Your power-off animation** | The power-off animation in the boot folder of the phone's storage (carrier_power_off.mp4) instead of the carrier's. The MP4 also controlls the power off sound. |
-| **Your start-up sound** | The start-up sound in the boot folder of the phone's storage (poweron-sound.wav) instead of the carrier's. A short silent file makes the phone start silently. |
-| **Your start-up logo** | The logo shown after the start-up animation while the phone loads (initlogo.png) in the boot folder of the phone's storage, instead of the carrier's. |
-| **Network type in SIM details** | Settings shows the preferred network type (5G, LTE, 3G) in the SIM's details, which carrier builds hide. |
+| **App switcher** | With the phone open, press the Favorite contacts button to switch apps, or hold it to go home. It no longer opens favorites. Settings > Personalization > Home Screen Settings > App switcher button can move it to the quick access button on the back. |
 | **No Battery Full notification** | The phone no longer posts a Battery Full notification when it finishes charging. The charging sound and the low battery warning stay. |
+| **Google accounts** | Google blocks KaiOS's own sign-in, so adding a Google account needs your own sign-in client: see Options > Google sign-in client. Accounts added with it stop syncing if you turn this off. |
+| **Network type in SIM details** | Settings shows the preferred network type (5G, LTE, 3G) in the SIM's details, which carrier builds hide. |
+| **Disable Wi-Fi logging** | cnss_diag is a Wi-Fi log sink with no use on a normal phone. This stops it at boot. |
 
 <!-- FEATURES:END -->

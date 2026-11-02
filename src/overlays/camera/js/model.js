@@ -175,14 +175,14 @@
         default: 'auto',
       },
       effect: {
-        label: 'Colour',
+        label: 'Color',
         options: LOOKS.map(({ value, label }) => ({ value, label })),
         default: 'none',
       },
       metering: {
         label: 'Metering',
         options: [{ value: 'average', label: 'Whole picture' }]
-            .concat(caps.maxMeteringAreas > 0 ? [{ value: 'spot', label: 'Centre spot' }] : []),
+            .concat(caps.maxMeteringAreas > 0 ? [{ value: 'spot', label: 'Center spot' }] : []),
         default: 'average',
       },
       timer: {

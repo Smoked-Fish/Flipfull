@@ -6,9 +6,11 @@ define(function(require) {
     return SettingsPanel({
       onInit: function onInit(panel) {
         panel.querySelector('#home-screen-shortcuts').classList.toggle('hidden',
-          !(window.FlipfullFeatures && FlipfullFeatures['home-shortcuts']));
+            !(window.FlipfullFeatures && FlipfullFeatures['home-shortcuts']));
         panel.querySelector('#home-screen-side-menu').classList.toggle('hidden',
-          !(window.FlipfullFeatures && FlipfullFeatures['side-menu']));
+            !(window.FlipfullFeatures && FlipfullFeatures['side-menu']));
+        panel.querySelector('#home-screen-switcher-key').classList.toggle('hidden',
+            !(window.FlipfullFeatures && FlipfullFeatures['app-switcher']));
       }
     });
   };

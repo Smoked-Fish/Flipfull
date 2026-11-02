@@ -205,7 +205,7 @@ def cut(text, start, what, then=""):
 
 
 def remove_if_block(text, start, what):
-    """Remove the whole if statment block"""
+    """Remove the whole if statement block"""
     if text.count(start) != 1:
         raise PatchError(f"{what}: found {text.count(start)} times, expected 1: {shown(start)}")
     i = text.index(start)

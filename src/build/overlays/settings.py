@@ -21,7 +21,7 @@ HOME_SCREEN_ITEM = ('            <li role="menuitem">\n'
 HOME_SCREEN = [
     insert_after("index.html", DISPLAY_ITEM, HOME_SCREEN_ITEM),
     insert_after("js/panels/root/panel.js", "        RootManager.init();\n",
-                 hide_unless("#menuItem-homeScreen", "home-shortcuts", "side-menu", parent=True)),
+                 hide_unless("#menuItem-homeScreen", "home-shortcuts", "side-menu", "app-switcher", parent=True)),
 ]
 
 ASSISTED_DIALING_ITEM = "        <li role=\"menuitem\" id='menuItem-assisted-dialing' class=\"hidden\">\n"

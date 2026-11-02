@@ -869,7 +869,7 @@
         ['4  6', 'White balance'],
         ['3', 'Timer'],
         ['7', 'Grid'],
-        ['*', 'Colour (photos)'],
+        ['*', 'Color (photos)'],
         ['#', 'Viewfinder speed (Video: frame rate)'],
       ]],
       ['Recording', [
