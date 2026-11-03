@@ -16,6 +16,7 @@ removes Flipfull.
                                   your own Google sign-in client
   flipfull status                 a summary to read (flip4.py status)
   flipfull log [LINES]            the boot log
+  flipfull resume                 run at boot again after crash-loop protection turned the boot hook off
   flipfull restart [APP...]       restart the UI (b2g and api-daemon, applying what waits for it),
                                   or only those apps
   flipfull reboot
@@ -618,6 +619,11 @@ cmd_status() {
     f=$(hook_file) && echo "boot hook: $f" ||
         echo "boot hook: MISSING - nothing here runs at boot (src/boot-hook/README.md)"
     [ -e "$USERINIT/uninstall" ] && echo "uninstall pending: the next boot removes everything"
+    if [ -e "$USERINIT/disabled-by-crashloop" ] && [ -e "$USERINIT/disable" ]; then
+        echo "OFF: crash-loop protection, $(cat "$USERINIT/disabled-by-crashloop") (flip4.py resume)"
+    elif [ -e "$USERINIT/disable" ]; then
+        echo "OFF: $USERINIT/disable exists, nothing runs at boot (flip4.py resume)"
+    fi
     echo
     id=$(google_client_id)
     echo "Google sign-in client: $([ "$id" = - ] && echo none || echo "$id")"
@@ -659,6 +665,10 @@ case $cmd in
     google-client) cmd_google_client "$@" ;;
     status) cmd_status ;;
     log) tail -n "${1:-200}" "$USERINIT/run.log" ;;
+    resume)
+        [ -e "$USERINIT/disable" ] || echo "the boot hook wasn't off"
+        rm -f "$USERINIT/disable" "$USERINIT/disabled-by-crashloop" "$USERINIT/bootcount"
+        echo "the boot hook runs from the next boot" ;;
     restart) cmd_restart "$@" ;;
     reboot)
         echo "rebooting"

@@ -8,6 +8,7 @@
     python flip4.py features             the features, and which are on
     python flip4.py on ID... [--restart] turn features on (off: the same)
     python flip4.py status               what is installed, mounted and running
+    python flip4.py resume [--reboot]    run at boot again after crash-loop protection turned it off
     python flip4.py restart [app ...]    restart the UI with what waits for it, or just those apps
     python flip4.py mon NAME...          memory and CPU of processes, every second
     python flip4.py removable [...]      pick which preloaded apps can be uninstalled
@@ -278,6 +279,15 @@ def cmd_status(args):
     flipfull("status", live=True)
 
 
+def cmd_resume(args):
+    require_flipfull()
+    if flipfull("resume", live=True) != 0:
+        sys.exit("the phone's userinit is older than this command - run `flip4.py install` first")
+    if args.reboot:
+        adb("reboot")
+        print("rebooting")
+
+
 def cmd_restart(args):
     require_flipfull()
     sys.exit(flipfull("restart", *(f"'{a}'" for a in args.apps), live=True))
@@ -536,6 +546,8 @@ def main():
         s.add_argument("ids", nargs="+", metavar="ID")
         s.add_argument("--restart", action="store_true", help="restart the phone's UI if a change waits for it")
     sub.add_parser("status", help="show what is installed and running")
+    rsm = sub.add_parser("resume", help="run at boot again after crash-loop protection turned the boot hook off")
+    rsm.add_argument("--reboot", action="store_true")
     rt = sub.add_parser("restart", help="restart the phone's UI (b2g and api-daemon) with what waits for "
                         "it, in about 15 seconds, or only the named apps (launcher, settings, ...)")
     rt.add_argument("apps", nargs="*", metavar="APP")
@@ -578,7 +590,7 @@ def main():
         ADB = find_adb()
     {"build": cmd_build, "install": cmd_install, "release": cmd_release, "features": cmd_features,
      "on": cmd_set, "off": cmd_set, "install-app": cmd_install_app, "status": cmd_status,
-     "restart": cmd_restart, "mon": cmd_mon, "removable": cmd_removable,
+     "resume": cmd_resume, "restart": cmd_restart, "mon": cmd_mon, "removable": cmd_removable,
      "google-client": cmd_google_client, "backup": cmd_backup, "restore": cmd_restore,
      "uninstall": cmd_uninstall}[args.cmd](args)
 

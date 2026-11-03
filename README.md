@@ -16,6 +16,21 @@ From the repo:
     python flip4.py install
     python flip4.py release
 
+## If the phone doesn't start
+
+If two boots in a row don't finish (the phone reboots or hangs before it has
+started), the next boot turns Flipfull off and `python flip4.py status` says why. 
+Turn Flipfull back on with
+
+    python flip4.py resume --reboot
+
+or `adb shell rm /data/local/userinit/disable /data/local/userinit/disabled-by-crashloop`.
+`adb shell touch /data/local/userinit/disable` turns it off by hand.
+
+Without a computer: hold * and # while the phone is bootting and keep holding until the 
+start-up animation shows. This is the manual keycombo to disable Flipfull, the next boot is normal again.
+
+
 <!-- FEATURES:START -->
 ## Features
 
