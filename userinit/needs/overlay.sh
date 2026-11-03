@@ -149,9 +149,10 @@ overlay_mount() {
             *) log "overlay $_name: $HOW - not mounted" ;;
         esac
     done
+    _now="$_now| $(tr '\n' ' ' < "$STATE/features" 2>/dev/null)"
     if [ "$_now" != "$(cat "$STATE/overlays-mounted" 2>/dev/null)" ]; then
         rm -rf "$HTTP_CACHE"
-        log "overlays changed since the last boot - cleared b2g's HTTP cache ($HTTP_CACHE)"
+        log "overlays or features changed since the last boot - cleared b2g's HTTP cache ($HTTP_CACHE)"
         echo "$_now" > "$STATE/overlays-mounted"
     fi
     echo "$_todo" | while read -r _name _src _dst; do
