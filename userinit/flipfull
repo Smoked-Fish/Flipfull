@@ -167,6 +167,14 @@ ui_restart() {
     svc_wait b2g stopped
     api_daemon_restart ui_apply "$now"
     start b2g
+    svc_wait b2g running
+    # init ignores a start while b2g is still stopping, which leaves the screen black
+    if [ "$(getprop init.svc.b2g)" != running ]; then
+        echo "b2g didn't start, starting it again"
+        svc_wait b2g stopped
+        start b2g
+        svc_wait b2g running
+    fi
     needs_apply boot-completed "$now"
     rm -f "$STATE/avail"
     cached_availability

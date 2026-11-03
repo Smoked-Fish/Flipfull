@@ -286,8 +286,8 @@
         evt.stopImmediatePropagation();
     }
 
-    SettingsObserver.observe(KEY_SETTING, 'qdcall', value => {
-        switchKey = value || 'qdcall';
+    SettingsObserver.observe(KEY_SETTING, 'favoritecontacts', value => {
+        switchKey = value || 'favoritecontacts';
     });
     window.addEventListener('keydown', onSwitchKey, true);
     window.addEventListener('keyup', onSwitchKey, true);
