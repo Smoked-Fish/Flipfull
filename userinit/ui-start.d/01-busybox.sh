@@ -10,6 +10,11 @@ if [ ! -f "$BB" ]; then
     log "binary $BB not found - skipping"
     exit 0
 fi
+# the links outlive the boot: only redo them when busybox is newer
+STAMP="$BBX/.installed"
+if [ -f "$STAMP" ] && [ ! "$BB" -nt "$STAMP" ]; then
+    exit 0
+fi
 chmod 0755 "$BB" 2>/dev/null
 
 if ! "$BB" true 2>/dev/null; then
@@ -33,5 +38,6 @@ else
     done
 fi
 
+touch "$STAMP"
 log "done - tools in $BBX (e.g. $BBX/timeout)"
 exit 0

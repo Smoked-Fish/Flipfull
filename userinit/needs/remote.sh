@@ -14,7 +14,10 @@ remote_status() {
 
 remote_apply() {
     case $1 in
-        post-fs-data|ui)
+        post-fs-data)
+            remote_install missing
+            remote_remove ;;
+        ui)
             remote_install
             remote_remove ;;
         setup)
@@ -38,12 +41,15 @@ remote_register() {
 }
 
 remote_install() {
-    mkdir -p "$REMOTE" && chmod 0755 "$REMOTE" || return 1
+    if [ "$1" != missing ] || [ ! -d "$REMOTE" ]; then
+        mkdir -p "$REMOTE" && chmod 0755 "$REMOTE" || return 1
+    fi
     for _src in "$USERINIT"/remote/*/daemon; do
         [ -f "$_src" ] || continue
         _name=${_src%/daemon}
         _name=${_name##*/}
         _dst=$REMOTE/$_name
+        [ "$1" = missing ] && [ -f "$_dst/daemon" ] && continue
         cmp -s "$_src" "$_dst/daemon" && continue
         if mkdir -p "$_dst" && cp "$_src" "$_dst/daemon.tmp" && chmod 0755 "$_dst/daemon.tmp" &&
             mv -f "$_dst/daemon.tmp" "$_dst/daemon"; then
@@ -55,10 +61,11 @@ remote_install() {
         chcon -R u:object_r:api_data_file:s0 "$_dst" 2>/dev/null
     done
     _dir=$(http_root)/flipfull
-    mkdir -p "$_dir" || return 1
+    [ -d "$_dir" ] || mkdir -p "$_dir" || return 1
     for _js in "$USERINIT"/remote/*.js; do
         [ -f "$_js" ] || continue
         _to=$_dir/${_js##*/}
+        [ "$1" = missing ] && [ -f "$_to" ] && continue
         cmp -s "$_js" "$_to" && continue
         cp "$_js" "$_to.tmp" && chmod 0644 "$_to.tmp" && mv -f "$_to.tmp" "$_to" ||
             log "error: couldn't copy ${_js##*/} to $_dir"

@@ -10,7 +10,7 @@ hosts_status() {
 }
 
 hosts_apply() {
-    case $1 in post-fs-data|ui|set) ;; *) return 0 ;; esac
+    case $1 in ui-start|ui|set) ;; *) return 0 ;; esac
     _lists=$(wanted hosts "$2")
     _ours=0
     same_file "$STATE/hosts" "$HOSTS_AT" && _ours=1

@@ -519,6 +519,9 @@ cmd_setup() {
 
     publish || echo "error: couldn't write features.js in $(http_root)"
 
+    # installed files keep their own mtimes, so the boot can't tell they're new
+    touch "$STATE/replan"
+
     now=$(plan)
     needs_apply setup "$now" "$(cat "$STATE/changed" 2>/dev/null)"
     reconcile_store "$now"

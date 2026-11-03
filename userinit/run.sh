@@ -14,6 +14,9 @@ CRASHLOOP_AT=2
 SAFE_MODE=/dev/.userinit-safe-mode
 SAFE_MODE_KEYS="522 523"
 
+GATE="b2g api-daemon"
+GATE_TIMEOUT=6
+
 STAGE="$1"
 
 log() { echo "$*" >> "$LOG"; }
@@ -145,27 +148,55 @@ else
     log "-- 'timeout' not found, scripts run with no time limit"
 fi
 
-for f in "$DIR"/*.sh; do
-    [ -e "$f" ] || continue
-    _t0=$(uptime_s)
-    log "-- $(date +%T) ($_t0) running $f"
+run_dir() {
+    for f in "$1"/*.sh; do
+        [ -e "$f" ] || continue
+        _t0=$(uptime_s)
+        log "-- $(date +%T) ($_t0) running $f"
 
-    if [ "$HAVE_TIMEOUT" = 1 ]; then
-        timeout "$SCRIPT_TIMEOUT" sh "$f" < /dev/null >> "$LOG" 2>&1
-    else
-        sh "$f" < /dev/null >> "$LOG" 2>&1
-    fi
-    RC=$?
+        if [ "$HAVE_TIMEOUT" = 1 ]; then
+            timeout "$SCRIPT_TIMEOUT" sh "$f" < /dev/null >> "$LOG" 2>&1
+        else
+            sh "$f" < /dev/null >> "$LOG" 2>&1
+        fi
+        RC=$?
 
-    if [ "$HAVE_TIMEOUT" = 1 ] && [ "$RC" -eq 124 ]; then
-        log "-- $f TIMED OUT after ${SCRIPT_TIMEOUT}s (killed)"
-    else
-        log "-- $f exited $RC"
-    fi
+        if [ "$HAVE_TIMEOUT" = 1 ] && [ "$RC" -eq 124 ]; then
+            log "-- $f TIMED OUT after ${SCRIPT_TIMEOUT}s (killed)"
+        else
+            log "-- $f exited $RC"
+        fi
 
-    log_duration "$f" "$_t0"
-done
+        log_duration "$f" "$_t0"
+    done
+}
+
+gate_open() { for _s in $GATE; do start "$_s"; done; }
+
+WATCHDOG=""
+if [ "$STAGE" = post-fs-data ] && [ -z "$(getprop init.svc.b2g)" ]; then
+    for _s in $GATE; do stop "$_s"; done
+    ( sleep "$GATE_TIMEOUT"
+      log "-- $(date +%T) ($(uptime_s)) gate still closed after ${GATE_TIMEOUT}s: starting $GATE"
+      gate_open ) &
+    WATCHDOG=$!
+    log "-- holding $GATE until post-fs-data is done"
+fi
+
+run_dir "$DIR"
 
 [ "$STAGE" = boot-completed ] && count_clear
 log "-- $(date +%T) ($(uptime_s)) stage=$STAGE done"
+
+if [ -n "$WATCHDOG" ]; then
+    kill "$WATCHDOG" 2>/dev/null
+    gate_open
+    log "-- $(date +%T) ($(uptime_s)) gate open: started $GATE"
+fi
+
+if [ "$STAGE" = post-fs-data ] && [ -d "$BASE/ui-start.d" ]; then
+    log "==== $(date) : stage=ui-start ===="
+    run_dir "$BASE/ui-start.d"
+    log "-- $(date +%T) ($(uptime_s)) stage=ui-start done"
+fi
 exit 0
