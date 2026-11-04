@@ -94,6 +94,8 @@ start-up animation shows. This is the manual keycombo to disable Flipfull, the n
 | **Your start-up logo** | The logo shown after the start-up animation while the phone loads (initlogo.png) in the boot folder of the phone's storage, instead of the carrier's. |
 | **Your start-up sound** | The start-up sound in the boot folder of the phone's storage (poweron-sound.wav) instead of the carrier's. A short silent file makes the phone start silently. |
 | **Your power-off animation** | The power-off animation in the boot folder of the phone's storage (carrier_power_off.mp4) instead of the carrier's. The MP4 also controlls the power off sound. |
+| **Faster start-up** | The phone is ready about 15 seconds sooner after you turn it on. At start-up the phone waits three times 5 seconds for VoLTE, which can't be ready until the phone is. With this it checks again 5 seconds later instead of waiting. |
+
 
 ### Web and Performance
 
