@@ -3,7 +3,7 @@
 Mods for the TCL Flip 4 5G (T440W, KaiOS 4.0). Each one is turned on and off
 in the Flipfull app on the phone. The list is in `userinit/features.ini`.
 
-Needs a rooted phone (`adb root` works) with the boot hook from `src/boot-hook`.
+Needs a rooted phone done through the ota root patch [found here](https://smoked-fish.github.io/flip4-ota-patches/)
 
 ## Install
 
