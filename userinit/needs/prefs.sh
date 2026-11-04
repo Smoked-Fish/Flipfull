@@ -1,4 +1,4 @@
-﻿PREFS_BLOCK='/^\/\/ >>> userinit/,/\/\/ <<< userinit$/'
+PREFS_BLOCK='/^\/\/ >>> userinit/,/\/\/ <<< userinit$/'
 
 prefs_status() {
     if [ -f "$USERINIT/etc/prefs.d/$1.js" ]; then

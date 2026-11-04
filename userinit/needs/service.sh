@@ -1,4 +1,4 @@
-﻿SERVICES_ALWAYS=toolbox
+SERVICES_ALWAYS=toolbox
 
 service_status() {
     if [ ! -f "$USERINIT/services/$1/service.sh" ]; then

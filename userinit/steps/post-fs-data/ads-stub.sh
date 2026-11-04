@@ -1,4 +1,4 @@
-﻿src=$USERINIT/etc/ads-sdk-stub.js
+src=$USERINIT/etc/ads-sdk-stub.js
 served=$(http_root)/sdk/ads/ads-sdk.min.js
 original=/system/kaios/http_root/sdk/ads/ads-sdk.min.js
 

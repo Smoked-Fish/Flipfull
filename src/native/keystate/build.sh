@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env bash
+#!/usr/bin/env bash
 set -euo pipefail
 
 # needs the NDK that src/remote/callrec/callcap/setup.sh fetches

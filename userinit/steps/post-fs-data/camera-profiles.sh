@@ -1,4 +1,4 @@
-﻿block=$USERINIT/etc/camera/profiles.xml
+block=$USERINIT/etc/camera/profiles.xml
 open='<CamcorderProfiles cameraId="0">'
 
 for dst in /vendor/etc/media_profiles*.xml; do

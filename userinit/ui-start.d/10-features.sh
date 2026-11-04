@@ -1,4 +1,4 @@
-﻿#!/system/bin/sh
+#!/system/bin/sh
 
 . /data/local/userinit/lib/common.sh
 LOG_TAG=features

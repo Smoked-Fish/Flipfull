@@ -1,4 +1,4 @@
-﻿HTTP_CACHE=/data/cache/cache2
+HTTP_CACHE=/data/cache/cache2
 
 overlays_read() {
     PRELOADED=$("$SQLITE" -init /dev/null "$APPS_DB" 'SELECT name FROM apps WHERE preloaded = 1' 2>/dev/null)

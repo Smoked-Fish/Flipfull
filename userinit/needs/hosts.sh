@@ -1,4 +1,4 @@
-﻿HOSTS_AT=/system/etc/hosts
+HOSTS_AT=/system/etc/hosts
 
 hosts_status() {
     if [ -f "$USERINIT/etc/hosts.d/$1.hosts" ]; then

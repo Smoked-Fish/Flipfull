@@ -1,4 +1,4 @@
-﻿STEPS=$USERINIT/steps
+STEPS=$USERINIT/steps
 STEPS_DID=$STATE/steps-did
 
 step_status() {

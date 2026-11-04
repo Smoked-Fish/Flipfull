@@ -1,4 +1,4 @@
-﻿AUTOCONFIG_AT=/system/b2g/removed-files
+AUTOCONFIG_AT=/system/b2g/removed-files
 AUTOCONFIG_PREFS_AT=/system/b2g/defaults/pref/proc-prefs.js
 
 autoconfig_status() {

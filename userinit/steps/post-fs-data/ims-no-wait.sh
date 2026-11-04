@@ -1,4 +1,4 @@
-﻿# b2g asks for imsd's imsservicemanager before b2g_telephony_binder has been registered.
+# b2g asks for imsd's imsservicemanager before b2g_telephony_binder has been registered.
 # It asks 3 times for 5 seconds, so we wait for 15 seconds for no reason.
 
 omni=/system/b2g/omni.ja

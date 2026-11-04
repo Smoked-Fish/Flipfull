@@ -1,4 +1,4 @@
-﻿f=$API_DAEMON/app-update-config.json
+f=$API_DAEMON/app-update-config.json
 if [ ! -f "$f" ]; then
     echo '{"enabled":true,"conn_type":"Any","delay":86400,"last_check":0}' > "$f"
     chmod 0600 "$f"

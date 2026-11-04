@@ -1,4 +1,4 @@
-﻿APPS_ALWAYS=flipfull
+APPS_ALWAYS=flipfull
 
 app_url() {
     m=$USERINIT/apps/$1/manifest.webmanifest

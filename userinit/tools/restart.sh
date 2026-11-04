@@ -1,4 +1,4 @@
-﻿#!/system/bin/sh
+#!/system/bin/sh
 
 [ $# -gt 0 ] || { echo "usage: restart.sh APP..."; exit 2; }
 

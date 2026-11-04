@@ -1,4 +1,4 @@
-﻿REMOTE=$API_DAEMON/remote
+REMOTE=$API_DAEMON/remote
 REMOTE_REGISTRY=$API_DAEMON/remote_services.toml
 
 remote_status() {

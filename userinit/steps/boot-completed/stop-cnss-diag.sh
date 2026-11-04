@@ -1,1 +1,1 @@
-﻿stop_service vendor.cnss_diag
+stop_service vendor.cnss_diag
