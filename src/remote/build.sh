@@ -3,6 +3,7 @@ set -euo pipefail
 
 HERE="$(cd "$(dirname "$0")" && pwd)"
 ROOT="$HERE/../.."
+REPO="$(cd "$ROOT" && pwd)"
 UI="$ROOT/userinit"
 CACHE="${CACHE:-$HOME/.cache/flipfull}"
 API_DAEMON="${API_DAEMON:-$CACHE/api-daemon}"
@@ -76,7 +77,7 @@ bash "$HERE/retro/core/build.sh" "$RETRO_CORE"
 build() { # target packages...
     t=$1
     shift
-    (cd "$HERE" && LIBRARY_PATH="$STUB/host" RUSTFLAGS="-L $STUB/$t --remap-path-prefix=$HOME=~" \
+    (cd "$HERE" && LIBRARY_PATH="$STUB/host" RUSTFLAGS="-L $STUB/$t --remap-path-prefix=$HOME=~ --remap-path-prefix=$REPO=." \
         SPEECH_ENGINE="$ENGINE" RETRO_CORE="$RETRO_CORE" cargo zigbuild --offline --release --target "$t" "$@")
 }
 
