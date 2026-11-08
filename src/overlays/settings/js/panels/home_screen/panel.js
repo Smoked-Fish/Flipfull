@@ -11,6 +11,9 @@ define(function(require) {
             !(window.FlipfullFeatures && FlipfullFeatures['side-menu']));
         panel.querySelector('#home-screen-switcher-key').classList.toggle('hidden',
             !(window.FlipfullFeatures && FlipfullFeatures['app-switcher']));
+        panel.querySelector('#home-screen-switcher-transition-speed').classList.toggle('hidden',
+            !(window.FlipfullFeatures && FlipfullFeatures['app-switcher']));
+
       }
     });
   };
