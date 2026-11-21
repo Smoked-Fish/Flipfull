@@ -6,16 +6,19 @@
     if (!(window.FlipfullFeatures && window.FlipfullFeatures['app-switcher'])) {
         return;
     }
-
     const HIDDEN_ROLES = ['system', 'homescreen', 'input', 'theme', 'addon'];
-
     // the 8110's cards_view.css, cut down
+    let TRANSFORM_SPEED = '0'
+    SettingsObserver.observe("flipfull.tasks.speed", '0', value => {
+        TRANSFORM_SPEED = value || '0';
+        document.documentElement.style.setProperty('--transform-speed', `${value}s`)
+    });
     const CSS = `
 #flipfull-tasks { position: absolute; inset: 0; z-index: 65535; visibility: hidden; overflow: hidden;
   background: rgba(0, 0, 0, 0.45); outline: none; color: #fff; -moz-user-select: none; }
 #flipfull-tasks.active { visibility: visible; }
 #screen.flipfull-tasks #windows { filter: blur(10px); }
-#flipfull-tasks .card { position: absolute; top: 30%; left: 26%; width: 48%; height: 45%; }
+#flipfull-tasks .card { position: absolute; top: 30%; left: 26%; width: 48%; height: 45%; transition: transform var(--transform-speed, 0s) ease-in-out; }
 #flipfull-tasks .card.closing { transform: translateY(-100vh) !important; opacity: 0;
   transition: transform 200ms ease-out, opacity 200ms ease-out; }
 #flipfull-tasks .shot { width: 100%; height: 100%; background: #fff center / 4rem no-repeat; }
@@ -28,7 +31,7 @@
   text-align: center; line-height: 3rem; font-size: 2.2rem; }
 #flipfull-tasks .icon { position: absolute; top: 1rem; left: calc(50% - 2rem); width: 4rem; height: 4rem;
   background: center / cover no-repeat; }
-#flipfull-tasks .card:not(.current) .icon { visibility: hidden; }
+ /* #flipfull-tasks .card:not(.current) .icon { visibility: hidden; } */
 #flipfull-tasks footer { position: absolute; bottom: 0; left: 0; right: 0; display: flex; height: 3rem;
   line-height: 3rem; padding: 0 0.6rem; background: #1e1e26; font-size: 1.4rem; font-weight: 600; }
 #flipfull-tasks footer span { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -86,7 +89,11 @@
         cards.forEach(({ el }, i) => {
             const offset = i - position;
             el.classList.toggle('current', offset === 0);
-            el.style.visibility = Math.abs(offset) > 1 ? 'hidden' : '';
+            if (TRANSFORM_SPEED == 0) {
+                el.style.visibility = Math.abs(offset) > 1 ? 'hidden' : '';
+            } else {
+                el.style.visibility = Math.abs(offset) > 2 ? 'hidden' : '';
+            }
             el.style.transform = `translateX(${offset * 115}%)`;
         });
     }
@@ -115,7 +122,7 @@
         }
         cards.forEach(({ el }) => deck.appendChild(el));
         // start on the app before this one, like alt-tab
-        position = cards.length > 1 && cards[0].app === Service.currentApp ? 1 : 0;
+            position = cards.length > 1 && cards[0].app === Service.currentApp ? 1 : 0;
         place();
         drawShots();
         view.classList.add('active');
